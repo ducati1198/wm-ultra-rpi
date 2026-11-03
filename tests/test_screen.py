@@ -44,6 +44,13 @@ class Logic(unittest.TestCase):
         self.assertTrue(L.wifi_password_ok("12345678")); self.assertFalse(L.wifi_password_ok("short"))
         self.assertEqual(L.wifi_signal_bars(-50), 4); self.assertEqual(L.wifi_signal_bars(-90), 1)
 
+    def test_pi_address(self):
+        conf = "[printer a]\nmoonraker_host: old.local\nmoonraker_port: 7125\n"
+        self.assertEqual(L.read_moonraker_host(conf), "old.local")
+        self.assertIn("moonraker_host: 192.0.2.7\nmoonraker_port", L.replace_moonraker_host(conf, "192.0.2.7"))
+        self.assertIsNone(L.replace_moonraker_host("[x]\n", "1.2.3.4"))
+        self.assertTrue(L.valid_host("192.0.2.7")); self.assertFalse(L.valid_host("a b")); self.assertFalse(L.valid_host("x;rm"))
+
     def test_density(self):
         self.assertEqual(L.resolve_density("auto", 800), "compact")
         self.assertEqual(L.resolve_density("auto", 1024), "comfortable")

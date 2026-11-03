@@ -272,7 +272,7 @@ bash scripts/screen_board.sh --dry-run     # shows every change, changes nothing
 bash scripts/screen_board.sh               # asks for your Pi's IP address or name, then installs
 ```
 
-The script asks for the Pi's IP address (Enter = `wmpi.local`). You can also give it with `--pi <address>`, and change it later with `bash scripts/screen_board.sh --set-pi <address>`. The Pi does not have to be running during the install.
+The script asks for your Pi's IP address. You can also give it with `--pi <address>`. To change it later, tap **Pi address** (on the start screen while the Pi cannot be reached, or in the More menu), or run `bash scripts/screen_board.sh --set-pi <address>`. The Pi does not have to be running during the install.
 
 ```bash
 ```

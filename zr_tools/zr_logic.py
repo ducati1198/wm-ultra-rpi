@@ -285,3 +285,24 @@ def wifi_parse_networks(text):
 
 def wifi_password_ok(pw):
     return 8 <= len(pw) <= 63
+
+
+# ---------------------------------------------------------------------------
+# Pi address on the screen board (KlipperScreen.conf: moonraker_host)
+# ---------------------------------------------------------------------------
+import re as _re
+
+
+def valid_host(host):
+    return bool(_re.match(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,252}$", host or ""))
+
+
+def replace_moonraker_host(text, host):
+    """Return the config text with every moonraker_host line set to host (None if there is none)."""
+    new, n = _re.subn(r"(?m)^(moonraker_host\s*[:=]).*$", lambda m: "%s %s" % (m.group(1), host), text)
+    return new if n else None
+
+
+def read_moonraker_host(text):
+    m = _re.search(r"(?m)^moonraker_host\s*[:=]\s*(\S+)", text or "")
+    return m.group(1) if m else ""

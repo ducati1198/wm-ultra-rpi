@@ -4,7 +4,7 @@
 # =============================================================================
 # Run ON the screen board (Debian 11, user t13dp), from a clone of this repository:
 #   curl -fsSL https://codeload.github.com/ducati1198/wm-ultra-rpi/tar.gz/refs/heads/main | tar xz && cd wm-ultra-rpi-main
-#   bash scripts/screen_board.sh --pi wmpi.local            install (asks first)
+#   bash scripts/screen_board.sh                            install (asks for the Pi IP address)
 #
 # bash scripts/screen_board.sh --pi HOST [--screen-driver modesetting|fbdev] [--dry-run] [--yes]   install
 # bash scripts/screen_board.sh --status                      read-only: what is installed / disabled
@@ -99,15 +99,13 @@ printing_now() {   # the factory Moonraker on this board
     done; return 1
 }
 valid_host() { [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] && [ "${#1}" -le 253 ]; }
-ask_pi() {   # the Pi's IP address or name; asked unless --pi was given
+ask_pi() {   # the Pi's IP address or name; asked unless --pi was given (no default)
     if [ -z "$PI_HOST" ]; then
-        if [ "${WM_ASSUME_YES:-0}" = 1 ] || [ ! -t 0 ]; then PI_HOST="wmpi.local"; print_info "No --pi given: using $PI_HOST (change later: bash scripts/screen_board.sh --set-pi <address>)"
-        else
-            while :; do read -r -p "$(echo -e "${YELLOW}?${NC} IP address or name of your Raspberry Pi [wmpi.local]: ")" PI_HOST || PI_HOST=""; PI_HOST="${PI_HOST:-wmpi.local}"
-                valid_host "$PI_HOST" && break; print_warning "Use letters, digits, dots and dashes only."; PI_HOST=""; done
-        fi
+        if [ "${WM_ASSUME_YES:-0}" = 1 ] || [ ! -t 0 ]; then die_with_fix "no Pi address." "add --pi <the Pi's IP address>."; fi
+        while :; do read -r -p "$(echo -e "${YELLOW}?${NC} IP address of your Raspberry Pi: ")" PI_HOST || PI_HOST=""
+            valid_host "$PI_HOST" && break; print_warning "Type the Pi's IP address (digits and dots), for example 192.168.0.50."; PI_HOST=""; done
     fi
-    valid_host "$PI_HOST" || die_with_fix "'$PI_HOST' is not a valid address." "use the Pi's IP (for example 192.0.2.10) or name (wmpi.local)."
+    valid_host "$PI_HOST" || die_with_fix "'$PI_HOST' is not a valid address." "use the Pi's IP address."
 }
 apt_fix() {   # Debian 11 is archived: point apt at archive.debian.org and ignore the old dates (same fix as on the original board)
     local sl=/etc/apt/sources.list conf=/etc/apt/apt.conf.d/99no-check-valid-until
@@ -227,6 +225,7 @@ step_klipperscreen() {
         mkdir -p "$KS_DIR/panels"; cp "$REPO_DIR"/zr_tools/{zr_tools.py,zr_views.py,zr_logic.py} "$KS_DIR/panels/"
         # The stock Network panel needs NetworkManager. This board uses wpa_supplicant (WonderMaker's setup), so use a wpa_cli panel instead.
         if [ -S /run/wpa_supplicant/wlan0 ] || systemctl is-active --quiet makerbase-wlan0 2>/dev/null; then cp "$REPO_DIR/zr_tools/wifi_panel.py" "$KS_DIR/panels/network.py"; fi
+        cp "$REPO_DIR/zr_tools/pi_address_panel.py" "$KS_DIR/panels/pi_address.py"
         [ -d "$KS_DIR/.git" ] && { mkdir -p "$KS_DIR/.git/info"; grep -qs '^panels/zr_' "$KS_DIR/.git/info/exclude" || echo 'panels/zr_*.py' >> "$KS_DIR/.git/info/exclude"; }
     fi
     write_ks_conf
@@ -250,6 +249,16 @@ moonraker_port: 7125
 name: ZR Tools
 icon: extruder
 panel: zr_tools
+
+[menu __main more pi_address]
+name: Pi address
+icon: network
+panel: pi_address
+
+[menu __splashscreen pi_address]
+name: Pi address
+icon: network
+panel: pi_address
 E
     [ -f "$CFG_DIR/zr_screen.conf" ] || printf '# Written by screen_board.sh and the ZR Tools Settings page\n[screen]\nlayout = tabs\ndensity = compact\ntheme = dark\n' > "$CFG_DIR/zr_screen.conf"
 }
