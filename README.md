@@ -276,6 +276,8 @@ cd ~
 git clone https://github.com/ducati1198/wm-ultra-rpi && cd wm-ultra-rpi
 ```
 
+If you cloned it before, a `git clone` copy does **not** update by itself: run `cd wm-ultra-rpi && git pull` first (or delete the folder and clone again). With Option A, delete the old `wm-ultra-rpi-main` folder before downloading again.
+
 Then, cd wm-ultra-rpi and with either option:
 
 ```bash
