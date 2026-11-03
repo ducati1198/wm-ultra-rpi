@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.1
+
+- Raspberry Pi 400 removed from the docs and pictures: the target is a regular Raspberry Pi 4 or 5.
+
 ## 0.9.0
 
 - The `fluidd/` folder (zip, checksum, patch) is removed. The panel only comes from `wm-ultra-fluidd-acepro-panel`. If it cannot be downloaded the install goes on without the web page and says to run `--update` when online.
