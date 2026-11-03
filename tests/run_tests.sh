@@ -327,4 +327,13 @@ check "precheck reads package and service lists from screen_board.sh" "(cd $T/pc
 check "precheck writes a scrubbed report" "ls $T/pc/screen_board_precheck_*.txt >/dev/null && ! grep -q TM88888 $T/pc/screen_board_precheck_*.txt"
 check "precheck is read-only (no sudo, no service changes in its code)" "! grep -E 'systemctl (stop|start|disable|enable|restart)|apt-get (install|upgrade|remove)[^|]*[^s] ' $PC | grep -v -E '^[[:space:]]*#|-s install|Still to do|sudo systemctl' | grep -q ."
 check "precheck needs a board address" "! bash $PC"
+echo "== Mac preflight script"
+PF="$ROOT/scripts/screen_board_preflight_mac.sh"
+check "preflight syntax" "bash -n $PF"
+check "preflight needs --pi" "! bash $PF 1.2.3.4"
+WM_REPORT="$T/pf.txt" bash "$PF" --local-test --pi 127.0.0.1 > "$T/pf.out" 2>&1; PFRC=$?
+check "preflight runs all sections and gives a verdict" "grep -q 'On the screen board' $T/pf.out && grep -q 'Connection to the Pi' $T/pf.out && grep -q 'Verdict' $T/pf.out && [ -s $T/pf.txt ]"
+check "preflight says NOT READY on a machine that is not the board" "[ $PFRC = 1 ] && grep -q 'NOT READY' $T/pf.out"
+check "preflight is read-only (no write/install commands)" "! grep -E 'apt-get (install|upgrade)[^-]|rm -rf|systemctl (stop|disable|start|enable)|dpkg -i' <(sed -n '/^read -r -d/,/^RSH/p' $PF | grep -v 'apt-get -s')"
+
 echo; echo "passed: $PASS  failed: $FAIL"; [ "$FAIL" = 0 ]
