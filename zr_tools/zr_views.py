@@ -477,7 +477,8 @@ class ViewsMixin:
         for key, title, options in (
                 ("layout", "Layout", [("tabs", "Big touch + tabs"), ("grid", "Card grid")]),
                 ("density", "Size", [("auto", "Auto (%s)" % self.density), ("compact", "Compact"), ("comfortable", "Comfortable")]),
-                ("theme", "Colours of these pages", [("dark", "Dark"), ("light", "Light")])):
+                ("theme", "Colours of these pages", [("dark", "Dark"), ("light", "Light")]),
+                ("style", "Look", [("soft", "Soft"), ("flat", "Flat"), ("bold", "Bold"), ("classic", "Classic")])):
             body.pack_start(self._label(title, "zr_small"), False, False, 0)
             row, _btns = self._seg(options, self.settings[key], (lambda v, k=key: self._set_setting(k, v)))
             body.pack_start(row, False, False, 0)

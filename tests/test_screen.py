@@ -24,14 +24,23 @@ class Logic(unittest.TestCase):
         d = tempfile.mkdtemp()
         p = os.path.join(d, "x", "zr_screen.conf")
         self.assertEqual(L.load_settings(p), L.DEFAULTS)
-        L.save_settings({"layout": "grid", "density": "compact", "theme": "light"}, p)
-        self.assertEqual(L.load_settings(p), {"layout": "grid", "density": "compact", "theme": "light"})
+        L.save_settings({"layout": "grid", "density": "compact", "theme": "light", "style": "bold"}, p)
+        self.assertEqual(L.load_settings(p), {"layout": "grid", "density": "compact", "theme": "light", "style": "bold"})
         open(p, "w").write("[screen]\nlayout = nonsense\ndensity=compact\n")
         s = L.load_settings(p)
         self.assertEqual((s["layout"], s["density"], s["theme"]), ("tabs", "compact", "dark"))
         open(p, "w").write("not an ini file [[[")
         self.assertEqual(L.load_settings(p), L.DEFAULTS)
         shutil.rmtree(d)
+
+    def test_css_for_every_look(self):
+        for st in L.STYLES:
+            for th in L.THEMES:
+                css = L.build_css(th, st)
+                for cls in (".zr_card", ".zr_chip_on", ".zr_dot_on", "scrollbar slider"):
+                    self.assertIn(cls, css)
+                self.assertNotIn("%(", css)
+        self.assertIn("scrollbar", L.build_css("dark", "nonsense"))   # unknown style falls back
 
     def test_wifi_parsing(self):
         scan = "bssid / frequency / signal level / flags / ssid\naa:bb\t2412\t-50\t[WPA2-PSK-CCMP][ESS]\tHome\naa:cc\t5745\t-70\t[WPA2-PSK-CCMP]\tHome\ncc:dd\t2437\t-80\t[ESS]\tOpenCafe\nee:ff\t2437\t-40\t[ESS]\t\n"
@@ -195,6 +204,23 @@ class Smoke(unittest.TestCase):
             getattr(p, name)()
             p._refresh_view()
         p.show_tool(2)
+        p.show_tool_edit(2)
+        p._refresh_view()
+
+    def test_tool_page_and_editor(self):
+        p, screen = self.make("tabs")
+        p.show_tool(1)
+        self.assertEqual(p.view, "tool")
+        p.show_tool_edit(1)
+        self.assertEqual(p.view, "tool_edit")
+        p._pick_material(1); p._pick_color(0xE01010); p._step("temp", 5); p._step("pa", 0.002); p._toggle_rgb()
+        self.assertEqual((p.edit["mat"], p.edit["color"]), (1, 0xE01010))
+        p._save_tool()
+        sent = [c.args[0] for c in screen._ws.klippy.gcode_script.call_args_list]
+        self.assertTrue(any(x.startswith("ZR_SET_TOOL_INFO T=1 COLOR=%d MAT=1" % 0xE01010) for x in sent), sent)
+        self.assertEqual(p.view, "tool")          # saving returns to the toolhead page
+        p.show_tool_edit(1)
+        self.assertTrue(p.on_back()); self.assertEqual(p.view, "tool")
 
     def test_all_views_tabs_layout(self):
         p, _ = self.make("tabs"); self.every_view(p)

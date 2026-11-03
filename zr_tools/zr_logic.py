@@ -5,10 +5,11 @@ import configparser
 import os
 
 SETTINGS_FILE = os.path.expanduser("~/printer_data/config/zr_screen.conf")
-DEFAULTS = {"layout": "tabs", "density": "auto", "theme": "dark"}
+DEFAULTS = {"layout": "tabs", "density": "auto", "theme": "dark", "style": "soft"}
 LAYOUTS = ("tabs", "grid")          # C (big touch, tabs) and A (card grid)
 DENSITIES = ("auto", "compact", "comfortable")
 THEMES = ("dark", "light")
+STYLES = ("soft", "flat", "bold", "classic")    # the look of cards, chips and colour dots
 COMPACT_MAX_WIDTH = 900             # 800x480 (5 inch) is compact, 1024x600 (7 inch) is comfortable
 
 
@@ -21,7 +22,7 @@ def load_settings(path=None):
         sec = cp["screen"] if cp.has_section("screen") else {}
     except (configparser.Error, OSError):
         return out
-    for key, allowed in (("layout", LAYOUTS), ("density", DENSITIES), ("theme", THEMES)):
+    for key, allowed in (("layout", LAYOUTS), ("density", DENSITIES), ("theme", THEMES), ("style", STYLES)):
         val = str(sec.get(key, "")).strip().lower() if sec else ""
         if val in allowed:
             out[key] = val
@@ -306,3 +307,47 @@ def replace_moonraker_host(text, host):
 def read_moonraker_host(text):
     m = _re.search(r"(?m)^moonraker_host\s*[:=]\s*(\S+)", text or "")
     return m.group(1) if m else ""
+
+
+# ---------------------------------------------------------------------------
+# Looks (style x theme): plain GTK3 CSS, built here so it can be tested
+# ---------------------------------------------------------------------------
+_STYLE_TOKENS = {
+    # radius, border width, accent, accent text, font scale
+    "soft": {"radius": 16, "bw": 1, "accent": "#3b82f6", "on_text": "#ffffff", "font": "100%"},
+    "flat": {"radius": 6, "bw": 0, "accent": "#14b8a6", "on_text": "#ffffff", "font": "100%"},
+    "bold": {"radius": 10, "bw": 3, "accent": "#ff9800", "on_text": "#000000", "font": "110%"},
+    "classic": {"radius": 10, "bw": 2, "accent": "#2e7d32", "on_text": "#ffffff", "font": "100%"},
+}
+
+
+def build_css(theme, style):
+    t = _STYLE_TOKENS.get(style) or _STYLE_TOKENS["soft"]
+    light = theme == "light"
+    if light:
+        card_bg, edge, small, hint, chip_bg, track = "rgba(0,0,0,0.06)", "rgba(0,0,0,0.30)", "#444444", "#666666", "rgba(0,0,0,0.08)", "rgba(0,0,0,0.35)"
+        dot_edge = "#444444"
+    else:
+        card_bg, edge, small, hint, chip_bg, track = "rgba(255,255,255,0.07)", "rgba(255,255,255,0.28)", "#c4c4c4", "#9a9a9a", "rgba(255,255,255,0.10)", "rgba(255,255,255,0.45)"
+        dot_edge = "#ffffff"
+    if style == "classic":
+        card_bg = "rgba(255,255,255,0.04)" if not light else "rgba(0,0,0,0.05)"
+        edge = "#9a9a9a" if light else "#555555"
+    bw = t["bw"]
+    return """
+    .zr_card { border: %(bw)dpx solid %(edge)s; border-radius: %(r)dpx; background-color: %(card_bg)s; }
+    .zr_active { border: 3px solid #4CAF50; }
+    .zr_swatch { border: 2px solid %(dot_edge)s; border-radius: %(sr)dpx; }
+    .zr_dot { border: 2px solid %(edge)s; border-radius: 28px; }
+    .zr_dot_on { border: 5px solid %(accent)s; }
+    .zr_chip { border-radius: %(r)dpx; background-image: none; background-color: %(chip_bg)s; border: %(bw)dpx solid %(edge)s; font-size: %(font)s; }
+    .zr_chip_on { background-color: %(accent)s; color: %(on_text)s; border-color: %(accent)s; }
+    .zr_section { font-size: %(font)s; padding-top: 6px; }
+    .zr_small { font-size: 85%%; color: %(small)s; }
+    .zr_hint { font-size: 85%%; color: %(hint)s; }
+    .zr_selected { background-image: none; background-color: %(accent)s; color: %(on_text)s; }
+    scrollbar.vertical { min-width: 18px; }
+    scrollbar slider { min-width: 14px; min-height: 40px; border-radius: 8px; background-color: %(track)s; }
+    """ % {"bw": bw, "edge": edge, "r": t["radius"], "sr": max(t["radius"] // 2, 4), "card_bg": card_bg, "accent": t["accent"],
+           "on_text": t["on_text"], "font": t["font"], "small": small, "hint": hint, "chip_bg": chip_bg,
+           "track": track, "dot_edge": dot_edge}

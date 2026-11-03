@@ -118,7 +118,7 @@ class Panel(ViewsMixin, ScreenPanel):
 
     def _nav_entries(self):
         e = [("toolchanger", "Toolheads", self.show_main, ("main",)),
-             ("filament", "Filament", self.show_filament, ("tool",)),
+             ("filament", "Filament", self.show_filament, ("tool", "tool_edit")),
              ("heat-up", "Climate", self.show_chamber, ("chamber",)),
              ("settings", "Calibrate", self.show_utilities, ("utilities",))]
         if L.has_ace(self.st):
@@ -173,6 +173,9 @@ class Panel(ViewsMixin, ScreenPanel):
             self._timer = None
 
     def on_back(self):
+        if self.view == "tool_edit":
+            self.show_tool(self.view_tool)
+            return True
         if self.view != self._home_view():
             self.show_home()
             return True
@@ -384,21 +387,28 @@ class Panel(ViewsMixin, ScreenPanel):
         btn.connect("clicked", lambda _w: callback(*args))
         return btn
 
-    def _header(self, title):
+    def _header(self, title, back=None, action=None):
         row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        if self.view != self._home_view():
-            back = self._button("arrow-left", "Back", "color3", self.show_home)
-            back.set_size_request(110, 46)
-            row.pack_start(back, False, False, 0)
+        if back is not None or self.view != self._home_view():
+            btn = self._button("arrow-left", "Back", "color3", back or self.show_home)
+            btn.set_size_request(110, 46)
+            row.pack_start(btn, False, False, 0)
         lbl = self._label()
         lbl.set_markup(f"<big><b>{title}</b></big>")
         row.pack_start(lbl, True, True, 0)
+        if action is not None:
+            icon, text, style, cb = action
+            ab = self._button(icon, text, style, cb)
+            ab.set_size_request(120, 46)
+            row.pack_end(ab, False, False, 0)
         return row
 
     def _scrolled(self, child):
         sw = Gtk.ScrolledWindow()
         sw.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         sw.set_vexpand(True)
+        sw.set_kinetic_scrolling(True)       # drag with a finger
+        sw.set_overlay_scrolling(False)      # a visible scrollbar, so you can see there is more
         sw.add(child)
         return sw
 
@@ -498,21 +508,39 @@ class Panel(ViewsMixin, ScreenPanel):
     # TOOL VIEW: actions + filament editor
     # ------------------------------------------------------------------
     def show_tool(self, i):
+        """One page that scrolls as a whole: summary card, the six actions, and a button to edit the filament."""
         self.view = "tool"
         self.view_tool = i
         self.edit = dict(self._tool_info(i))
         self._clear()
         self.root.pack_start(self._header(f"Toolhead {i + 1} (T{i})"), False, False, 0)
 
-        body = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        page.set_margin_start(4)
+        page.set_margin_end(10)
 
-        # left: live state + actions
-        left = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        card = Gtk.EventBox()
+        card.get_style_context().add_class("zr_card")
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=14)
+        for m in ("top", "bottom", "start", "end"):
+            getattr(row, "set_margin_" + m)(10)
+        self.w["e_swatch"] = self._swatch(64, 64)
+        self.w["e_swatch"].set_valign(Gtk.Align.CENTER)
+        row.pack_start(self.w["e_swatch"], False, False, 0)
         self.w["temp"] = self._label()
-        left.pack_start(self.w["temp"], False, False, 0)
+        self.w["temp"].set_halign(Gtk.Align.START)
+        self.w["temp"].set_justify(Gtk.Justification.LEFT)
+        row.pack_start(self.w["temp"], True, True, 0)
+        edit_btn = self._button("fine-tune", "Edit filament", "color1", self.show_tool_edit, i)
+        edit_btn.set_size_request(190, 60)
+        edit_btn.set_valign(Gtk.Align.CENTER)
+        row.pack_end(edit_btn, False, False, 0)
+        card.add(row)
+        page.pack_start(card, False, False, 0)
+
         actions = Gtk.Grid()
-        actions.set_row_spacing(6)
-        actions.set_column_spacing(6)
+        actions.set_row_spacing(8)
+        actions.set_column_spacing(8)
         actions.set_column_homogeneous(True)
         items = [
             ("extruder", "Select", "color1", self._act_select),
@@ -523,84 +551,112 @@ class Panel(ViewsMixin, ScreenPanel):
             ("fine-tune", "Purge", "color2", self._act_purge),
         ]
         for n, (icon, text, style, cb) in enumerate(items):
-            b = self._button(icon, text, style, cb, i)
-            b.set_size_request(110, 64)
-            actions.attach(b, n % 2, n // 2, 1, 1)
-        left.pack_start(actions, False, False, 0)
-        body.pack_start(left, False, False, 0)
+            btn = self._button(icon, text, style, cb, i)
+            btn.set_size_request(-1, self.sz["tile_h"])
+            actions.attach(btn, n % 3, n // 3, 1, 1)
+        page.pack_start(actions, False, False, 0)
 
-        # right: filament editor (scrollable)
-        right = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        self.root.pack_start(self._scrolled(page), True, True, 0)
+        self.root.show_all()
+        self._refresh_view()
 
-        prev_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        self.w["e_swatch"] = self._swatch(70, 40)
+    def show_tool_edit(self, i=None):
+        """Filament editor: material chips, round colour swatches (custom colour is hidden until asked for), temperature."""
+        i = self.view_tool if i is None else i
+        self.view = "tool_edit"
+        self.view_tool = i
+        self._clear()
+        self.root.pack_start(self._header(f"Filament, toolhead {i + 1}", back=lambda: self.show_tool(i),
+                                          action=("complete", "Save", "color1", self._save_tool)), False, False, 0)
+        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        page.set_margin_start(4)
+        page.set_margin_end(10)
+
+        prev_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        self.w["e_swatch"] = self._swatch(56, 56)
         prev_row.pack_start(self.w["e_swatch"], False, False, 0)
         self.w["e_desc"] = self._label()
         self.w["e_desc"].set_halign(Gtk.Align.START)
         prev_row.pack_start(self.w["e_desc"], True, True, 0)
-        save = self._button("complete", "Save", "color1", self._save_tool)
-        save.set_size_request(110, 46)
-        prev_row.pack_end(save, False, False, 0)
-        right.pack_start(prev_row, False, False, 0)
+        page.pack_start(prev_row, False, False, 0)
 
-        right.pack_start(self._section("Material"), False, False, 0)
+        page.pack_start(self._section("Material"), False, False, 0)
         mats = Gtk.Grid()
-        mats.set_row_spacing(4)
-        mats.set_column_spacing(4)
+        mats.set_row_spacing(6)
+        mats.set_column_spacing(6)
         mats.set_column_homogeneous(True)
+        self.w["chips"] = {}
         for n, (name, _t) in enumerate(MATERIALS):
-            b = Gtk.Button(label=name)
-            b.set_size_request(-1, 38)
-            b.connect("clicked", lambda _w, idx=n: self._pick_material(idx))
-            mats.attach(b, n % 4, n // 4, 1, 1)
-        right.pack_start(mats, False, False, 0)
+            chip = Gtk.Button(label=name)
+            chip.get_style_context().add_class("zr_chip")
+            chip.set_size_request(-1, 46)
+            chip.connect("clicked", lambda _w, idx=n: self._pick_material(idx))
+            mats.attach(chip, n % 4, n // 4, 1, 1)
+            self.w["chips"][n] = chip
+        page.pack_start(mats, False, False, 0)
 
-        right.pack_start(self._section("Colour"), False, False, 0)
-        presets = Gtk.Grid()
-        presets.set_row_spacing(4)
-        presets.set_column_spacing(4)
-        presets.set_column_homogeneous(True)
+        page.pack_start(self._section("Colour"), False, False, 0)
+        dots = Gtk.Grid()
+        dots.set_row_spacing(8)
+        dots.set_column_spacing(8)
+        dots.set_column_homogeneous(True)
+        self.w["dots"] = {}
         for n, (name, col) in enumerate(COLOR_PRESETS):
-            b = Gtk.Button(label=name)
-            b.set_size_request(-1, 38)
-            r, g, bl = _rgb(col)
-            b.override_background_color(
-                Gtk.StateFlags.NORMAL, Gdk.RGBA(r / 255.0, g / 255.0, bl / 255.0, 1.0))
-            light = (r * 0.299 + g * 0.587 + bl * 0.114) > 140
-            b.override_color(Gtk.StateFlags.NORMAL,
-                             Gdk.RGBA(0, 0, 0, 1) if light else Gdk.RGBA(1, 1, 1, 1))
-            b.connect("clicked", lambda _w, c=col: self._pick_color(c))
-            presets.attach(b, n % 4, n // 4, 1, 1)
-        right.pack_start(presets, False, False, 0)
+            dot = Gtk.EventBox()
+            dot.set_size_request(56, 56)
+            dot.set_halign(Gtk.Align.CENTER)
+            dot.get_style_context().add_class("zr_dot")
+            self._set_swatch(dot, col)
+            dot.connect("button-release-event", lambda *_a, c=col: self._pick_color(c))
+            dots.attach(dot, n % 6, n // 6, 1, 1)
+            self.w["dots"][col] = dot
+        page.pack_start(dots, False, False, 0)
 
+        custom = self._button("fine-tune", "Custom colour", "color3", self._toggle_rgb)
+        custom.set_size_request(-1, 46)
+        page.pack_start(custom, False, False, 0)
+        rgb_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        rgb_box.set_no_show_all(True)
+        self.w["rgb_box"] = rgb_box
         self.w["sliders"] = []
         r, g, bl = _rgb(self.edit["color"])
-        for n, (name, val) in enumerate((("R", r), ("G", g), ("B", bl))):
-            row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-            row.pack_start(self._label(name), False, False, 0)
-            s = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0, 255, 1)
-            s.set_value(val)
-            s.set_draw_value(True)
-            s.set_value_pos(Gtk.PositionType.RIGHT)
-            s.connect("value-changed", self._slider_changed)
-            row.pack_start(s, True, True, 0)
-            self.w["sliders"].append(s)
-            right.pack_start(row, False, False, 0)
+        for name, val in (("R", r), ("G", g), ("B", bl)):
+            srow = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+            srow.pack_start(self._label(name), False, False, 0)
+            sc = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0, 255, 1)
+            sc.set_value(val)
+            sc.set_draw_value(True)
+            sc.set_value_pos(Gtk.PositionType.RIGHT)
+            sc.connect("value-changed", self._slider_changed)
+            srow.pack_start(sc, True, True, 0)
+            self.w["sliders"].append(sc)
+            rgb_box.pack_start(srow, False, False, 0)
+        page.pack_start(rgb_box, False, False, 0)
 
-        right.pack_start(self._section("Nozzle temperature / pressure advance"), False, False, 0)
-        right.pack_start(self._stepper_row("temp", "Temp", -5, 5), False, False, 0)
-        right.pack_start(self._stepper_row("pa", "PA", -0.002, 0.002), False, False, 0)
+        page.pack_start(self._section("Nozzle temperature"), False, False, 0)
+        page.pack_start(self._stepper_row("temp", "Temp", -5, 5), False, False, 0)
+        page.pack_start(self._section("Pressure advance"), False, False, 0)
+        page.pack_start(self._stepper_row("pa", "PA", -0.002, 0.002), False, False, 0)
 
-        body.pack_start(self._scrolled(right), True, True, 0)
-        self.root.pack_start(body, True, True, 0)
+        self.root.pack_start(self._scrolled(page), True, True, 0)
         self.root.show_all()
+        rgb_box.hide()
         self._update_editor()
-        self._refresh_view()
+
+    def _toggle_rgb(self):
+        box = self.w.get("rgb_box")
+        if box is None:
+            return
+        if box.get_visible():
+            box.hide()
+        else:
+            box.show_all()
 
     def _section(self, text):
         lbl = self._label()
         lbl.set_markup(f"<b>{text}</b>")
         lbl.set_halign(Gtk.Align.START)
+        lbl.get_style_context().add_class("zr_section")
         return lbl
 
     def _stepper_row(self, key, title, down, up):
@@ -609,7 +665,7 @@ class Panel(ViewsMixin, ScreenPanel):
         minus = self._button("decrease", None, "color3", self._step, key, down)
         plus = self._button("increase", None, "color3", self._step, key, up)
         for b in (minus, plus):
-            b.set_size_request(70, 40)
+            b.set_size_request(80, 46)
         self.w[f"v_{key}"] = self._label()
         row.pack_start(minus, False, False, 0)
         row.pack_start(self.w[f"v_{key}"], True, True, 0)
@@ -643,13 +699,19 @@ class Panel(ViewsMixin, ScreenPanel):
         self._update_editor()
 
     def _update_editor(self):
-        if self.view != "tool" or not self.edit:
+        if self.view != "tool_edit" or not self.edit:
             return
         self._set_swatch(self.w["e_swatch"], self.edit["color"])
         name = MATERIALS[self.edit["mat"]][0]
-        self.w["e_desc"].set_markup(f"<b>{name}</b>   #{self.edit['color']:06X}")
+        self.w["e_desc"].set_markup(f"<big><b>{name}</b></big>\n<span size='small'>#{self.edit['color']:06X}</span>")
         self.w["v_temp"].set_text(f"{self.edit['temp']} C")
         self.w["v_pa"].set_text(f"{self.edit['pa']:.3f}")
+        for idx, chip in self.w.get("chips", {}).items():
+            ctx = chip.get_style_context()
+            (ctx.add_class if idx == self.edit["mat"] else ctx.remove_class)("zr_chip_on")
+        for col, dot in self.w.get("dots", {}).items():
+            ctx = dot.get_style_context()
+            (ctx.add_class if col == self.edit["color"] else ctx.remove_class)("zr_dot_on")
 
     def _save_tool(self):
         i = self.view_tool
@@ -660,20 +722,28 @@ class Panel(ViewsMixin, ScreenPanel):
         if abs(e["pa"] - old_pa) > 1e-6:
             script += f"\nZR_SET_TOOL_PA T={i} PA={e['pa']:.4f}"
         self._gcode(script, f"Toolhead {i + 1} saved")
+        self.show_tool(i)
 
     def _refresh_tool(self):
         i = self.view_tool
+        info = self._tool_info(i)
         cur, tgt = self._temps(i)
         fil = self._sensor(f"filament{i}")
         dock = self._sensor(f"docked{i}")
-        lines = [f"<big><b>{cur:.0f} / {tgt or 0:.0f} C</b></big>" if cur is not None else "-- C"]
+        name = MATERIALS[info["mat"]][0] if info["mat"] else "Empty"
+        lines = [f"<b>{name}</b>"]
+        lines.append(f"<big><b>{cur:.0f} / {tgt or 0:.0f} C</b></big>" if cur is not None else "<big><b>-- C</b></big>")
+        state = []
         if i == self._active_tool():
-            lines.append("<span foreground='#4CAF50'><b>ACTIVE</b></span>")
+            state.append("<span foreground='#4CAF50'><b>ACTIVE</b></span>")
         if fil is not None:
-            lines.append("Filament OK" if fil else "No filament")
+            state.append("Filament OK" if fil else "No filament")
         if dock is not None:
-            lines.append("In dock" if dock else "On carriage")
+            state.append("In dock" if dock else "On carriage")
+        if state:
+            lines.append("   ".join(state))
         self.w["temp"].set_markup("\n".join(lines))
+        self._set_swatch(self.w["e_swatch"], info["color"] if info["mat"] else 0x303030)
 
     # tool actions --------------------------------------------------------
     def _act_select(self, i):
@@ -888,6 +958,8 @@ class Panel(ViewsMixin, ScreenPanel):
                 self._refresh_main()
             elif self.view == "tool":
                 self._refresh_tool()
+            elif self.view == "tool_edit":
+                pass
             elif self.view == "mapping":
                 self._refresh_mapping()
             elif self.view == "chamber":
@@ -900,19 +972,12 @@ class Panel(ViewsMixin, ScreenPanel):
             logging.debug(f"ZR: refresh error: {e}")
 
     def _add_css(self):
-        light = self.settings.get("theme") == "light"
-        card_bg, card_bd, small, hint = ("rgba(0,0,0,0.05)", "#9a9a9a", "#444444", "#666666") if light \
-            else ("rgba(255,255,255,0.04)", "#555555", "#bbbbbb", "#999999")
-        css = ("""
-        .zr_card { border: 2px solid %s; border-radius: 10px; background: %s; }
-        .zr_active { border: 3px solid #4CAF50; }
-        .zr_swatch { border: 2px solid #ffffff; border-radius: 6px; }
-        .zr_small { font-size: 85%%; color: %s; }
-        .zr_hint { font-size: 85%%; color: %s; }
-        .zr_selected { background: #2e7d32; color: #ffffff; }
-        """ % (card_bd, card_bg, small, hint)).encode()
+        css = L.build_css(self.settings.get("theme"), self.settings.get("style")).encode()
         if getattr(self, "_css_provider", None) is None:
             self._css_provider = Gtk.CssProvider()
             Gtk.StyleContext.add_provider_for_screen(
                 Gdk.Screen.get_default(), self._css_provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
-        self._css_provider.load_from_data(css)
+        try:
+            self._css_provider.load_from_data(css)
+        except Exception as e:      # a bad style must never stop the panel from opening
+            logging.warning(f"ZR: could not load the style: {e}")
