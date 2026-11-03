@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.10.0
+
+- New: optional touchscreen. The installer asks "Add a touchscreen?" (default yes; `--screen on|off`) and installs KlipperScreen pinned to commit 34610ce with X11 (`--screen-backend x11|weston|cage`), plus the ZR Tools pages: Toolheads, Filament, Climate, Calibrate, ACE Pro (only if present), More, Settings.
+- Layouts `tabs` and `grid`, compact/comfortable density from the detected screen size, light/dark theme; stored in `zr_screen.conf`; `--screen-layout`, `--screen-test`.
+- `--update`, `--repair` and `--doctor` look after the screen files. **Not yet tested on hardware.**
+- The old "copy ZR Tools to ~/zr_tools" step is replaced by this.
+
 ## 0.9.1
 
 - Raspberry Pi 400 removed from the docs and pictures: the target is a regular Raspberry Pi 4 or 5.

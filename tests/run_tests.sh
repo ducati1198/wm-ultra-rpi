@@ -56,10 +56,30 @@ H2="$T/h2"; mkdir -p "$H2"; printf 'n\nn\nn\nn\ny\n' > "$T/ans"
 WM_HOME="$H2" WM_INSTALLER_TEST=1 bash "$ROOT/installer.sh" --from-stage "$T/stage" < "$T/ans" >/dev/null 2>&1
 check "panel declined: old fluidd kept" "grep -q old $H2/fluidd/index.html"
 
-echo "== zr_tools option"
-H3="$T/h3"; mkdir -p "$H3"; printf 'y\ny\ny\ny\ny\n' > "$T/ans3"
-WM_HOME="$H3" WM_INSTALLER_TEST=1 bash "$ROOT/installer.sh" --from-stage "$T/stage" < "$T/ans3" >/dev/null 2>&1
-check "zr_tools copied" "[ -f $H3/zr_tools/zr_tools.py ]"
+echo "== touchscreen"
+H3="$T/h3"; mkdir -p "$H3"
+WM_TEST_SCREEN=1024x600 WM_TEST_TOUCH=1 inst "$H3" --from-stage "$T/stage" > "$T/scr.out"
+check "screen: panel files in KlipperScreen" "[ -f $H3/KlipperScreen/panels/zr_tools.py ] && [ -f $H3/KlipperScreen/panels/zr_views.py ] && [ -f $H3/KlipperScreen/panels/zr_logic.py ]"
+check "screen: default layout tabs" "grep -q 'layout = tabs' $H3/printer_data/config/zr_screen.conf"
+check "screen: macros included in printer.cfg" "grep -q 'include zr_tools.cfg' $H3/printer_data/config/printer.cfg && [ -f $H3/printer_data/config/zr_tools.cfg ]"
+check "screen: KlipperScreen installed with x11" "grep -q 'KlipperScreen-install backend=x11' $H3/.sudo.log"
+check "screen: pinned commit used" "grep -q 'fetch .*KlipperScreen @ 34610ceae31e12a10cc980e20a1dec9976f97dd4' $H3/.sudo.log"
+check "screen: service enabled" "grep -q 'systemctl enable KlipperScreen' $H3/.sudo.log"
+check "screen: answers saved" "grep -q WANT_SCREEN=1 $H3/wm-rpi-backup/install.conf && grep -q REPO_DIR= $H3/wm-rpi-backup/install.conf"
+check "screen: found screen reported" "grep -q 'Screen found: 1024x600' $T/scr.out"
+inst "$H3" --screen-layout grid >/dev/null; check "screen-layout grid rewrites the file" "grep -q 'layout = grid' $H3/printer_data/config/zr_screen.conf"
+rm -f "$H3/KlipperScreen/panels/zr_views.py"; inst "$H3" --repair >/dev/null
+check "repair puts the panel files back" "[ -f $H3/KlipperScreen/panels/zr_views.py ]"
+rm -f "$H3/KlipperScreen/panels/zr_logic.py"; printf 'n\nn\nn\nn\n' | WM_HOME="$H3" WM_INSTALLER_TEST=1 bash "$ROOT/installer.sh" --doctor > "$T/doc.out" 2>&1
+check "doctor notices missing panel file" "grep -q 'ZR Tools panel files are missing' $T/doc.out"
+H5="$T/h5"; mkdir -p "$H5"; inst "$H5" --from-stage "$T/stage" --screen off --screen-backend weston >/dev/null
+check "screen off: nothing installed" "[ ! -d $H5/KlipperScreen ] && grep -q WANT_SCREEN=0 $H5/wm-rpi-backup/install.conf"
+H6="$T/h6"; mkdir -p "$H6"; inst "$H6" --from-stage "$T/stage" --screen on --screen-layout grid --screen-backend cage >/dev/null
+check "options: grid + cage" "grep -q 'layout = grid' $H6/printer_data/config/zr_screen.conf && grep -q 'backend=cage' $H6/.sudo.log"
+check "--screen-test is read-only" "WM_TEST_SCREEN=800x480 WM_TEST_TOUCH=0 bash $ROOT/installer.sh --screen-test | grep -q 'compact'"
+check "bad --screen-layout value fails" "! bash $ROOT/installer.sh --screen-layout round"
+check "screen python tests" "python3 -I -W ignore $ROOT/tests/test_screen.py"
+check "python files compile" "for f in $ROOT/zr_tools/*.py; do python3 -I -m py_compile \$f || exit 1; done"
 
 echo "== dry run changes nothing"
 H4="$T/h4"; mkdir -p "$H4"
@@ -227,7 +247,7 @@ check "undo puts mine.cfg back" "[ -f $UH/printer_data/config/mine.cfg ]"
 check "undo keeps what it replaced" "ls -d $UH/wm-rpi-backup/undone-*"
 
 echo "== doctor and support bundle"
-check "doctor passes on a good install" "WM_TEST_CANQUERY=$T/can_ok.txt WM_HOME=$G2 WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash $ROOT/installer.sh --doctor"
+check "doctor passes on a good install" "WM_TEST_SCREEN=1024x600 WM_TEST_TOUCH=1 WM_TEST_CANQUERY=$T/can_ok.txt WM_HOME=$G2 WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash $ROOT/installer.sh --doctor"
 rm -f "$G2"/klipper/klippy/extras/cs1237.*.so
 check "doctor finds a missing module and restores it from the repo" "WM_HOME=$G2 WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash $ROOT/installer.sh --doctor; ls $G2/klipper/klippy/extras/cs1237.*.so"
 check "doctor reports bad network clock/power as problems" "! WM_TEST_THROTTLED=0x50005 WM_HOME=$G2 WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash $ROOT/installer.sh --doctor"

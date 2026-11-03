@@ -26,6 +26,10 @@
 # ./installer.sh --enable-klipper      same as --first-start
 # ./installer.sh --disable-klipper     stop Klipper and stop it from starting at boot
 # ./installer.sh --uninstall           remove what the installer added to the system (your files in ~ stay)
+# ./installer.sh --screen on|off       add (or skip) a KlipperScreen touchscreen on the Pi (asked if not given; default yes)
+# ./installer.sh --screen-layout tabs|grid   touch layout: tabs = big buttons + bottom tabs (default), grid = card grid
+# ./installer.sh --screen-backend x11|weston|cage   graphics stack for KlipperScreen (default x11)
+# ./installer.sh --screen-test         read-only: show the screen and touch device found on this Pi
 # ./installer.sh --no-start            at the end of an install do not enable or start Klipper
 # ./installer.sh --force               continue even if a print is active (not recommended)
 # ./installer.sh --dry-run             go through the questions, show what would change, change nothing
@@ -53,7 +57,8 @@ TESTING="${WM_INSTALLER_TEST:-0}"        # 1 = no sudo, no apt, no systemctl, no
 MODE="install"
 DRY=0
 SRC_KIND=""; SRC_ARG=""; MODEL="ultra-s"; MODULES_DIR=""; FROM_FACTORY=0
-WANT_PANEL=1; WANT_ZRTOOLS=0; WANT_TIMELAPSE=1; WANT_CROWSNEST=1
+WANT_PANEL=1; WANT_SCREEN=ask; WANT_TIMELAPSE=1; WANT_CROWSNEST=1
+SCREEN_LAYOUT=""; SCREEN_BACKEND="x11"; REPO_DIR="$SCRIPT_DIR"
 STAMP="$(date +%Y%m%d-%H%M%S)"
 BACKUP_ROOT="$HOME_DIR/wm-rpi-backup"
 STATE="$BACKUP_ROOT/installed.manifest"
@@ -115,6 +120,10 @@ while [ $# -gt 0 ]; do
         --backup)       MODE=backup; case "${2:-}" in ""|--*) ;; *) ARG1="$2"; shift ;; esac ;;
         --restore)      MODE=restore; ARG1="${2:-}"; shift ;;
         --support-bundle) MODE=bundle ;;
+        --screen)       case "${2:-}" in on|yes|1) WANT_SCREEN=1 ;; off|no|0) WANT_SCREEN=0 ;; *) print_error "--screen needs on or off"; exit 1 ;; esac; shift ;;
+        --screen-layout) case "${2:-}" in tabs|grid) SCREEN_LAYOUT="$2" ;; *) print_error "--screen-layout needs tabs or grid"; exit 1 ;; esac; shift ;;
+        --screen-backend) case "${2:-}" in x11|weston|cage) SCREEN_BACKEND="$2" ;; *) print_error "--screen-backend needs x11, weston or cage"; exit 1 ;; esac; shift ;;
+        --screen-test)  MODE=screentest ;;
         --no-start)     AUTOSTART=0 ;;
         --force)        FORCE=1 ;;
         --disable-klipper) MODE=disable ;;
@@ -394,14 +403,100 @@ PY
     print_success "Fluidd panel installed (from $PANEL_FROM). Hard-refresh the browser (Ctrl/Cmd+Shift+R)."
 }
 
-step_zrtools() {
-    [ "$WANT_ZRTOOLS" = 1 ] || return 0
-    print_header "Step 11: ZR Tools (KlipperScreen panel)"
-    why "Only for a touchscreen on the Pi that runs KlipperScreen. It adds tool, chamber and air-filter pages and macros."
-    run mkdir -p "$HOME_DIR/zr_tools"
-    run cp "$SCRIPT_DIR"/zr_tools/{zr_tools.py,zr_tools.cfg,install_zr_tools.sh,INSTALL.md} "$HOME_DIR/zr_tools/"
-    print_info "Copied to ~/zr_tools. Klipper is off, so the script is not run for you. When Klipper is running: cd ~/zr_tools && bash install_zr_tools.sh"
-    record "HOMEDIR zr_tools"
+# ---------------------------------------------------------------------------
+# Touchscreen (KlipperScreen + ZR Tools). NOT YET TESTED ON HARDWARE.
+# ---------------------------------------------------------------------------
+KS_DIR="$HOME_DIR/KlipperScreen"
+ZR_CONF="$HOME_DIR/printer_data/config/zr_screen.conf"
+
+detect_screen() {  # prints "WIDTHxHEIGHT touch|notouch" (size empty when no screen is found)
+    local res="" touch=notouch f m
+    if [ -n "${WM_TEST_SCREEN+x}" ]; then res="$WM_TEST_SCREEN"; [ "${WM_TEST_TOUCH:-0}" = 1 ] && touch=touch
+    else
+        for f in /sys/class/drm/card*-*/status; do
+            [ -r "$f" ] && [ "$(cat "$f" 2>/dev/null)" = connected ] || continue
+            m="$(head -n1 "$(dirname "$f")/modes" 2>/dev/null)"; [ -n "$m" ] && { res="$m"; break; }
+        done
+        local e; for e in /sys/class/input/event*; do
+            [ -e "$e" ] && udevadm info -q property -p "$e" 2>/dev/null | grep -q '^ID_INPUT_TOUCHSCREEN=1' && { touch=touch; break; }
+        done
+    fi
+    echo "${res:-} $touch"
+}
+
+screen_density_hint() {  # WIDTHxHEIGHT -> compact|comfortable
+    local w="${1%%x*}"; [[ "$w" =~ ^[0-9]+$ ]] || { echo compact; return; }
+    [ "$w" -le 900 ] && echo compact || echo comfortable
+}
+
+do_screen_test() {
+    print_header "Screen test (read-only)"
+    local r t; read -r r t < <(detect_screen)
+    if [ -n "$r" ]; then print_success "Screen found: $r (ZR Tools density: $(screen_density_hint "$r"))"; else print_warning "No screen found on the Pi's video output."; fi
+    [ "$t" = touch ] && print_success "Touch device found." || print_warning "No touch device found (a USB touch cable, or the screen has no touch)."
+    echo "  Rotation is an operating-system setting, see README 'Touchscreen'."
+}
+
+write_screen_conf() {  # layout from --screen-layout, else keep, else default tabs; density stays 'auto'
+    local layout="$SCREEN_LAYOUT" theme=dark density=auto
+    if [ -f "$ZR_CONF" ]; then
+        [ -n "$layout" ] || layout="$(sed -n 's/^layout *= *//p' "$ZR_CONF" | head -n1)"
+        theme="$(sed -n 's/^theme *= *//p' "$ZR_CONF" | head -n1)"; density="$(sed -n 's/^density *= *//p' "$ZR_CONF" | head -n1)"
+    fi
+    case "$layout" in tabs|grid) ;; *) layout=tabs ;; esac
+    case "$theme" in dark|light) ;; *) theme=dark ;; esac
+    case "$density" in auto|compact|comfortable) ;; *) density=auto ;; esac
+    [ "$DRY" = 1 ] && { echo -e "  ${DIM}would write $ZR_CONF (layout=$layout)${NC}"; return 0; }
+    mkdir -p "$(dirname "$ZR_CONF")"
+    printf '# Written by ./installer.sh and the ZR Tools Settings page\n[screen]\nlayout = %s\ndensity = %s\ntheme = %s\n' "$layout" "$density" "$theme" > "$ZR_CONF"
+}
+
+copy_zr_panel() {  # (re)copy the panel files into KlipperScreen
+    [ "$DRY" = 1 ] && { echo -e "  ${DIM}would copy zr_tools/*.py into ~/KlipperScreen/panels${NC}"; return 0; }
+    mkdir -p "$KS_DIR/panels"
+    cp "$REPO_DIR"/zr_tools/{zr_tools.py,zr_views.py,zr_logic.py} "$KS_DIR/panels/"
+    if [ -d "$KS_DIR/.git" ]; then   # KlipperScreen updates must not delete our files
+        mkdir -p "$KS_DIR/.git/info"
+        grep -qs '^panels/zr_' "$KS_DIR/.git/info/exclude" || echo 'panels/zr_*.py' >> "$KS_DIR/.git/info/exclude"
+    fi
+}
+
+step_screen() {
+    [ "$WANT_SCREEN" = 1 ] || return 0
+    print_header "Step 11: touchscreen (KlipperScreen + ZR Tools)"
+    why "A screen connected to the Pi shows KlipperScreen with a ZR Tools page: toolheads, filament, climate, calibration, ACE Pro (if present). Not yet tested on hardware."
+    local r t; read -r r t < <(detect_screen)
+    [ -n "$r" ] && print_info "Screen found: $r, density $(screen_density_hint "$r")" || print_warning "No screen detected now. KlipperScreen is installed anyway."
+    [ "$t" = touch ] || print_warning "No touch device detected now."
+    local pin url sha; pin="$(addon_pin klipperscreen)"; url="${pin%|*}"; sha="${pin#*|}"
+    fetch_addon "$url" "$sha" "$KS_DIR" || { warn_later "Could not download KlipperScreen (network?). Run ./installer.sh --update later."; return 0; }
+    local be=X comp=""
+    case "$SCREEN_BACKEND" in weston) be=W; comp=weston ;; cage) be=W; comp=cage ;; esac
+    if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would run: KlipperScreen-install.sh (backend $SCREEN_BACKEND, service on, NetworkManager off)${NC}"
+    elif [ "$TESTING" = 1 ]; then echo "[test] KlipperScreen-install backend=$SCREEN_BACKEND" >> "$HOME_DIR/.sudo.log"
+    else
+        ( cd "$KS_DIR" && BACKEND="$be" COMPOSITOR="$comp" SERVICE=y START=0 NETWORK=n bash scripts/KlipperScreen-install.sh ) \
+            || { warn_later "KlipperScreen install failed (see output above). Run ./installer.sh --update to retry."; return 0; }
+    fi
+    copy_zr_panel
+    write_screen_conf
+    if [ "$DRY" != 1 ]; then
+        mkdir -p "$HOME_DIR/printer_data/config"
+        [ -f "$HOME_DIR/printer_data/config/printer.cfg" ] && \
+            HOME="$HOME_DIR" ZR_NO_RESTART=1 bash "$REPO_DIR/zr_tools/install_zr_tools.sh" >/dev/null || warn_later "printer.cfg not found: ZR Tools macros not installed. Run ./installer.sh --update."
+    fi
+    record "HOMEDIR KlipperScreen"; record "FILE /etc/systemd/system/KlipperScreen.service"
+    SUDO systemctl enable KlipperScreen
+    [ "$AUTOSTART" = 1 ] && SUDO systemctl restart KlipperScreen
+    print_success "Touchscreen installed (layout: $(sed -n 's/^layout *= *//p' "$ZR_CONF" 2>/dev/null | head -n1)). Change it with ./installer.sh --screen-layout tabs|grid or on the ZR Tools Settings page."
+    [ "$SCREEN_BACKEND" = x11 ] && echo "  Rotate: add 'xrandr --output <name> --rotate left' to an X11 autostart (README, 'Touchscreen')."
+}
+
+do_screen_layout() {
+    print_header "Screen layout"
+    write_screen_conf
+    SUDO systemctl restart KlipperScreen
+    print_success "Layout set to $SCREEN_LAYOUT."
 }
 
 fetch_addon() {  # url sha dir : clone once, then pin to the version WonderMaker ships
@@ -459,7 +554,11 @@ questions() {
     ask_yn "Install the Fluidd with the WonderMaker Toolheads panel (recommended)?" y || WANT_PANEL=0
     ask_yn "Install webcam support (crowsnest, as WonderMaker uses)?" y || WANT_CROWSNEST=0
     ask_yn "Install timelapse support (Moonraker timelapse + ffmpeg)?" y || WANT_TIMELAPSE=0
-    ask_yn "Copy the ZR Tools KlipperScreen panel too? (only if you plan a touchscreen on the Pi)" n && WANT_ZRTOOLS=1
+    if [ "$WANT_SCREEN" = ask ]; then
+        local r t; read -r r t < <(detect_screen)
+        [ -n "$r" ] && print_info "A screen is connected: $r"
+        if ask_yn "Add a touchscreen (KlipperScreen with the ZR Tools page) on this Pi?" y; then WANT_SCREEN=1; else WANT_SCREEN=0; fi
+    fi
 }
 
 # ============================================================================
@@ -574,7 +673,10 @@ VERSION=$VERSION
 MODEL=$MODEL
 SRC_KIND=$SRC_KIND
 WANT_PANEL=$WANT_PANEL
-WANT_ZRTOOLS=$WANT_ZRTOOLS
+WANT_SCREEN=$WANT_SCREEN
+SCREEN_BACKEND=$SCREEN_BACKEND
+REPO_DIR=$REPO_DIR
+KS_PIN=$(addon_pin klipperscreen | cut -d'|' -f2)
 WANT_TIMELAPSE=$WANT_TIMELAPSE
 WANT_CROWSNEST=$WANT_CROWSNEST
 CROWSNEST_PIN=$(addon_pin crowsnest | cut -d'|' -f2)
@@ -589,7 +691,8 @@ load_answers() {
         case "$k" in
             VERSION) OLD_VERSION="$v" ;; CROWSNEST_PIN) OLD_CN_PIN="$v" ;; TIMELAPSE_PIN) OLD_TL_PIN="$v" ;; PANEL_SHA) OLD_PANEL_SHA="$v" ;;
             MODEL) [ -n "${MODEL_SET:-}" ] || MODEL="$v" ;; SRC_KIND) : ;;
-            WANT_PANEL|WANT_ZRTOOLS|WANT_TIMELAPSE|WANT_CROWSNEST) printf -v "$k" '%s' "$v" ;;
+            WANT_PANEL|WANT_SCREEN|WANT_TIMELAPSE|WANT_CROWSNEST) printf -v "$k" '%s' "$v" ;;
+            SCREEN_BACKEND) printf -v "$k" '%s' "$v" ;; KS_PIN) OLD_KS_PIN="$v" ;;
         esac
     done < "$CONF"
 }
@@ -600,7 +703,7 @@ show_plan() {
     local d moved=""; for d in klipper moonraker printer_data fluidd TM_T1; do [ -e "$HOME_DIR/$d" ] && moved="$moved ~/$d"; done
     [ -n "$moved" ] && echo "  Moved to backup (~/wm-rpi-backup/old-*):$moved"
     echo "  Installs:        system packages, Python 3.9, Klipper/Moonraker environments, Moonraker + nginx services, can0 rule"
-    echo "  Optional:        panel=$([ "$WANT_PANEL" = 1 ] && echo yes || echo no)  webcam=$([ "$WANT_CROWSNEST" = 1 ] && echo yes || echo no)  timelapse=$([ "$WANT_TIMELAPSE" = 1 ] && echo yes || echo no)  ZR Tools=$([ "$WANT_ZRTOOLS" = 1 ] && echo yes || echo no)"
+    echo "  Optional:        panel=$([ "$WANT_PANEL" = 1 ] && echo yes || echo no)  webcam=$([ "$WANT_CROWSNEST" = 1 ] && echo yes || echo no)  timelapse=$([ "$WANT_TIMELAPSE" = 1 ] && echo yes || echo no)  touchscreen=$([ "$WANT_SCREEN" = 1 ] && echo yes || echo no)"
     [ "$AUTOSTART" = 1 ] && echo "  At the end:      Klipper, Moonraker, nginx and crowsnest are enabled and started (checks are shown; failures are reported)" \
                          || echo "  At the end:      Klipper stays off (--no-start)"
 }
@@ -782,6 +885,9 @@ do_update() {
         local sha=""; panel_get && sha="$(sha256sum "$PANEL_ZIP" | cut -d' ' -f1)"
         if [ -n "$sha" ] && [ "$sha" != "${OLD_PANEL_SHA:-}" ]; then step_panel; else print_success "Fluidd panel is already the latest"; fi
     fi
+    if [ "$WANT_SCREEN" = 1 ]; then
+        if [ "$(addon_pin klipperscreen | cut -d'|' -f2)" != "${OLD_KS_PIN:-}" ] || [ ! -d "$KS_DIR" ]; then step_screen; else copy_zr_panel; print_success "ZR Tools screen files refreshed"; fi
+    fi
     if [ "$WANT_TIMELAPSE" = 1 ]; then step_timelapse; fi
     if [ "$WANT_CROWSNEST" = 1 ] && [ "$(addon_pin crowsnest | cut -d'|' -f2)" != "${OLD_CN_PIN:-}" ]; then step_crowsnest; fi
     save_answers
@@ -794,7 +900,9 @@ do_repair() {
     print_header "Repair"
     why "Restores groups, service files, nginx and the can0 rule. Your data and the enabled/disabled state of Klipper are not touched."
     guard_not_printing
+    load_answers || true
     step_groups; step_services_files; step_nginx; step_can
+    [ "$WANT_SCREEN" = 1 ] && [ -d "$KS_DIR" ] && copy_zr_panel
     SUDO systemctl restart moonraker
     self_test; print_success "Repaired."
 }
@@ -846,6 +954,7 @@ doc_ok()  { echo -e "  ${GREEN}[ok]${NC}      $1"; }
 doc_bad() { echo -e "  ${RED}[problem]${NC} $1"; echo -e "            ${DIM}$2${NC}"; DOC_PROBLEMS=$((DOC_PROBLEMS+1)); }
 do_doctor() {
     DOC_PROBLEMS=0
+    load_answers || true
     print_header "Doctor (asks before changing anything)"
     [ "$(id -un)" = "$WM_USER" ] || [ "$TESTING" = 1 ] && doc_ok "user is $WM_USER" || doc_bad "user is $(id -un), not $WM_USER" "WonderMaker's paths are fixed to /home/$WM_USER. Log in as $WM_USER."
     local d dl="klipper moonraker printer_data fluidd klippy-env moonraker-env"; [ "$TESTING" = 1 ] && dl="klipper moonraker printer_data fluidd"
@@ -877,6 +986,16 @@ do_doctor() {
     [ -n "$(api_get /server/info)" ] && doc_ok "Moonraker API answers" || doc_bad "Moonraker API does not answer" "Last log lines: $(tail -n 3 "$HOME_DIR/printer_data/logs/moonraker.log" 2>/dev/null | tr '\n' ' ')"
     local free; free=$(df -Pm "$HOME_DIR" | awk 'NR==2{print $4}'); [ "${free:-0}" -gt 800 ] && doc_ok "disk space (${free} MB free)" || doc_bad "only ${free} MB free" "Old backups: ~/wm-rpi-backup and ~/wm-backups. Gcode files: ~/printer_data/gcodes."
     local p; p="$(power_flags)"; if [ -z "$p" ] || [ "$p" = 0x0 ]; then doc_ok "no power problems reported"; else doc_bad "the Pi reported power/heat flags $p" "Use the official 5 V / 3 A supply and a short cable."; fi
+    if [ "$WANT_SCREEN" = 1 ]; then
+        [ -d "$KS_DIR" ] && doc_ok "KlipperScreen is installed" || doc_bad "KlipperScreen is missing" "Run ./installer.sh --update."
+        if [ -d "$KS_DIR" ]; then
+            [ -f "$KS_DIR/panels/zr_tools.py" ] && [ -f "$KS_DIR/panels/zr_views.py" ] && [ -f "$KS_DIR/panels/zr_logic.py" ] && doc_ok "ZR Tools panel files" \
+                || { doc_bad "ZR Tools panel files are missing in KlipperScreen" "A KlipperScreen update may have removed them."; offer_fix "copy them again" copy_zr_panel; }
+        fi
+        [ "$(service_enabled KlipperScreen)" = enabled ] && doc_ok "KlipperScreen starts at boot" || { doc_bad "KlipperScreen will not start at boot" "The screen stays black after a restart."; offer_fix "enable KlipperScreen" bash -c "sudo systemctl enable KlipperScreen"; }
+        local r t; read -r r t < <(detect_screen); [ -n "$r" ] && doc_ok "screen found ($r)" || doc_bad "no screen detected" "Check the video cable and power."
+        [ "$t" = touch ] && doc_ok "touch device found" || doc_bad "no touch device detected" "Check the USB touch cable."
+    fi
     ntp_ok && doc_ok "clock is synchronized" || doc_bad "clock is not synchronized" "HTTPS downloads and file times go wrong. Check the network."
     echo; [ "$DOC_PROBLEMS" = 0 ] && print_success "No problems found." || { print_warning "$DOC_PROBLEMS problem(s) found. For a report to share: ./installer.sh --support-bundle"; return 1; }
 }
@@ -973,8 +1092,11 @@ case "$MODE" in
     bundle)     do_support_bundle; exit 0 ;;
     disable)    do_disable; exit 0 ;;
     uninstall)  do_uninstall; exit 0 ;;
+    screentest) do_screen_test; exit 0 ;;
+    screenlayout) do_screen_layout; exit 0 ;;
 esac
 
+if [ -n "$SCREEN_LAYOUT" ] && [ "$MODE" = install ] && [ "$WANT_SCREEN" = ask ] && [ -f "$CONF" ]; then do_screen_layout; exit 0; fi
 check_system
 preflight
 ask_model
@@ -985,7 +1107,7 @@ show_plan
 guard_not_printing
 save_answers
 step_packages; step_groups; step_python; step_unpack; step_model; step_venvs; step_modules
-step_services; step_nginx; step_can; step_panel; step_zrtools; step_timelapse; step_crowsnest; step_start
+step_services; step_nginx; step_can; step_panel; step_screen; step_timelapse; step_crowsnest; step_start
 save_answers
 self_test
 if [ "$AUTOSTART" = 1 ] && [ "$DRY" != 1 ]; then do_first_start auto || true; fi

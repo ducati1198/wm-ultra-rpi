@@ -1,2 +1,3 @@
 crowsnest|https://github.com/mainsail-crew/crowsnest|436042452f564f3d737e3b980a213f849a8a0562
 moonraker-timelapse|https://github.com/mainsail-crew/moonraker-timelapse|c7fff11e542b95e0e15b8bb1443cea8159ac0274
+klipperscreen|https://github.com/KlipperScreen/KlipperScreen|34610ceae31e12a10cc980e20a1dec9976f97dd4

@@ -20,6 +20,13 @@ from gi.repository import Gtk, Gdk, GLib  # noqa: E402
 
 from ks_includes.screen_panel import ScreenPanel  # noqa: E402
 
+try:                                   # KlipperScreen loads panels as "panels.<name>"
+    from panels import zr_logic as L  # noqa: E402
+    from panels.zr_views import ViewsMixin  # noqa: E402
+except ImportError:                    # tests import the files from this folder
+    import zr_logic as L  # noqa: E402
+    from zr_views import ViewsMixin  # noqa: E402
+
 NTOOLS = 4
 POLL_SECONDS = 2
 
@@ -74,7 +81,7 @@ def _tool_from_ext(name):
         return -1
 
 
-class Panel(ScreenPanel):
+class Panel(ViewsMixin, ScreenPanel):
 
     def __init__(self, screen, title):
         super().__init__(screen, title)
@@ -84,10 +91,73 @@ class Panel(ScreenPanel):
         self.st = {}          # last status received from Klipper
         self.w = {}           # widgets of the current view
         self.edit = None      # tool being edited: dict(color, mat, temp, pa)
-        self._add_css()
+        self.settings = L.load_settings()
+        self.nav_btns = {}
+        self.outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         self.root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        self.content.add(self.root)
-        self.show_main()
+        self.nav = None
+        self.content.add(self.outer)
+        self.outer.pack_start(self.root, True, True, 0)
+        self._apply_settings()
+        self.show_home()
+
+    # ------------------------------------------------------------------
+    # layout shell: A = card grid hub, C = big touch with a bottom tab bar
+    # ------------------------------------------------------------------
+    def _apply_settings(self):
+        self.density = L.resolve_density(self.settings["density"], getattr(self._screen, "width", 0))
+        self.sz = L.sizes(self.density)
+        self._add_css()
+        if self.nav is not None:
+            self.outer.remove(self.nav)
+            self.nav = None
+        if self.settings["layout"] == "tabs":
+            self.nav = self._make_nav()
+            self.outer.pack_end(self.nav, False, False, 0)
+            self.nav.show_all()
+
+    def _nav_entries(self):
+        e = [("toolchanger", "Toolheads", self.show_main, ("main",)),
+             ("filament", "Filament", self.show_filament, ("tool",)),
+             ("heat-up", "Climate", self.show_chamber, ("chamber",)),
+             ("settings", "Calibrate", self.show_utilities, ("utilities",))]
+        if L.has_ace(self.st):
+            e.append(("spool", "ACE", self.show_ace, ("ace",)))
+        e.append(("main", "More", self.show_more, ("more", "hub", "collision", "extras", "system", "settings", "mapping")))
+        return e
+
+    def _make_nav(self):
+        bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        bar.set_homogeneous(True)
+        self.nav_btns = {}
+        for icon, label, cb, views in self._nav_entries():
+            b = self._button(icon, label, "color3", cb)
+            b.set_size_request(-1, self.sz["nav_h"])
+            bar.pack_start(b, True, True, 0)
+            self.nav_btns[label] = (b, views)
+        return bar
+
+    def _mark_nav(self):
+        for label, (b, views) in self.nav_btns.items():
+            ctx = b.get_style_context()
+            if self.view in views:
+                ctx.add_class("zr_selected")
+            else:
+                ctx.remove_class("zr_selected")
+
+    def _rebuild_nav_if_needed(self):
+        """The ACE tab appears as soon as an ACE shows up in the printer data."""
+        if self.nav is not None and ("ACE" in self.nav_btns) != L.has_ace(self.st):
+            self._apply_settings()
+
+    def _home_view(self):
+        return "main" if self.settings["layout"] == "tabs" else "hub"
+
+    def show_home(self):
+        if self.settings["layout"] == "tabs":
+            self.show_main()
+        else:
+            self.show_hub()
 
     # ------------------------------------------------------------------
     # lifecycle
@@ -103,8 +173,8 @@ class Panel(ScreenPanel):
             self._timer = None
 
     def on_back(self):
-        if self.view != "main":
-            self.show_main()
+        if self.view != self._home_view():
+            self.show_home()
             return True
         return False
 
@@ -133,6 +203,8 @@ class Panel(ScreenPanel):
             "fan_generic air_fan": ["speed"],
             "gcode_button Door_button1": ["state"],
             "gcode_button Door_button2": ["state"],
+            "ace_instance_0": None,
+            "gcode_macro _WM_ACE": None,
         }
         for i in range(NTOOLS):
             objs[_ext_name(i)] = ["temperature", "target", "pressure_advance"]
@@ -286,6 +358,7 @@ class Panel(ScreenPanel):
         for child in self.root.get_children():
             self.root.remove(child)
         self.w = {}
+        self._mark_nav()
 
     def _label(self, text="", css=None, wrap=False):
         lbl = Gtk.Label(label=text)
@@ -313,9 +386,10 @@ class Panel(ScreenPanel):
 
     def _header(self, title):
         row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        back = self._button("arrow-left", "Back", "color3", self.show_main)
-        back.set_size_request(110, 46)
-        row.pack_start(back, False, False, 0)
+        if self.view != self._home_view():
+            back = self._button("arrow-left", "Back", "color3", self.show_home)
+            back.set_size_request(110, 46)
+            row.pack_start(back, False, False, 0)
         lbl = self._label()
         lbl.set_markup(f"<big><b>{title}</b></big>")
         row.pack_start(lbl, True, True, 0)
@@ -818,19 +892,27 @@ class Panel(ScreenPanel):
                 self._refresh_mapping()
             elif self.view == "chamber":
                 self._refresh_chamber()
+            else:
+                self.refresh_extra_views()
+            self._rebuild_nav_if_needed()
+            self._mark_nav()
         except Exception as e:
             logging.debug(f"ZR: refresh error: {e}")
 
     def _add_css(self):
-        css = b"""
-        .zr_card { border: 2px solid #555; border-radius: 10px; background: rgba(255,255,255,0.04); }
+        light = self.settings.get("theme") == "light"
+        card_bg, card_bd, small, hint = ("rgba(0,0,0,0.05)", "#9a9a9a", "#444444", "#666666") if light \
+            else ("rgba(255,255,255,0.04)", "#555555", "#bbbbbb", "#999999")
+        css = ("""
+        .zr_card { border: 2px solid %s; border-radius: 10px; background: %s; }
         .zr_active { border: 3px solid #4CAF50; }
         .zr_swatch { border: 2px solid #ffffff; border-radius: 6px; }
-        .zr_small { font-size: 85%; color: #bbbbbb; }
-        .zr_hint { font-size: 85%; color: #999999; }
+        .zr_small { font-size: 85%%; color: %s; }
+        .zr_hint { font-size: 85%%; color: %s; }
         .zr_selected { background: #2e7d32; color: #ffffff; }
-        """
-        provider = Gtk.CssProvider()
-        provider.load_from_data(css)
-        Gtk.StyleContext.add_provider_for_screen(
-            Gdk.Screen.get_default(), provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+        """ % (card_bd, card_bg, small, hint)).encode()
+        if getattr(self, "_css_provider", None) is None:
+            self._css_provider = Gtk.CssProvider()
+            Gtk.StyleContext.add_provider_for_screen(
+                Gdk.Screen.get_default(), self._css_provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+        self._css_provider.load_from_data(css)

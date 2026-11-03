@@ -1,9 +1,11 @@
-# ZR Tools v1 – KlipperScreen panel for the WonderMaker ZR Ultra-S
+# ZR Tools – KlipperScreen panel for the WonderMaker ZR Ultra-S
+
+Normally `./installer.sh` does all of this for you (see README 5.1). This script is for adding the panel by hand to an existing KlipperScreen.
 
 ## Files
 | File | Goes to | What it does |
 |---|---|---|
-| `zr_tools.py` | `~/KlipperScreen/panels/` | The touch panel |
+| `zr_tools.py`, `zr_views.py`, `zr_logic.py` | `~/KlipperScreen/panels/` | The touch panel (not yet tested on hardware) |
 | `zr_tools.cfg` | `~/printer_data/config/` | Helper macros used by the panel |
 | `install_zr_tools.sh` | run once | Copies everything, edits configs (with backups), restarts |
 

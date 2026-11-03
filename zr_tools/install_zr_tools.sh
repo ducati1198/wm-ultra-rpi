@@ -24,7 +24,8 @@ echo "2) change_macros.cfg: left untouched (pressure advance stays with the slic
 
 echo "3) KlipperScreen panel"
 if [ -d "$KS/panels" ]; then
-  cp "$HERE/zr_tools.py" "$KS/panels/zr_tools.py"
+  cp "$HERE/zr_tools.py" "$HERE/zr_views.py" "$HERE/zr_logic.py" "$KS/panels/"
+  [ -d "$KS/.git" ] && { mkdir -p "$KS/.git/info"; grep -qs '^panels/zr_' "$KS/.git/info/exclude" || echo 'panels/zr_*.py' >> "$KS/.git/info/exclude"; }
   KSC="$CFG/KlipperScreen.conf"
   touch "$KSC"
   if ! grep -q '^\[menu __main zr_tools\]' "$KSC"; then
@@ -35,6 +36,7 @@ else
   echo "   KlipperScreen not found in $KS - copy zr_tools.py to <KlipperScreen>/panels/ yourself"
 fi
 
+if [ "${ZR_NO_RESTART:-0}" = 1 ]; then echo "4) Not restarting (the caller does it)"; exit 0; fi
 echo "4) Restarting Klipper and KlipperScreen"
 sudo systemctl restart klipper
 sudo systemctl restart KlipperScreen 2>/dev/null || true

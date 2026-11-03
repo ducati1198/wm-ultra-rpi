@@ -14,7 +14,7 @@
 2. [Hardware](#2-hardware)
 3. [Install](#3-install)
 4. [When the main board is connected](#4-when-the-main-board-is-connected)
-5. [Fluidd panel and ZR Tools](#5-fluidd-panel-and-zr-tools)
+5. [Fluidd panel and touchscreen](#5-fluidd-panel-and-zr-tools)
 6. [Go back / uninstall](#6-go-back--uninstall)
 7. [Troubleshooting](#7-troubleshooting)
 8. [Repository layout](#8-repository-layout)
@@ -37,7 +37,7 @@ The installer never flashes any board and never starts Klipper unless you ask fo
 | Webcams and timelapse | crowsnest and Moonraker timelapse, the versions WonderMaker ships |
 | Fluidd with a **Toolheads** panel | four toolheads, chamber, air filter, doors, print with colours, filament mapping |
 | Safe by default | Moonraker and Fluidd work right away, **Klipper stays off** until you connect the main board |
-| Optional ZR Tools | KlipperScreen panel if you add a touchscreen to the Pi |
+| Optional touchscreen | KlipperScreen with a **ZR Tools** page, if you connect a screen to the Pi (**not yet tested on hardware**) |
 
 ![Before and after](docs/img/overview.svg)
 
@@ -63,7 +63,7 @@ The old board's job (screen, Wi-Fi, running Klipper) moves to the Pi. Step by st
 
 ### 2.3 What is not covered
 
-The touchscreen of the Ultra-S is not replaced by this repo. Use Fluidd in a browser, or add a KlipperScreen touchscreen to the Pi (see ZR Tools).
+The original touchscreen of the Ultra-S is not replaced one-to-one. Use Fluidd in a browser, or connect a screen to the Pi (see 5.1 Touchscreen).
 
 ## 3. Install
 
@@ -115,7 +115,7 @@ The installer first asks **which printer you have** (ZR Ultra or ZR Ultra-S; or 
 | Services | `moonraker.service` enabled; `klipper.service` installed but **disabled and stopped** |
 | nginx | Fluidd on port 80 with the websocket, API and webcam routes |
 | CAN rule | brings `can0` up at 1 Mbit when the main board appears |
-| Fluidd panel / ZR Tools | optional, see 5. The panel is **downloaded from [wm-ultra-fluidd-acepro-panel](https://github.com/ducati1198/wm-ultra-fluidd-acepro-panel) every time** (so you always get its latest), checked against the checksum published next to it. It needs internet (no copy is kept in this repo); if the download fails the web page is skipped with a warning and `--update` retries. `--update` installs a newer panel when there is one |
+| Fluidd panel | optional, see 5. The panel is **downloaded from [wm-ultra-fluidd-acepro-panel](https://github.com/ducati1198/wm-ultra-fluidd-acepro-panel) every time** (so you always get its latest), checked against the checksum published next to it. It needs internet (no copy is kept in this repo); if the download fails the web page is skipped with a warning and `--update` retries. `--update` installs a newer panel when there is one |
 | Timelapse | `ffmpeg` and `moonraker-timelapse` (latest release; it is the same version WonderMaker ships), downloaded from mainsail-crew on GitHub |
 | Webcams | `crowsnest` v5.0.12 (latest release; WonderMaker ships a 2023 version), installed unattended (builds `ustreamer`); your camera goes in `~/printer_data/config/crowsnest.conf` |
 
@@ -186,7 +186,30 @@ The Fluidd build from [wm-ultra-fluidd-acepro-panel](https://github.com/ducati11
 
 Without an Anycubic ACE Pro the ACE parts stay hidden. If you add one later, use [wm-ultra-fluidd-acepro-panel](https://github.com/ducati1198/wm-ultra-fluidd-acepro-panel).
 
-**ZR Tools** (`zr_tools/`) is a KlipperScreen panel with tool, chamber and air-filter pages. The installer only copies it to `~/zr_tools`; run `bash install_zr_tools.sh` there once Klipper is running (it restarts Klipper).
+### 5.1 Touchscreen (KlipperScreen + ZR Tools)
+
+> **Not yet tested on hardware.** It was built against the KlipperScreen documentation and checked with automated tests, but nobody has run it on a Pi with a screen yet. Please report what you see.
+
+The installer asks **"Add a touchscreen?"** (default yes). Skip it with `--screen off`. Options:
+
+| Option | Meaning |
+|---|---|
+| `--screen on\|off` | add or skip the touchscreen |
+| `--screen-layout tabs\|grid` | `tabs` (default): big touch buttons with bottom tabs. `grid`: cards on a home page |
+| `--screen-backend x11\|weston\|cage` | graphics stack, default `x11` |
+| `--screen-test` | read-only: shows the screen and touch device found |
+
+What it does: installs [KlipperScreen](https://github.com/KlipperScreen/KlipperScreen) pinned to one tested commit (`34610ce`, so a later upstream change cannot break it), copies the ZR Tools panel into it, adds the helper macros (`zr_tools.cfg`) to `printer.cfg` and enables the `KlipperScreen` service. KlipperScreen's own home screen and menus stay as they are; ZR Tools is one extra menu entry.
+
+The screen is detected for you: size from the video output (800x480 and smaller screens use compact buttons, 1024x600 and larger use comfortable ones) and the touch device through udev. On a 5 inch and a 7 inch screen both layouts work.
+
+**ZR Tools pages:** Toolheads (select, heat, load, unload, purge, colour, material), Filament, Climate (chamber, air filter), Calibrate (only the macros that exist on your printer: Z and XY offsets, bed mesh, PID, wipe position, input shaper via the accelerometer), **ACE Pro** (only when an ACE Pro is present: slots, load/unload, feed assist, dryer presets, endless spool), More (collision detection settings, **read-only**; timelapse; restart; system page with Pi temperature, power flags, can0, Klipper state and a backup button) and Settings. Fan, Z offset, pressure advance and camera use KlipperScreen's own pages. The emergency stop is KlipperScreen's own button, shown while printing.
+
+**Settings page:** layout (tabs/grid), density (auto/compact/comfortable) and light/dark theme. They are stored in `~/printer_data/config/zr_screen.conf` (not in KlipperScreen's own settings). You can also change the layout with `./installer.sh --screen-layout grid`.
+
+**Rotation** is an operating-system setting, not a ZR Tools one. On X11 use `xrandr --output <name> --rotate left` (and a matching touch matrix); for Weston, `transform=90` in `weston.ini`. See the KlipperScreen documentation.
+
+`--update`, `--repair` and `--doctor` copy the panel files back if a KlipperScreen update removed them. Switching the WonderMaker screen board itself into a KlipperScreen is a later step and is not part of this.
 
 ## 6. Go back / uninstall
 
@@ -215,7 +238,7 @@ factory/ultra/          WonderMaker ZR Ultra: Klipper, Moonraker, settings, scri
 factory/ultra-s/        WonderMaker ZR Ultra-S: same, with the chamber/air-filter/door settings on
 scripts/                pull_from_board.sh, extract_from_image.sh, stage_from_repo.sh, board_check.sh
 config/                 systemd units, nginx files, can0 udev rule, pinned Python requirements, crowsnest template, addon version pins
-zr_tools/               optional KlipperScreen panel
+zr_tools/               ZR Tools KlipperScreen panel (copied by the installer)
 docs/                   HARDWARE.md and images
 tests/run_tests.sh      tests (fake home, synthetic disk image)
 ```
