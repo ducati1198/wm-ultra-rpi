@@ -246,6 +246,23 @@ bash scripts/screen_board_precheck.sh <board-ip> --pi wmpi.local --backup
 
 It checks the board's display, touch, console, disk and memory, the factory services, the held X server, the clock, GitHub/PyPI/apt access, and runs an apt dry run. `--backup` also saves the board's config to your Mac. The report (private data removed) is saved next to where you ran it; send it if something fails.
 
+**Before you start: fix the board's clock and apt (other users need this).** On a factory screen board `sudo apt-get update` fails (Debian 11 was moved to an archive and the clock is often wrong), so even `sudo apt-get install -y git` fails. The script repairs apt itself, but if you want to do it by hand, or the script says apt fails, run this on the board:
+
+```bash
+# 1. Set the date and time (HTTPS to GitHub fails if the clock is wrong). Use your own date/time, UTC:
+date                                   # check it first
+sudo date -s "2026-11-03 18:00:00"     # example only: put today's date and time here
+# 2. Point apt at the Debian archive and stop it rejecting old package lists
+sudo cp /etc/apt/sources.list /etc/apt/sources.list.orig
+sudo sed -i -E 's#https?://[^ /]+/debian-security#http://archive.debian.org/debian-security#; t; s#https?://[^ /]+/debian/?#http://archive.debian.org/debian/#' /etc/apt/sources.list
+printf 'Acquire::Check-Valid-Until "false";\nAcquire::Check-Date "false";\n' | sudo tee /etc/apt/apt.conf.d/99no-check-valid-until
+# 3. Now this works
+sudo apt-get update
+sudo apt-get install -y git
+```
+
+Never run `apt upgrade` or `apt full-upgrade` on this board: it can replace WonderMaker's held X server and break the screen. The script only uses `apt-get install --no-upgrade`.
+
 Then on the **screen board** (SSH in as `t13dp`, it needs internet):
 
 ```bash
@@ -257,7 +274,7 @@ bash scripts/screen_board.sh --pi wmpi.local
 
 What it does, in this order (everything that can fail comes before the factory app is stopped):
 
-1. Checks: the Pi answers Moonraker, nothing is printing, disk space, apt works, GitHub reachable. If a check fails nothing is changed.
+1. Checks: nothing is printing, disk space, apt works, GitHub reachable. If a check fails nothing is changed.
 2. Debian 11 is archived, so apt is pointed at `archive.debian.org` with the date checks off (the same fix as on the original board). It only runs `apt-get install --no-upgrade`, **never `apt upgrade`**.
 3. Installs the X11 and KlipperScreen packages, KlipperScreen at the pinned commit, and ZR Tools. WonderMaker's own held X server is kept; its matching `xserver-xorg-legacy` is taken from `/packages/xserver` on the board.
 4. Stops and **disables** (deletes nothing) `makerbase-client` (the factory screen app), klipper, moonraker, nginx, crowsnest, makerbase-webcam, janus, klipper-mcu and hostapd, and obico/octoapp if you installed them. The previous state is saved in `~/wm-screen-backup/disabled.list`.
