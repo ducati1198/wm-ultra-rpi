@@ -46,7 +46,7 @@ The installer never flashes any board and never starts Klipper unless you ask fo
 ### 2.1 What you need
 
 - A Raspberry Pi 400 or another 64-bit Pi (4 or 5), its power supply, an SD card of 16 GB or more.
-- Raspberry Pi OS **Bookworm 64-bit**, written with Raspberry Pi Imager. In the imager's settings set the **username to `t13dp`** (WonderMaker's software has `/home/t13dp` built in), enable SSH, and set your Wi-Fi or use a cable.
+- **Raspberry Pi OS Lite (64-bit), Debian 12 "Bookworm"**, written with Raspberry Pi Imager. Newer Raspberry Pi OS releases are based on Debian 13 "Trixie" and are **not tested**: in the Imager choose **Raspberry Pi OS (other) → Raspberry Pi OS (Legacy, 64-bit) Lite**, which is the Bookworm release. Not the 32-bit image and not the Trixie one. (The Desktop version also works, but Lite is all you need: you use Fluidd in a browser.) In the imager's settings set the **username to `t13dp`** (WonderMaker's software has `/home/t13dp` built in), enable SSH, and set your Wi-Fi or use a cable.
 - The **replacement main board** (WM-ZR-D V1.2): it carries the Klipper USB-CAN bridge (USB id `1d50:606f`), and the toolheads and filament hub stay on its CAN bus.
 - A **USB-A to JST-XH 2.54 mm 4-pin cable**, bought or made, from the Pi's USB-A port to the red 4-pin connector of the main board. A ready-made one must be **re-pinned** to the board's order (DM, DP, G; leave VIN empty). **VIN is 24 V: cut or do not connect the red wire, never feed it to the Pi.** See [docs/WIRING.md](docs/WIRING.md).
 - The WonderMaker software: from **your own printer** (reachable old board, a disk image, or a folder made earlier) or the factory files in this repo (see 3.1). 
@@ -69,11 +69,23 @@ The touchscreen of the Ultra-S is not replaced by this repo. Use Fluidd in a bro
 
 Log in to the Pi as `t13dp` and:
 
-```
+```bash
+sudo apt-get update
+sudo apt-get install -y git
+cd ~
 git clone https://github.com/ducati1198/wm-ultra-rpi.git
 cd wm-ultra-rpi
+chmod +x installer.sh
 ./installer.sh
 ```
+
+> **"destination path 'wm-ultra-rpi' already exists"?** You already downloaded it once. Do not clone again. Update the folder instead:
+>
+> ```bash
+> cd ~/wm-ultra-rpi
+> git pull
+> ./installer.sh --update
+> ```
 
 ![Installer steps](docs/img/install-flow.svg)
 
