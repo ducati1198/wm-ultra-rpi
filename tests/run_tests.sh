@@ -111,4 +111,24 @@ PY
     echo junk > "$T/notimg.img"; check "non-image refused" "! bash $ROOT/scripts/extract_from_image.sh $T/notimg.img $T/st_bad"
 else echo "  (skipped: mke2fs/debugfs missing)"; fi
 
+echo "== factory files from the repository (no printer)"
+(cd "$ROOT/factory/ultra-s" && sha256sum -c SHA256SUMS >/dev/null) && echo "  ok   factory checksums" && PASS=$((PASS+1))
+check "no compiled module in the repo" "! find $ROOT/factory -name '*.so' | grep -q . && ! tar tzf $ROOT/factory/ultra-s/klipper.tgz | grep -q '\.so$'"
+check "klipper archive has its license" "tar tzf $ROOT/factory/ultra-s/klipper.tgz | grep -q klipper/COPYING"
+check "factory config has placeholder CAN ids only" "grep -q aa0000000000 $ROOT/factory/ultra-s/config/wm_zru_mcu.cfg"
+HG="$T/hg"; mkdir -p "$HG"
+OUT="$(inst "$HG" --from-github --model ultra-s)"; echo "$OUT" > "$T/gh.out"
+check "install from repo works without modules" "[ -f $HG/klipper/klippy/klippy.py ] && [ -f $HG/printer_data/config/printer.cfg ]"
+check "warns that modules are missing" "grep -q 'compiled modules were NOT installed' $T/gh.out"
+check "web interface installed (factory data has none)" "[ -f $HG/fluidd/index.html ]"
+check "env files in place" "grep -q KLIPPER_ARGS $HG/printer_data/systemd/klipper.env"
+check "unknown model refused" "! inst $T/hg2 --from-github --model ultra"
+# modules: wrong files refused, right files accepted (use a copy of the repo with matching fake checksums)
+mkdir -p "$T/mods"; for n in cs1237 heater_air_core heater_feng hx711 xy_offset_calibrator_core; do echo "fake $n" > "$T/mods/$n.cpython-39-aarch64-linux-gnu.so"; done
+check "modules with wrong checksum refused" "! bash $ROOT/scripts/stage_from_repo.sh ultra-s $T/st_bad $T/mods"
+RC2="$T/repocopy"; mkdir -p "$RC2"; cp -a "$ROOT/scripts" "$ROOT/config" "$ROOT/factory" "$RC2/"
+( cd "$T/mods" && sha256sum *.so | sed 's#  #  klippy/extras/#' ) > "$RC2/factory/ultra-s/modules.sha256"
+check "modules with matching checksum accepted" "bash $RC2/scripts/stage_from_repo.sh ultra-s $T/st_ok $T/mods && [ \"\$(cat $T/st_ok/modules_ok)\" = 1 ] && tar xzOf $T/st_ok/klipper.tgz klipper/klippy/extras/hx711.cpython-39-aarch64-linux-gnu.so | grep -q 'fake hx711'"
+check "damaged repo files refused" "cp -a $ROOT/factory $T/damaged_f && echo x >> $T/damaged_f/ultra-s/moonraker.tgz && mkdir -p $T/dm && cp -a $ROOT/scripts $ROOT/config $T/dm/ && rm -rf $T/dm/factory && cp -a $T/damaged_f $T/dm/factory && ! bash $T/dm/scripts/stage_from_repo.sh ultra-s $T/st_dm"
+
 echo; echo "passed: $PASS  failed: $FAIL"; [ "$FAIL" = 0 ]

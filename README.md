@@ -47,13 +47,13 @@ The installer never flashes any board and never starts Klipper unless you ask fo
 - Raspberry Pi OS **Bookworm 64-bit**, written with Raspberry Pi Imager. In the imager's settings set the **username to `t13dp`** (WonderMaker's software has `/home/t13dp` built in), enable SSH, and set your Wi-Fi or use a cable.
 - The **replacement main board** (WM-ZR-D V1.2 on the Ultra-S): it carries the Klipper USB-CAN bridge (USB id `1d50:606f`), and the toolheads and filament hub stay on its CAN bus.
 - A USB cable from the Pi to the main board.
-- The WonderMaker software from **your own printer**: reachable old board, a disk image of it, or a folder made earlier (see 3.1). It is not in this repo.
+- The WonderMaker software: from **your own printer** (reachable old board, a disk image, or a folder made earlier) or the factory files in this repo (see 3.1). The 5 compiled modules always come from a real printer or image.
 
 ### 2.2 How it is connected
 
 ![Wiring](docs/img/wiring.svg)
 
-The old board's job (screen, Wi-Fi, running Klipper) moves to the Pi. The main board, CAN bus, toolheads and hub are untouched. Details and checks: [docs/HARDWARE.md](docs/HARDWARE.md).
+The old board's job (screen, Wi-Fi, running Klipper) moves to the Pi. Step by step: [docs/WIRING.md](docs/WIRING.md). The main board, CAN bus, toolheads and hub are untouched. Details and checks: [docs/HARDWARE.md](docs/HARDWARE.md).
 
 ### 2.3 What is not covered
 
@@ -78,10 +78,13 @@ The installer first asks **where the WonderMaker software is**:
 1. **The old board is still reachable (SSH).** Give its IP. The default WonderMaker login is user `t13dp`, password `TM88888`. Only `tar` is run there, nothing is written.
 2. **A disk image of its card or eMMC** (`.img` or `.img.gz`). Needs `e2fsprogs` and free space about the unpacked image (about 8 GB for the Ultra-S image). No printer needed.
 3. **A stage folder** (`klipper.tgz`, `moonraker.tgz`, `data.tgz`) made by `scripts/pull_from_board.sh` or `scripts/extract_from_image.sh`.
+4. **Nothing at all: the factory files inside this repository** (`--from-github`). The repo carries the original Klipper and Moonraker of the **Ultra-S** (both GPL v3, license included) and the factory settings, with SHA256 checksums that are verified first. The **Ultra** (not S) is not available yet: it needs files from an Ultra owner. See [factory/README.md](factory/README.md).
+
+   WonderMaker's **5 compiled modules** (`cs1237`, `hx711`, `heater_air_core`, `heater_feng`, `xy_offset_calibrator_core`: heaters, load cells, calibration) are binaries without a license to redistribute, so they are **not** in the repo. Give the installer a folder that holds them (`--modules DIR`), taken from your own printer or its image. Each file is checked against the factory checksum and refused if it differs. Without them everything installs, but `--enable-klipper` refuses to start Klipper.
 
 Then: install the Fluidd Toolheads panel (default yes), copy ZR Tools (default no), and a final "go ahead?".
 
-Shortcuts: `--from-board IP`, `--from-image FILE`, `--from-stage DIR`.
+Shortcuts: `--from-board IP`, `--from-image FILE`, `--from-stage DIR`, `--from-github --model ultra-s [--modules DIR]`.
 
 ### 3.2 What it does
 
@@ -112,6 +115,7 @@ Shortcuts: `--from-board IP`, `--from-image FILE`, `--from-stage DIR`.
 |---|---|
 | `./installer.sh` | install (asks first) |
 | `./installer.sh --from-board IP` / `--from-image FILE` / `--from-stage DIR` | choose the source without being asked |
+| `./installer.sh --from-github --model ultra-s --modules DIR` | use the factory files in this repo; modules from your printer |
 | `./installer.sh --check` | report problems, change nothing |
 | `./installer.sh --dry-run` | show what would change |
 | `./installer.sh --enable-klipper` | start Klipper and enable it at boot (asks first) |
@@ -166,7 +170,8 @@ Without an Anycubic ACE Pro the ACE parts stay hidden. If you add one later, use
 
 ```
 installer.sh            the Pi installer
-scripts/                pull_from_board.sh, extract_from_image.sh, board_check.sh
+factory/                factory Klipper, Moonraker and settings (Ultra-S), checksums, license notes
+scripts/                pull_from_board.sh, extract_from_image.sh, stage_from_repo.sh, board_check.sh
 config/                 systemd units, nginx files, can0 udev rule, Klipper Python requirements
 fluidd/                 Fluidd v1.37.7 with the Toolheads panel (zip, checksum, patch)
 zr_tools/               optional KlipperScreen panel
@@ -174,7 +179,7 @@ docs/                   HARDWARE.md and images
 tests/run_tests.sh      tests (fake home, synthetic disk image)
 ```
 
-WonderMaker's own files (Klipper, Moonraker, your config) are deliberately **not** in this repository. The installer copies them from your printer.
+`factory/` holds the GPL parts (Klipper, Moonraker) and the factory settings of the Ultra-S. WonderMaker's compiled modules, MCU firmware and your own calibration are deliberately **not** in this repository.
 
 ## 9. Credits and license
 

@@ -10,6 +10,9 @@
 # ./installer.sh --from-board IP       take the software from the old board over SSH
 # ./installer.sh --from-image FILE     take it from a disk image of the old board (.img / .img.gz)
 # ./installer.sh --from-stage DIR      take it from a folder made by scripts/pull_from_board.sh
+# ./installer.sh --from-github         take the factory files that are inside this repository (no printer needed)
+# ./installer.sh --model ultra-s       printer model for --from-github (ultra-s; ultra not available yet)
+# ./installer.sh --modules DIR         folder with WonderMaker's 5 compiled modules (needed for --from-github)
 # ./installer.sh --check               report problems, change nothing
 # ./installer.sh --enable-klipper      start Klipper now and at every boot (do this when the main board is connected)
 # ./installer.sh --disable-klipper     stop Klipper and stop it from starting at boot
@@ -37,7 +40,7 @@ HOME_DIR="${WM_HOME:-$HOME}"
 TESTING="${WM_INSTALLER_TEST:-0}"        # 1 = no sudo, no apt, no systemctl, no network, no Python download
 MODE="install"
 DRY=0
-SRC_KIND=""; SRC_ARG=""
+SRC_KIND=""; SRC_ARG=""; MODEL="ultra-s"; MODULES_DIR=""; FROM_FACTORY=0
 WANT_PANEL=1; WANT_ZRTOOLS=0
 STAMP="$(date +%Y%m%d-%H%M%S)"
 BACKUP_ROOT="$HOME_DIR/wm-rpi-backup"
@@ -84,6 +87,9 @@ while [ $# -gt 0 ]; do
         --from-board)   SRC_KIND=board; SRC_ARG="${2:-}"; shift ;;
         --from-image)   SRC_KIND=image; SRC_ARG="${2:-}"; shift ;;
         --from-stage)   SRC_KIND=stage; SRC_ARG="${2:-}"; shift ;;
+        --from-github|--from-repo) SRC_KIND=repo; SRC_ARG="repo" ;;
+        --model)        MODEL="${2:-}"; shift ;;
+        --modules)      MODULES_DIR="${2:-}"; shift ;;
         --check)        MODE=check ;;
         --enable-klipper)  MODE=enable ;;
         --disable-klipper) MODE=disable ;;
@@ -132,12 +138,14 @@ choose_source() {
         echo "  1) The old board is still reachable on the network (SSH)"
         echo "  2) I have a disk image of its SD card / eMMC"
         echo "  3) I already have a stage folder (klipper.tgz, moonraker.tgz, data.tgz)"
-        local c; read -r -p "$(echo -e "${YELLOW}?${NC} Choose 1, 2 or 3: ")" c || c=""
+        echo "  4) I have nothing: use the factory files inside this repository (needs the 5 compiled modules, see below)"
+        local c; read -r -p "$(echo -e "${YELLOW}?${NC} Choose 1, 2, 3 or 4: ")" c || c=""
         case "$c" in
             1) SRC_KIND=board; read -r -p "  Old board IP address: " SRC_ARG ;;
             2) SRC_KIND=image; read -r -p "  Path of the image file: " SRC_ARG ;;
             3) SRC_KIND=stage; read -r -p "  Stage folder: " SRC_ARG ;;
-            *) die_with_fix "no source chosen." "run again and pick 1, 2 or 3 (or use --from-board / --from-image / --from-stage)." ;;
+            4) SRC_KIND=repo; SRC_ARG=repo ;;
+            *) die_with_fix "no source chosen." "run again and pick 1 to 4 (or use --from-board / --from-image / --from-stage / --from-github)." ;;
         esac
     fi
     [ -n "$SRC_ARG" ] || die_with_fix "no value given for the source." "see ./installer.sh --help"
@@ -150,10 +158,23 @@ choose_source() {
         image)
             [ -f "$SRC_ARG" ] || die_with_fix "image not found: $SRC_ARG" "give the full path."
             run bash "$SCRIPT_DIR/scripts/extract_from_image.sh" "$SRC_ARG" "$STAGE" || die_with_fix "could not read the image." "needs e2fsprogs and fdisk, and free space about the image size." ;;
+        repo)
+            FROM_FACTORY=1
+            [ -d "$SCRIPT_DIR/factory/$MODEL" ] || die_with_fix "no factory files for model '$MODEL' in this repository (only: $(ls "$SCRIPT_DIR/factory" | grep -v README | tr '\n' ' '))." "the Ultra (not S) has no files here yet: use option 1, 2 or 3 with files from an Ultra."
+            print_info "Using the factory files of the $MODEL in this repository (Klipper and Moonraker are GPL; see factory/README.md)."
+            echo "  The 5 compiled WonderMaker modules (heaters, load cells, calibration) are not in the repo: no license to publish them."
+            if [ -z "$MODULES_DIR" ] && [ "$DRY" != 1 ] && [ "${WM_ASSUME_YES:-0}" != 1 ]; then
+                echo "  They come from your printer or its image. Folder with the *.so files (empty = add later):"
+                read -r -p "  Modules folder: " MODULES_DIR || MODULES_DIR=""
+            fi
+            run bash "$SCRIPT_DIR/scripts/stage_from_repo.sh" "$MODEL" "$STAGE" $MODULES_DIR || die_with_fix "could not build the factory stage." "see the message above. A modules folder must hold the unmodified factory *.so files." ;;
         stage)
             [ -d "$SRC_ARG" ] || die_with_fix "stage folder not found: $SRC_ARG" "give the full path."
             STAGE="$SRC_ARG" ;;
     esac
+    if [ "$FROM_FACTORY" = 1 ] && [ "$DRY" != 1 ] && [ "$(cat "$STAGE/modules_ok" 2>/dev/null)" != 1 ]; then
+        warn_later "WonderMaker's 5 compiled modules were NOT installed. Without them Klipper cannot start the heaters, load cells or calibration. Copy them (from your printer or image) into ~/klipper/klippy/extras/ before ./installer.sh --enable-klipper."
+    fi
     if [ "$DRY" != 1 ]; then
         for f in klipper moonraker data; do
             [ -s "$STAGE/$f.tgz" ] || die_with_fix "$STAGE/$f.tgz is missing or empty." "pull again."
@@ -277,6 +298,7 @@ step_can() {
 }
 
 step_panel() {
+    [ -f "$HOME_DIR/fluidd/index.html" ] || [ "$DRY" = 1 ] || WANT_PANEL=1   # factory files carry no web interface: the panel build is the web interface
     [ "$WANT_PANEL" = 1 ] || return 0
     print_header "Step 10: Fluidd with the WonderMaker Toolheads panel"
     why "The Fluidd that came with the printer has no toolhead panel for the Ultra-S. This build adds it (toolheads, chamber, air filter, colours, filament mapping)."
@@ -351,6 +373,9 @@ do_enable() {
     lsusb 2>/dev/null | grep -qi 1d50:606f || print_warning "The USB-CAN bridge (1d50:606f) is not visible: is the main board connected?"
     grep -n 'canbus_uuid' "$HOME_DIR/printer_data/config/"*.cfg 2>/dev/null | sed 's/^/  config: /'
     print_info "canbus_uuid in the config belongs to the OLD main board. A new board has a new uuid: find it with 'scripts/board_check.sh' (Klipper stopped) and edit the cfg first."
+    local m missing=0
+    for m in "${COMPILED_MODULES[@]}"; do ls "$HOME_DIR/klipper/klippy/extras/$m".*.so >/dev/null 2>&1 || ls "$HOME_DIR/klipper/klippy/extras/$m.py" >/dev/null 2>&1 || { print_error "missing WonderMaker module: $m"; missing=1; }; done
+    if [ "$missing" = 1 ] && [ "$TESTING" != 1 ]; then die_with_fix "WonderMaker's compiled modules are not installed." "copy the unmodified *.so files into ~/klipper/klippy/extras/ (from your printer or its image)."; fi
     ask_yn "Enable and start Klipper now?" n || { echo "Not started."; exit 0; }
     SUDO systemctl enable klipper; SUDO systemctl restart klipper
     print_success "Klipper started. Watch: journalctl -u klipper -f"

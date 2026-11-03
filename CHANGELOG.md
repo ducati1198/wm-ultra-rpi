@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.0
+
+- New source: factory Klipper, Moonraker and settings of the Ultra-S inside the repo (`--from-github`), with SHA256 checks. Compiled WonderMaker modules are not included; they are verified against factory checksums when you supply them.
+- `scripts/stage_from_repo.sh`, `factory/`, `docs/WIRING.md`.
+- `--enable-klipper` refuses to start when the compiled modules are missing.
+
 ## 0.1.0
 
 - First version: Pi installer (source from old board, disk image or stage folder), Moonraker and nginx services, can0 rule, Klipper kept off until `--enable-klipper`.
