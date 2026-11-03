@@ -229,7 +229,7 @@ Settings page, and the Calibrate page on a 5 inch 800x480 screen (compact):
 
 **Rotation** is an operating-system setting, not a ZR Tools one. On X11 use `xrandr --output <name> --rotate left` (and a matching touch matrix); for Weston, `transform=90` in `weston.ini`. See the KlipperScreen documentation.
 
-`--update`, `--repair` and `--doctor` copy the panel files back if a KlipperScreen update removed them. Switching the WonderMaker screen board itself into a KlipperScreen is a later step and is not part of this.
+`--update`, `--repair` and `--doctor` copy the panel files back if a KlipperScreen update removed them. Using the original WonderMaker screen board as the KlipperScreen is section 5.2.
 
 ### 5.2 Use the original WonderMaker screen as the KlipperScreen (optional)
 
@@ -285,9 +285,6 @@ It removes KlipperScreen, turns the factory services back on exactly as they wer
 
 The script asks for your Pi's IP address. You can also give it with `--pi <address>`. To change it later, tap **Pi address** (on the start screen while the Pi cannot be reached, or in the More menu), or run `bash scripts/screen_board.sh --set-pi <address>`. The Pi does not have to be running during the install.
 
-```bash
-```
-
 What it does, in this order (everything that can fail comes before the factory app is stopped):
 
 1. Checks: nothing is printing, disk space, apt works, GitHub reachable. If a check fails nothing is changed.
@@ -295,6 +292,16 @@ What it does, in this order (everything that can fail comes before the factory a
 3. Installs the X11 and KlipperScreen packages (and a Wi-Fi page that uses the board's own `wpa_supplicant`, because the stock KlipperScreen Network page needs NetworkManager, which this board does not use: scan, tap a network, type the password; nothing is saved unless the connection works), KlipperScreen at the pinned commit, and ZR Tools. WonderMaker's own held X server is kept; its matching `xserver-xorg-legacy` is taken from `/packages/xserver` on the board.
 4. Stops and **disables** (deletes nothing) `makerbase-client` (the factory screen app), klipper, moonraker, nginx, crowsnest, makerbase-webcam, janus, klipper-mcu and hostapd, and obico/octoapp if you installed them. The previous state is saved in `~/wm-screen-backup/disabled.list`.
 5. Starts KlipperScreen with the Rockchip modesetting driver; if X does not start it switches to the plain framebuffer (`fbdev`) driver by itself (`--screen-driver fbdev` forces it).
+
+**What you need before you start:** the screen board powered, on your network (it keeps using its own Wi-Fi settings) and reachable over SSH as `t13dp` (default password in WonderMaker's image); about 1.5 GB free disk (the install needs it); and your Pi's IP address. The install takes about 20 minutes (the Python packages are built on the board).
+
+**On the screen after the install**
+
+- The ZR Tools tile is in the main menu. If the Pi cannot be reached, the start screen shows **Network**, **Pi address** and the usual buttons.
+- **Network** is the Wi-Fi page: it shows the current network and IP, **Scan again** lists the networks, tap one, type the password on the on-screen keyboard. If the connection fails it goes back to the previous network.
+- **Pi address** changes the Pi's IP address (also under More). It saves and restarts KlipperScreen.
+- The Pi's `moonraker.conf` must trust the board's address (`trusted_clients`), otherwise the Pi refuses the connection.
+- The board has 487 MB of RAM and no swap, so do not run other heavy programs on it.
 
 **Go back to the factory software** (any of these, nothing is lost):
 
@@ -327,6 +334,9 @@ On the Pi, `./installer.sh --screen-remove` removes KlipperScreen again (Klipper
 | Moonraker does not answer | `journalctl -u moonraker -n 50` |
 | No `can0` | Main board not powered or not on USB. `lsusb` should show `1d50:606f`. |
 | Klipper "mcu ... uuid" error | New board, new `canbus_uuid` (see 4). |
+| Screen board: `apt-get update` fails | Fix the clock and apt first (the block at the start of 5.2). |
+| Screen board: KlipperScreen says it cannot connect | Open **Pi address** on the screen and enter the Pi's IP; check the Pi is on and trusts the board in `moonraker.conf`. |
+| Screen board: black or wrong screen | `bash ~/wm-screen-backup/screen_board.sh --factory-restore` from SSH, or `--screen-driver fbdev` when installing. |
 
 ## 8. Repository layout
 
