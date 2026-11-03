@@ -3,7 +3,7 @@
 #
 #   ./stage_from_repo.sh <model> <stage-dir> [modules-dir]
 #
-#   model        ultra-s  or  ultra   (same firmware; the Ultra-S adds the chamber/air-filter/door file zru-s.cfg)
+#   model        ultra-s  or  ultra   (each has its own folder in factory/)
 #   modules-dir  optional: folder with your own copies of WonderMaker's 5 compiled modules (*.so).
 #                The repository already contains them; yours replace them if they match the checksums.
 #
@@ -11,7 +11,7 @@
 # factory checksums are refused.
 set -eu
 MODEL="${1:-}"; STAGE="${2:-}"; MODS="${3:-}"
-HERE="$(cd "$(dirname "$0")/.." && pwd)"; SRC="$HERE/factory/zru"
+HERE="$(cd "$(dirname "$0")/.." && pwd)"; SRC="$HERE/factory/$MODEL"
 case "$MODEL" in ultra|ultra-s) ;; *) echo "Unknown model '$MODEL' (use ultra or ultra-s)."; exit 1 ;; esac
 [ -n "$MODEL" ] && [ -n "$STAGE" ] || { echo "Usage: $0 <model> <stage-dir> [modules-dir]"; exit 1; }
 ( cd "$SRC" && sha256sum -c SHA256SUMS >/dev/null ) || { echo "Checksum of the factory files does not match: the repository copy is damaged or changed."; exit 1; }
@@ -19,7 +19,7 @@ case "$MODEL" in ultra|ultra-s) ;; *) echo "Unknown model '$MODEL' (use ultra or
 mkdir -p "$STAGE"; W="$(mktemp -d "$STAGE/.work.XXXXXX")"; trap 'rm -rf "$W"' EXIT
 cp -a "$SRC/klipper" "$SRC/moonraker" "$W/"
 
-# The 5 compiled modules ship inside factory/zru/klipper. Optionally replace them with your own copies.
+# The 5 compiled modules ship inside factory/$MODEL/klipper. Optionally replace them with your own copies.
 if [ -n "$MODS" ]; then
   [ -d "$MODS" ] || { echo "Modules folder not found: $MODS"; exit 1; }
   while read -r sum path; do
@@ -40,12 +40,6 @@ cp "$SRC/config/"* "$W/printer_data/config/"
 cp "$SRC/config/"* "$W/TM_T1/factory_settings/"
 cp "$HERE/config/env/"*.env "$W/printer_data/systemd/"
 cp "$HERE/config/moonraker.asvc" "$W/printer_data/moonraker.asvc"
-# Same firmware for both models: only the line that includes zru-s.cfg differs (WonderMaker's own set_zru_include.sh does the same).
-for d in "$W/printer_data/config" "$W/TM_T1/factory_settings"; do
-  if [ "$MODEL" = ultra-s ]; then sed -i 's/^[#[:space:]]*\[include zru-s.cfg\]/[include zru-s.cfg]/' "$d/printer.cfg"
-  else sed -i 's/^[#[:space:]]*\[include zru-s.cfg\]/# [include zru-s.cfg]/' "$d/printer.cfg"; fi
-done
-sed -i "s/^model=.*/model=$([ "$MODEL" = ultra-s ] && echo 2 || echo 1)/" "$W/printer_data/config/tmt1.ini" 2>/dev/null || true
 tar czf "$STAGE/klipper.tgz"   -C "$W" klipper
 tar czf "$STAGE/moonraker.tgz" -C "$W" moonraker
 tar czf "$STAGE/data.tgz"      -C "$W" printer_data fluidd TM_T1

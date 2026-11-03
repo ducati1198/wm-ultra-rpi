@@ -79,12 +79,12 @@ cd wm-ultra-rpi
 
 ### 3.1 The questions
 
-The installer first asks **where the WonderMaker software is**:
+The installer first asks **which printer you have** (ZR Ultra or ZR Ultra-S; or give `--model ultra|ultra-s`) and then **where the WonderMaker software is**:
 
 1. **The old board is still reachable (SSH).** Give its IP. The default WonderMaker login is user `t13dp`, password `TM88888`. Only `tar` is run there, nothing is written.
 2. **A disk image of its card or eMMC** (`.img` or `.img.gz`). Needs `e2fsprogs` and free space about the unpacked image (about 8 GB for the Ultra-S image). No printer needed.
 3. **A stage folder** (`klipper.tgz`, `moonraker.tgz`, `data.tgz`) made by `scripts/pull_from_board.sh` or `scripts/extract_from_image.sh`.
-4. **Nothing at all: the factory files inside this repository** (`--from-github`). The repo carries the original Klipper and Moonraker (both GPL v3, license included) and the factory settings, with SHA256 checksums that are verified first. The **Ultra** and **Ultra-S** use the same files; `--model ultra|ultra-s` switches the one include line that differs. See [factory/README.md](factory/README.md).
+4. **Nothing at all: the factory files inside this repository** (`--from-github`). The repo carries the original Klipper and Moonraker (both GPL v3, license included) and the factory settings, with SHA256 checksums that are verified first. There is a folder for each model: [`factory/ultra/`](factory/ultra) and [`factory/ultra-s/`](factory/ultra-s). See [factory/README.md](factory/README.md).
 
    WonderMaker's **5 compiled modules** (`cs1237`, `hx711`, `heater_air_core`, `heater_feng`, `xy_offset_calibrator_core`: heaters, load cells, calibration) are bundled in the repo too, copied unchanged from an Ultra-S and checked against their factory checksums. They are WonderMaker's binaries (no published license): see the takedown note in [factory/README.md](factory/README.md). `--modules DIR` uses your own copies instead.
 
@@ -93,6 +93,7 @@ The installer first asks **where the WonderMaker software is**:
 | Step | What and why |
 |---|---|
 | Checks | user is `t13dp`, 64-bit ARM, enough disk space |
+| Model | asks Ultra or Ultra-S and sets `printer.cfg` for it (the Ultra-S includes `zru-s.cfg`: chamber heater, air filter fan, door sensors). This applies to every source; your old `printer.cfg` is saved as `printer.cfg.wm-model-bak` if it had to change |
 | Packages | nginx, can-utils, build tools, libraries (apt) |
 | Groups | `moonraker-admin`, plus `dialout` and `plugdev` |
 | Python 3.9 | installed with `uv` into `~/.pythons` |
@@ -175,7 +176,8 @@ Without an Anycubic ACE Pro the ACE parts stay hidden. If you add one later, use
 
 ```
 installer.sh            the Pi installer
-factory/zru/            factory Klipper, Moonraker, settings, scripts (Ultra and Ultra-S), checksums, license notes
+factory/ultra/          WonderMaker ZR Ultra: Klipper, Moonraker, settings, scripts, checksums
+factory/ultra-s/        WonderMaker ZR Ultra-S: same, with the chamber/air-filter/door settings on
 scripts/                pull_from_board.sh, extract_from_image.sh, stage_from_repo.sh, board_check.sh
 config/                 systemd units, nginx files, can0 udev rule, pinned Python requirements, crowsnest template, addon version pins
 fluidd/                 Fluidd v1.37.7 with the Toolheads panel (zip, checksum, patch)

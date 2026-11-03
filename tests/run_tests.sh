@@ -112,11 +112,11 @@ PY
 else echo "  (skipped: mke2fs/debugfs missing)"; fi
 
 echo "== factory files from the repository (no printer)"
-(cd "$ROOT/factory/zru" && sha256sum -c SHA256SUMS >/dev/null) && echo "  ok   factory checksums" && PASS=$((PASS+1))
-check "factory sources are plain folders, committed" "[ -f $ROOT/factory/zru/klipper/klippy/klippy.py ] && [ -f $ROOT/factory/zru/moonraker/moonraker/moonraker.py ] && ! git -C $ROOT check-ignore -q factory/zru/klipper/klippy/klippy.py"
-check "the 5 compiled modules are in the repo and match their factory checksums" "cd $ROOT/factory/zru/klipper && sha256sum -c ../modules.sha256"
-check "klipper archive has its license" "[ -f $ROOT/factory/zru/klipper/COPYING ] && [ -f $ROOT/factory/zru/moonraker/LICENSE ]"
-check "factory config has placeholder CAN ids only" "grep -q aa0000000000 $ROOT/factory/zru/config/wm_zru_mcu.cfg"
+(cd "$ROOT/factory/ultra-s" && sha256sum -c SHA256SUMS >/dev/null) && echo "  ok   factory checksums" && PASS=$((PASS+1))
+check "factory sources are plain folders, committed" "[ -f $ROOT/factory/ultra-s/klipper/klippy/klippy.py ] && [ -f $ROOT/factory/ultra-s/moonraker/moonraker/moonraker.py ] && ! git -C $ROOT check-ignore -q factory/ultra-s/klipper/klippy/klippy.py"
+check "the 5 compiled modules are in the repo and match their factory checksums" "cd $ROOT/factory/ultra-s/klipper && sha256sum -c ../modules.sha256"
+check "klipper archive has its license" "[ -f $ROOT/factory/ultra-s/klipper/COPYING ] && [ -f $ROOT/factory/ultra-s/moonraker/LICENSE ]"
+check "factory config has placeholder CAN ids only" "grep -q aa0000000000 $ROOT/factory/ultra-s/config/wm_zru_mcu.cfg"
 HG="$T/hg"; mkdir -p "$HG"
 OUT="$(inst "$HG" --from-github --model ultra-s)"; echo "$OUT" > "$T/gh.out"
 check "install from repo works" "[ -f $HG/klipper/klippy/klippy.py ] && [ -f $HG/printer_data/config/printer.cfg ]"
@@ -127,26 +127,38 @@ check "env files in place" "grep -q KLIPPER_ARGS $HG/printer_data/systemd/klippe
 check "unknown model refused" "! inst $T/hg2 --from-github --model nope"
 check "ultra-s model enables zru-s.cfg" "grep -q '^\\[include zru-s.cfg\\]' $HG/printer_data/config/printer.cfg"
 HU="$T/hu"; mkdir -p "$HU"; inst "$HU" --from-github --model ultra >/dev/null
+check "ultra has its own factory folder" "[ -d $ROOT/factory/ultra/klipper/klippy ] && [ -f $ROOT/factory/ultra/config/printer.cfg ]"
+check "ultra folder: zru-s.cfg off, ultra-s folder: on" "grep -q '^# \\[include zru-s.cfg\\]' $ROOT/factory/ultra/config/printer.cfg && grep -q '^\\[include zru-s.cfg\\]' $ROOT/factory/ultra-s/config/printer.cfg"
+check "both folders pass their checksums" "(cd $ROOT/factory/ultra && sha256sum -c SHA256SUMS) && (cd $ROOT/factory/ultra-s && sha256sum -c SHA256SUMS)"
 check "ultra model leaves zru-s.cfg off" "grep -q '^# \\[include zru-s.cfg\\]' $HU/printer_data/config/printer.cfg && ! grep -q '^\\[include zru-s.cfg\\]' $HU/printer_data/config/printer.cfg"
-check "MCU firmware and flasher match their checksums" "cd $ROOT/factory/zru/mcu && sha256sum -c binaries.sha256"
-check "model variants of printer.cfg present" "[ -f $ROOT/factory/zru/config-variants/printer4.cfg ]"
+check "MCU firmware and flasher match their checksums" "cd $ROOT/factory/ultra-s/mcu && sha256sum -c binaries.sha256"
+check "model variants of printer.cfg present" "[ -f $ROOT/factory/ultra-s/config-variants/printer4.cfg ]"
 # modules: wrong files refused, right files accepted (use a copy of the repo with matching fake checksums)
 mkdir -p "$T/mods"; for n in cs1237 heater_air_core heater_feng hx711 xy_offset_calibrator_core; do echo "fake $n" > "$T/mods/$n.cpython-39-aarch64-linux-gnu.so"; done
 check "modules with wrong checksum refused" "! bash $ROOT/scripts/stage_from_repo.sh ultra-s $T/st_bad $T/mods"
 RC2="$T/repocopy"; mkdir -p "$RC2"; cp -a "$ROOT/scripts" "$ROOT/config" "$ROOT/factory" "$RC2/"
-( cd "$T/mods" && sha256sum *.so | sed 's#  #  klippy/extras/#' ) > "$RC2/factory/zru/modules.sha256"
+( cd "$T/mods" && sha256sum *.so | sed 's#  #  klippy/extras/#' ) > "$RC2/factory/ultra-s/modules.sha256"
 check "modules with matching checksum accepted" "bash $RC2/scripts/stage_from_repo.sh ultra-s $T/st_ok $T/mods && [ \"\$(cat $T/st_ok/modules_ok)\" = 1 ] && tar xzOf $T/st_ok/klipper.tgz klipper/klippy/extras/hx711.cpython-39-aarch64-linux-gnu.so | grep -q 'fake hx711'"
-check "damaged repo files refused" "cp -a $ROOT/factory $T/damaged_f && echo x >> $T/damaged_f/zru/moonraker/README.md && mkdir -p $T/dm && cp -a $ROOT/scripts $ROOT/config $T/dm/ && rm -rf $T/dm/factory && cp -a $T/damaged_f $T/dm/factory && ! bash $T/dm/scripts/stage_from_repo.sh ultra-s $T/st_dm"
+check "damaged repo files refused" "cp -a $ROOT/factory $T/damaged_f && echo x >> $T/damaged_f/ultra-s/moonraker/README.md && mkdir -p $T/dm && cp -a $ROOT/scripts $ROOT/config $T/dm/ && rm -rf $T/dm/factory && cp -a $T/damaged_f $T/dm/factory && ! bash $T/dm/scripts/stage_from_repo.sh ultra-s $T/st_dm"
 
 echo "== crowsnest, timelapse, pinned environments"
 check "addon pins are full commit ids" "grep -qE '^crowsnest\\|https://github.com/mainsail-crew/crowsnest\\|[0-9a-f]{40}\$' $ROOT/config/pins/addons.txt && grep -qE '^moonraker-timelapse\\|.*\\|[0-9a-f]{40}\$' $ROOT/config/pins/addons.txt"
 check "klippy requirements all pinned" "! grep -vE '^#|==' $ROOT/config/klippy-requirements.txt | grep -q ."
 check "moonraker requirements all pinned" "! grep -vE '^#|==' $ROOT/config/moonraker-requirements.txt | grep -q ."
-check "timelapse.cfg shipped (printer.cfg includes it)" "[ -f $ROOT/factory/zru/config/timelapse.cfg ] && grep -q 'include timelapse.cfg' $ROOT/factory/zru/config/printer.cfg"
-check "every include of the factory printer.cfg exists" "cd $ROOT/factory/zru/config && for f in \$(grep -E '^\\[include ' printer.cfg | sed 's/\\[include //;s/\\]//'); do [ -f \$f ] || { echo missing \$f; exit 1; }; done"
+check "timelapse.cfg shipped (printer.cfg includes it)" "[ -f $ROOT/factory/ultra-s/config/timelapse.cfg ] && grep -q 'include timelapse.cfg' $ROOT/factory/ultra-s/config/printer.cfg"
+check "every include of the factory printer.cfg exists" "cd $ROOT/factory/ultra-s/config && for f in \$(grep -E '^\\[include ' printer.cfg | sed 's/\\[include //;s/\\]//'); do [ -f \$f ] || { echo missing \$f; exit 1; }; done"
 check "crowsnest installed (unattended) in test log" "grep -q 'make install (crowsnest)' $HG/.sudo.log"
 check "crowsnest.conf placed" "[ -f $HG/printer_data/config/crowsnest.conf ]"
 check "ffmpeg requested for timelapse" "grep -q 'apt-get install -y ffmpeg' $HG/.sudo.log"
 check "moonraker.asvc lists crowsnest" "grep -q crowsnest $HG/printer_data/moonraker.asvc"
+
+echo "== model is applied to every source"
+H8="$T/h8"; mkdir -p "$H8"; echo "[include zru-s.cfg]" >> "$T/src_home/printer_data/config/printer.cfg"; mkstage "$T/stage_s"; echo "[include zru-s.cfg]" >> "$T/src_home/printer_data/config/printer.cfg"; tar czf "$T/stage_s/data.tgz" -C "$T/src_home" --exclude=printer_data/gcodes printer_data fluidd TM_T1
+inst "$H8" --from-stage "$T/stage_s" --model ultra > /dev/null
+check "ultra chosen with a stage that has zru-s on: switched off, backup kept" "grep -q '^# \\[include zru-s.cfg\\]' $H8/printer_data/config/printer.cfg && [ -f $H8/printer_data/config/printer.cfg.wm-model-bak ]"
+H9="$T/h9"; mkdir -p "$H9"; inst "$H9" --from-stage "$T/stage_s" --model ultra-s > /dev/null
+check "ultra-s chosen: zru-s on" "grep -q '^\\[include zru-s.cfg\\]' $H9/printer_data/config/printer.cfg && [ \"\$(cat $H9/printer_data/wm-model)\" = ultra-s ]"
+H10="$T/h10"; mkdir -p "$H10"; printf '1\ny\ny\ny\nn\ny\n' | WM_HOME="$H10" WM_INSTALLER_TEST=1 bash "$ROOT/installer.sh" --from-github > "$T/ask.out" 2>&1
+check "installer asks for the model when not given" "grep -q 'Which printer do you have' $T/ask.out && [ \"\$(cat $H10/printer_data/wm-model)\" = ultra ]"
 
 echo; echo "passed: $PASS  failed: $FAIL"; [ "$FAIL" = 0 ]

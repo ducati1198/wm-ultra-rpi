@@ -1,0 +1,33 @@
+{
+    "files.associations": {
+        "dev_cs1237.h": "c",
+        "math.h": "c",
+        "ctr.h": "c",
+        "cmath": "c",
+        "array": "c",
+        "string": "c",
+        "string_view": "c",
+        "ranges": "c",
+        "misc.h": "c",
+        "sched.h": "c",
+        "internal.h": "c",
+        "compiler.h": "c",
+        "command.h": "c",
+        "stdarg.h": "c",
+        "gpio.h": "c",
+        "stm32f0xx.h": "c",
+        "stm32f2xx.h": "c",
+        "stm32f4xx.h": "c",
+        "stm32f7xx.h": "c",
+        "stm32f479xx.h": "c",
+        "stm32f410rx.h": "c",
+        "stm32f412cx.h": "c",
+        "stm32f413xx.h": "c",
+        "stm32f417xx.h": "c",
+        "stm32f407xx.h": "c",
+        "armcm_timer.h": "c",
+        "random": "c",
+        "pgm.h": "c",
+        "stm32f401xc.h": "c"
+    }
+}

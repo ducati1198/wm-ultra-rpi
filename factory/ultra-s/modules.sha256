@@ -1,0 +1,5 @@
+c894b72faeef93e3857bf0856b49391ab12c86d9545ee90de1e05336db9e7b87  klippy/extras/cs1237.cpython-39-aarch64-linux-gnu.so
+b3a20b89033953d21f013fd1c3db682c5791b9c586d8693345b9a989ed47fb4e  klippy/extras/heater_air_core.cpython-39-aarch64-linux-gnu.so
+ac798bd5ca642042cb5bdcb194e9d86a245ceeab3f7ac7e8ff1f46e9481eecb9  klippy/extras/heater_feng.cpython-39-aarch64-linux-gnu.so
+390e4fa8c1b507c4fef4f257be3cee56a7010cdac97535ffc45c669980f35b53  klippy/extras/hx711.cpython-39-aarch64-linux-gnu.so
+17e73dbd110e26ef75822f0f23b2b7a35f2fc5b4769151abf2cbe10d686a29fb  klippy/extras/xy_offset_calibrator_core.cpython-39-aarch64-linux-gnu.so

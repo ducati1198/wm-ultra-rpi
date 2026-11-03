@@ -11,7 +11,7 @@
 # ./installer.sh --from-image FILE     take it from a disk image of the old board (.img / .img.gz)
 # ./installer.sh --from-stage DIR      take it from a folder made by scripts/pull_from_board.sh
 # ./installer.sh --from-github         take the factory files that are inside this repository (no printer needed)
-# ./installer.sh --model ultra|ultra-s printer model for --from-github (default ultra-s)
+# ./installer.sh --model ultra|ultra-s your printer (asked if not given; sets up printer.cfg for it)
 # ./installer.sh --modules DIR         optional: your own copies of the 5 compiled modules (replace the bundled ones)
 # ./installer.sh --check               report problems, change nothing
 # ./installer.sh --enable-klipper      start Klipper now and at every boot (do this when the main board is connected)
@@ -130,6 +130,17 @@ service_state() { systemctl is-active "$1" 2>/dev/null || true; }
 # ============================================================================
 # Source of the WonderMaker software
 # ============================================================================
+ask_model() {
+    case "$MODEL" in ultra|ultra-s) ;; *) die_with_fix "unknown model '$MODEL'." "use --model ultra or --model ultra-s." ;; esac
+    [ -n "${MODEL_SET:-}" ] || [ "${WM_ASSUME_YES:-0}" = 1 ] && { print_info "Printer model: $MODEL"; return; }
+    print_header "Which printer do you have?"
+    echo "  1) WonderMaker ZR Ultra"
+    echo "  2) WonderMaker ZR Ultra-S (chamber heater, air filter, door sensors)"
+    local m; read -r -p "$(echo -e "${YELLOW}?${NC} Choose 1 or 2 [2]: ")" m || m=""
+    [ "$m" = 1 ] && MODEL=ultra || MODEL=ultra-s
+    print_success "Model: $MODEL"
+}
+
 choose_source() {
     print_header "Where is the WonderMaker software?"
     echo "The Pi runs WonderMaker's own Klipper, Moonraker and your settings. They are not in this repo."
@@ -160,9 +171,6 @@ choose_source() {
             run bash "$SCRIPT_DIR/scripts/extract_from_image.sh" "$SRC_ARG" "$STAGE" || die_with_fix "could not read the image." "needs e2fsprogs and fdisk, and free space about the image size." ;;
         repo)
             FROM_FACTORY=1
-            if [ -z "${MODEL_SET:-}" ] && [ "${WM_ASSUME_YES:-0}" != 1 ]; then
-                read -r -p "  Which printer? 1) ZR Ultra  2) ZR Ultra-S [2]: " m || m=""; [ "$m" = 1 ] && MODEL=ultra || MODEL=ultra-s
-            fi
             case "$MODEL" in ultra|ultra-s) ;; *) die_with_fix "unknown model '$MODEL'." "use --model ultra or --model ultra-s." ;; esac
             print_info "Using the factory files of the $MODEL in this repository (Klipper and Moonraker are GPL; see factory/README.md)."
             echo "  The repository includes WonderMaker's 5 compiled modules (heaters, load cells, calibration), checked against factory checksums."
@@ -230,6 +238,21 @@ step_unpack() {
     for d in klipper moonraker printer_data fluidd; do record "HOMEDIR $d"; done
     [ -d "$HOME_DIR/klipper/klippy" ] || [ "$DRY" = 1 ] || die_with_fix "~/klipper/klippy is missing after unpacking." "the stage folder is incomplete: pull again."
     print_success "Unpacked"
+}
+
+step_model() {
+    print_header "Step 4b: set up for the $MODEL"
+    why "The Ultra-S has a chamber heater, air filter fan and door sensors (zru-s.cfg). The Ultra does not. printer.cfg must include it only on the Ultra-S."
+    local cfg="$HOME_DIR/printer_data/config/printer.cfg"
+    if [ "$DRY" = 1 ] || [ ! -f "$cfg" ]; then echo -e "  ${DIM}would set the zru-s.cfg include for the $MODEL${NC}"; return 0; fi
+    local want; [ "$MODEL" = ultra-s ] && want='[include zru-s.cfg]' || want='# [include zru-s.cfg]'
+    if grep -qxF "$want" "$cfg"; then print_success "printer.cfg already matches the $MODEL"; else
+        cp "$cfg" "$cfg.wm-model-bak"
+        if grep -qE '^[#[:space:]]*\[include zru-s.cfg\]' "$cfg"; then sed -i "s/^[#[:space:]]*\[include zru-s.cfg\]/$want/" "$cfg"
+        elif [ "$MODEL" = ultra-s ]; then printf '\n[include zru-s.cfg]\n' >> "$cfg"; fi
+        print_success "printer.cfg set for the $MODEL (copy of the old one: printer.cfg.wm-model-bak)"
+    fi
+    echo "$MODEL" > "$HOME_DIR/printer_data/wm-model"
 }
 
 step_venvs() {
@@ -454,9 +477,10 @@ case "$MODE" in
 esac
 
 check_system
+ask_model
 choose_source
 questions
-step_packages; step_groups; step_python; step_unpack; step_venvs; step_modules
+step_packages; step_groups; step_python; step_unpack; step_model; step_venvs; step_modules
 step_services; step_nginx; step_can; step_panel; step_zrtools; step_timelapse; step_crowsnest; step_start
 
 print_header "Done"

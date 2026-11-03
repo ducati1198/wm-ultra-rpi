@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.6.0
+
+- Separate folders `factory/ultra/` and `factory/ultra-s/`.
+- The installer asks for the model (or `--model`) and sets `printer.cfg` for it with every source (board, image, folder, repo).
+
 ## 0.5.0
 
 - Klipper and Moonraker are plain folders in `factory/zru/` (the earlier archives were never pushed).
