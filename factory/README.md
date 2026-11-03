@@ -36,6 +36,8 @@ WonderMaker's official firmware download: https://wondermaker3d.gitbook.io/wonde
 
 If WonderMaker gives written permission to redistribute the binaries, they can be added here.
 
+Note: three Moonraker Python files (`server.py`, `application.py`, `storage_monitor.py`) had Windows line endings in WonderMaker's copy; they are stored with Unix line endings (Git converts them on upload). Nothing else differs.
+
 ## Verify
 
 ```
