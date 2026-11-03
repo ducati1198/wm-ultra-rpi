@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.13.9
+
+- README: links to wm-ultra-fluidd-acepro-panel and its OrcaSlicer plugin at the top, in the plugin section and in the credits.
+
 ## 0.13.8
 
 - README: step-by-step install of the OrcaSlicer plugin (section 5), including the panel repository install it needs on the Pi.
