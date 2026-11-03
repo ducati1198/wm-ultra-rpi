@@ -191,6 +191,8 @@ The Fluidd build from [wm-ultra-fluidd-acepro-panel](https://github.com/ducati11
 
 Without an Anycubic ACE Pro the ACE parts stay hidden. If you add one later, use [wm-ultra-fluidd-acepro-panel](https://github.com/ducati1198/wm-ultra-fluidd-acepro-panel).
 
+**OrcaSlicer plugin (no ACE Pro needed).** The panel repo also has an OrcaSlicer 2.5 plugin, [WM Toolhead Mapper](https://github.com/ducati1198/wm-ultra-fluidd-acepro-panel/tree/main/orca_plugin). It lets you pick which toolhead prints each filament inside Orca, and writes the choice into the G-code. It reads your four toolheads (colour, material, loaded or empty) from the printer, so it works with or without an ACE Pro. It needs the panel repo's `wm_stats.cfg` on the printer (that repo's `./installer.sh` adds it). **Not yet tested in OrcaSlicer or on a printer.**
+
 ## 6. KlipperScreen on the Raspberry Pi (touchscreen)
 
 Use this if you connect a touchscreen directly to the Raspberry Pi. KlipperScreen runs on the Pi next to Klipper and Moonraker, with the ZR Tools panel. For the original WonderMaker screen board as the screen, see section 7 instead.

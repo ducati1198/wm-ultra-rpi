@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.13.7
+
+- README: section 5 now mentions the OrcaSlicer plugin of the panel repo (works without an ACE Pro; not yet tested).
+
 ## 0.13.6
 
 - Fix: the PolicyKit check could not see the rule (its folder is root-only), so it reported a false problem. It now checks with sudo.
