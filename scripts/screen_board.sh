@@ -120,7 +120,6 @@ preflight() {
         grep -q 'VERSION_ID="11"' /etc/os-release 2>/dev/null || die_with_fix "this is not Debian 11." "this script is written for the WonderMaker screen board image (Debian 11)."
         [ "$(uname -m)" = aarch64 ] || die_with_fix "not a 64-bit ARM board." "run it on the WonderMaker screen board."
         [ -e /dev/fb0 ] || print_warning "/dev/fb0 not found: the screen may not be initialised."
-        [ -e /dev/tty0 ] || print_warning "/dev/tty0 not found: KlipperScreen's service needs a virtual console and may not start."
     fi
     [ -n "$PI_HOST" ] || PI_HOST="wmpi.local"   # only written into KlipperScreen.conf; the Pi is not contacted
     if printing_now && [ "$FORCE" != 1 ]; then die_with_fix "a print is running or paused." "wait until it finishes (or --force)."; fi
