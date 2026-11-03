@@ -287,7 +287,6 @@ bash scripts/screen_board.sh               # asks for your Pi's IP address, then
 **To uninstall KlipperScreen and go back to the factory screen** (over SSH, as `t13dp`):
 
 ```bash
-cd wm-ultra-rpi
 bash ~/wm-screen-backup/screen_board.sh --factory-restore
 ```
 
