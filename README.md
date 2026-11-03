@@ -276,9 +276,10 @@ cd ~
 git clone https://github.com/ducati1198/wm-ultra-rpi && cd wm-ultra-rpi
 ```
 
-Then, with either option:
+Then, cd wm-ultra-rpi and with either option:
 
 ```bash
+cd wm-ultra-rpi
 bash scripts/screen_board.sh --dry-run     # shows every change, changes nothing (it asks for the Pi's IP address)
 bash scripts/screen_board.sh               # asks for your Pi's IP address, then installs
 ```
@@ -286,6 +287,7 @@ bash scripts/screen_board.sh               # asks for your Pi's IP address, then
 **To uninstall KlipperScreen and go back to the factory screen** (over SSH, as `t13dp`):
 
 ```bash
+cd wm-ultra-rpi
 bash ~/wm-screen-backup/screen_board.sh --factory-restore
 ```
 
