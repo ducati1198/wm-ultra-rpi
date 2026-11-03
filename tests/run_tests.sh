@@ -52,12 +52,12 @@ inst "$H" --from-stage "$T/stage" >/dev/null
 check "previous printer_data saved" "ls $H/wm-rpi-backup/old-*/printer_data/config/mine.cfg"
 
 echo "== without the panel"
-H2="$T/h2"; mkdir -p "$H2"; printf 'n\nn\ny\n' > "$T/ans"
+H2="$T/h2"; mkdir -p "$H2"; printf 'n\nn\nn\nn\ny\n' > "$T/ans"
 WM_HOME="$H2" WM_INSTALLER_TEST=1 bash "$ROOT/installer.sh" --from-stage "$T/stage" < "$T/ans" >/dev/null 2>&1
 check "panel declined: old fluidd kept" "grep -q old $H2/fluidd/index.html"
 
 echo "== zr_tools option"
-H3="$T/h3"; mkdir -p "$H3"; printf 'y\ny\ny\n' > "$T/ans3"
+H3="$T/h3"; mkdir -p "$H3"; printf 'y\ny\ny\ny\ny\n' > "$T/ans3"
 WM_HOME="$H3" WM_INSTALLER_TEST=1 bash "$ROOT/installer.sh" --from-stage "$T/stage" < "$T/ans3" >/dev/null 2>&1
 check "zr_tools copied" "[ -f $H3/zr_tools/zr_tools.py ]"
 
@@ -135,5 +135,16 @@ RC2="$T/repocopy"; mkdir -p "$RC2"; cp -a "$ROOT/scripts" "$ROOT/config" "$ROOT/
 ( cd "$T/mods" && sha256sum *.so | sed 's#  #  klippy/extras/#' ) > "$RC2/factory/zru/modules.sha256"
 check "modules with matching checksum accepted" "bash $RC2/scripts/stage_from_repo.sh ultra-s $T/st_ok $T/mods && [ \"\$(cat $T/st_ok/modules_ok)\" = 1 ] && tar xzOf $T/st_ok/klipper.tgz klipper/klippy/extras/hx711.cpython-39-aarch64-linux-gnu.so | grep -q 'fake hx711'"
 check "damaged repo files refused" "cp -a $ROOT/factory $T/damaged_f && echo x >> $T/damaged_f/zru/moonraker.tgz && mkdir -p $T/dm && cp -a $ROOT/scripts $ROOT/config $T/dm/ && rm -rf $T/dm/factory && cp -a $T/damaged_f $T/dm/factory && ! bash $T/dm/scripts/stage_from_repo.sh ultra-s $T/st_dm"
+
+echo "== crowsnest, timelapse, pinned environments"
+check "addon pins are full commit ids" "grep -qE '^crowsnest\\|https://github.com/mainsail-crew/crowsnest\\|[0-9a-f]{40}\$' $ROOT/config/pins/addons.txt && grep -qE '^moonraker-timelapse\\|.*\\|[0-9a-f]{40}\$' $ROOT/config/pins/addons.txt"
+check "klippy requirements all pinned" "! grep -vE '^#|==' $ROOT/config/klippy-requirements.txt | grep -q ."
+check "moonraker requirements all pinned" "! grep -vE '^#|==' $ROOT/config/moonraker-requirements.txt | grep -q ."
+check "timelapse.cfg shipped (printer.cfg includes it)" "[ -f $ROOT/factory/zru/config/timelapse.cfg ] && grep -q 'include timelapse.cfg' $ROOT/factory/zru/config/printer.cfg"
+check "every include of the factory printer.cfg exists" "cd $ROOT/factory/zru/config && for f in \$(grep -E '^\\[include ' printer.cfg | sed 's/\\[include //;s/\\]//'); do [ -f \$f ] || { echo missing \$f; exit 1; }; done"
+check "crowsnest installed (unattended) in test log" "grep -q 'make install (crowsnest)' $HG/.sudo.log"
+check "crowsnest.conf placed" "[ -f $HG/printer_data/config/crowsnest.conf ]"
+check "ffmpeg requested for timelapse" "grep -q 'apt-get install -y ffmpeg' $HG/.sudo.log"
+check "moonraker.asvc lists crowsnest" "grep -q crowsnest $HG/printer_data/moonraker.asvc"
 
 echo; echo "passed: $PASS  failed: $FAIL"; [ "$FAIL" = 0 ]

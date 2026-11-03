@@ -41,7 +41,7 @@ TESTING="${WM_INSTALLER_TEST:-0}"        # 1 = no sudo, no apt, no systemctl, no
 MODE="install"
 DRY=0
 SRC_KIND=""; SRC_ARG=""; MODEL="ultra-s"; MODULES_DIR=""; FROM_FACTORY=0
-WANT_PANEL=1; WANT_ZRTOOLS=0
+WANT_PANEL=1; WANT_ZRTOOLS=0; WANT_TIMELAPSE=1; WANT_CROWSNEST=1
 STAMP="$(date +%Y%m%d-%H%M%S)"
 BACKUP_ROOT="$HOME_DIR/wm-rpi-backup"
 STATE="$BACKUP_ROOT/installed.manifest"
@@ -238,7 +238,7 @@ step_unpack() {
 
 step_venvs() {
     print_header "Step 5: Python environments"
-    why "Klipper and Moonraker each get their own environment with the package versions WonderMaker used."
+    why "Klipper and Moonraker each get their own environment with the exact package versions of WonderMaker's image (config/*-requirements.txt)."
     [ "$TESTING" = 1 ] && { echo "[test] venvs skipped"; return; }
     [ "$DRY" = 1 ] && { echo -e "  ${DIM}would create ~/klippy-env and ~/moonraker-env with Python 3.9${NC}"; return; }
     "$PY39" -m venv "$HOME_DIR/klippy-env" || die_with_fix "could not create klippy-env." "run again."
@@ -246,9 +246,7 @@ step_venvs() {
     "$HOME_DIR/klippy-env/bin/pip" install -q -r "$SCRIPT_DIR/config/klippy-requirements.txt" || die_with_fix "Klipper's packages did not install." "see the message above."
     "$PY39" -m venv "$HOME_DIR/moonraker-env"
     "$HOME_DIR/moonraker-env/bin/pip" install -q -U pip wheel "setuptools<66"
-    local req="$HOME_DIR/moonraker/scripts/moonraker-requirements.txt"
-    [ -f "$req" ] || req="$(ls "$HOME_DIR"/moonraker/scripts/*requirements*.txt 2>/dev/null | head -1)"
-    [ -n "$req" ] && "$HOME_DIR/moonraker-env/bin/pip" install -q -r "$req" || die_with_fix "Moonraker's packages did not install." "see the message above."
+    "$HOME_DIR/moonraker-env/bin/pip" install -q -r "$SCRIPT_DIR/config/moonraker-requirements.txt" || die_with_fix "Moonraker's packages did not install." "see the message above."
     record "HOMEDIR klippy-env"; record "HOMEDIR moonraker-env"
     print_success "Environments ready"
 }
@@ -332,8 +330,49 @@ step_zrtools() {
     record "HOMEDIR zr_tools"
 }
 
+fetch_addon() {  # url sha dir : clone once, then pin to the version WonderMaker ships
+    local url="$1" sha="$2" dir="$3"
+    [ "$DRY" = 1 ] && { echo -e "  ${DIM}would run: git clone $url $dir @ ${sha:0:7}${NC}"; return 0; }
+    if [ "$TESTING" = 1 ]; then mkdir -p "$dir/component" "$dir/klipper_macro"; echo "[test] fetch $url @ $sha" >> "$HOME_DIR/.sudo.log"; return 0; fi
+    [ -d "$dir/.git" ] || git clone -q "$url" "$dir" || return 1
+    git -C "$dir" checkout -q "$sha"
+}
+addon_pin() { grep "^$1|" "$SCRIPT_DIR/config/pins/addons.txt" | cut -d'|' -f2,3; }
+
+step_timelapse() {
+    [ "$WANT_TIMELAPSE" = 1 ] || return 0
+    print_header "Step 12: Moonraker timelapse"
+    why "WonderMaker's config includes timelapse.cfg and a [timelapse] section; the component and ffmpeg make them work."
+    SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y ffmpeg
+    local pin url sha; pin="$(addon_pin moonraker-timelapse)"; url="${pin%|*}"; sha="${pin#*|}"
+    fetch_addon "$url" "$sha" "$HOME_DIR/moonraker-timelapse" || { warn_later "Could not download moonraker-timelapse (network?)."; return 0; }
+    run mkdir -p "$HOME_DIR/printer_data/timelapse" "$HOME_DIR/moonraker/moonraker/components"
+    [ -f "$HOME_DIR/moonraker/moonraker/components/timelapse.py" ] || run ln -sf "$HOME_DIR/moonraker-timelapse/component/timelapse.py" "$HOME_DIR/moonraker/moonraker/components/timelapse.py"
+    [ -f "$HOME_DIR/printer_data/config/timelapse.cfg" ] || run cp "$HOME_DIR/moonraker-timelapse/klipper_macro/timelapse.cfg" "$HOME_DIR/printer_data/config/timelapse.cfg"
+    record "HOMEDIR moonraker-timelapse"
+    print_success "Timelapse ready"
+}
+
+step_crowsnest() {
+    [ "$WANT_CROWSNEST" = 1 ] || return 0
+    print_header "Step 13: webcam service (crowsnest)"
+    why "Streams USB cameras on ports 8080-8083, where the nginx config looks for them. Built from the version WonderMaker ships."
+    local pin url sha; pin="$(addon_pin crowsnest)"; url="${pin%|*}"; sha="${pin#*|}"
+    fetch_addon "$url" "$sha" "$HOME_DIR/crowsnest" || { warn_later "Could not download crowsnest (network?)."; return 0; }
+    [ -f "$HOME_DIR/printer_data/config/crowsnest.conf" ] || run cp "$SCRIPT_DIR/config/crowsnest.conf" "$HOME_DIR/printer_data/config/crowsnest.conf"
+    if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would run: sudo make install in ~/crowsnest (unattended; builds ustreamer, installs crowsnest.service)${NC}"
+    elif [ "$TESTING" = 1 ]; then echo "[test] sudo make install (crowsnest)" >> "$HOME_DIR/.sudo.log"
+    else
+        local conf="$HOME_DIR/printer_data/config/crowsnest.conf"; cp "$conf" "$conf.wm-keep"   # crowsnest's installer replaces the file with its own default
+        ( cd "$HOME_DIR/crowsnest" && sudo env CROWSNEST_UNATTENDED=1 CROWSNEST_ADD_CROWSNEST_MOONRAKER=0 make install ) || { warn_later "crowsnest install failed. See the output above; webcams are optional."; cp "$conf.wm-keep" "$conf"; return 0; }
+        cp "$conf.wm-keep" "$conf"; rm -f "$conf.wm-keep"
+    fi
+    record "HOMEDIR crowsnest"; record "FILE /etc/systemd/system/crowsnest.service"
+    print_success "crowsnest installed. Set your camera in ~/printer_data/config/crowsnest.conf (ls /dev/v4l/by-id/), then: sudo systemctl restart crowsnest"
+}
+
 step_start() {
-    print_header "Step 12: start Moonraker"
+    print_header "Step 14: start Moonraker"
     SUDO systemctl restart moonraker
     if [ "$TESTING" != 1 ] && [ "$DRY" != 1 ]; then
         sleep 4
@@ -344,6 +383,8 @@ step_start() {
 questions() {
     print_header "A few questions"
     ask_yn "Install the Fluidd with the WonderMaker Toolheads panel (recommended)?" y || WANT_PANEL=0
+    ask_yn "Install webcam support (crowsnest, as WonderMaker uses)?" y || WANT_CROWSNEST=0
+    ask_yn "Install timelapse support (Moonraker timelapse + ffmpeg)?" y || WANT_TIMELAPSE=0
     ask_yn "Copy the ZR Tools KlipperScreen panel too? (only if you plan a touchscreen on the Pi)" n && WANT_ZRTOOLS=1
     echo; echo "  The installer will: install packages, add Python 3.9, unpack WonderMaker's software into ~,"
     echo "  install the Moonraker + nginx services and a can0 rule. Klipper stays OFF."
@@ -420,7 +461,7 @@ check_system
 choose_source
 questions
 step_packages; step_groups; step_python; step_unpack; step_venvs; step_modules
-step_services; step_nginx; step_can; step_panel; step_zrtools; step_start
+step_services; step_nginx; step_can; step_panel; step_zrtools; step_timelapse; step_crowsnest; step_start
 
 print_header "Done"
 if [ ${#WARNINGS[@]} -gt 0 ]; then for w in "${WARNINGS[@]}"; do print_warning "$w"; done; fi

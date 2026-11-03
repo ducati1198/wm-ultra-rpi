@@ -18,6 +18,7 @@ The ZR Ultra and ZR Ultra-S run the **same** firmware and files. The only differ
 | `printer.cfg` per toolhead count | `config-variants/printer1.cfg` ... `printer4.cfg` (1 to 4 toolheads, as WonderMaker ships them) |
 | WonderMaker's helper scripts | `scripts/` (CAN id tools, restore factory settings, `set_zru_include.sh`, ...) |
 | MCU update scripts and info | `mcu/*.sh`, `mcu/mcu_info.ini` (never run by the installer) |
+| Python environments | not stored (machine-built folders): rebuilt from `config/klippy-requirements.txt` and `config/moonraker-requirements.txt` |
 | Checksums | `SHA256SUMS`, `modules.sha256` (compiled modules), `mcu/binaries.sha256` (MCU firmware and flasher) |
 
 ## What is NOT here, and why

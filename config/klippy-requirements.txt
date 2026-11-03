@@ -1,9 +1,10 @@
+# Exact packages of WonderMaker's klippy-env (read from the factory image), Python 3.9
 aenum==3.1.15
 cffi==1.14.6
 greenlet==2.0.2
 Jinja2==2.11.3
 MarkupSafe==1.1.1
-numpy<1.24
+numpy==2.0.2
 pycparser==2.21
 pyserial==3.4
 python-can==3.3.4

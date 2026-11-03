@@ -38,6 +38,7 @@ mkdir -p "$W/printer_data/config" "$W/printer_data/systemd" "$W/printer_data/gco
 cp "$SRC/config/"* "$W/printer_data/config/"
 cp "$SRC/config/"* "$W/TM_T1/factory_settings/"
 cp "$HERE/config/env/"*.env "$W/printer_data/systemd/"
+cp "$HERE/config/moonraker.asvc" "$W/printer_data/moonraker.asvc"
 # Same firmware for both models: only the line that includes zru-s.cfg differs (WonderMaker's own set_zru_include.sh does the same).
 for d in "$W/printer_data/config" "$W/TM_T1/factory_settings"; do
   if [ "$MODEL" = ultra-s ]; then sed -i 's/^[#[:space:]]*\[include zru-s.cfg\]/[include zru-s.cfg]/' "$d/printer.cfg"

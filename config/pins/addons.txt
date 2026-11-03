@@ -1,0 +1,2 @@
+crowsnest|https://github.com/mainsail-crew/crowsnest|f7ac6aa298143f0019eae9b2b2be8039196ebeda
+moonraker-timelapse|https://github.com/mainsail-crew/moonraker-timelapse|c7fff11e542b95e0e15b8bb1443cea8159ac0274

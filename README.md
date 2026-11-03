@@ -33,6 +33,8 @@ The installer never flashes any board and never starts Klipper unless you ask fo
 | A Pi that replaces the dead screen/host board | Raspberry Pi 400 (or any 64-bit Pi 4/5 class) with Raspberry Pi OS Bookworm |
 | WonderMaker's own software, copied from your printer | Klipper and Moonraker forks, your `printer.cfg`, calibration, factory settings |
 | Python 3.9 next to Bookworm's 3.11 | needed for WonderMaker's compiled modules |
+| Exact package versions of WonderMaker's `klippy-env` and `moonraker-env` | pinned lists in `config/`, read from the factory image |
+| Webcams and timelapse | crowsnest and Moonraker timelapse, the versions WonderMaker ships |
 | Fluidd with a **Toolheads** panel | four toolheads, chamber, air filter, doors, print with colours, filament mapping |
 | Safe by default | Moonraker and Fluidd work right away, **Klipper stays off** until you connect the main board |
 | Optional ZR Tools | KlipperScreen panel if you add a touchscreen to the Pi |
@@ -86,7 +88,7 @@ The installer first asks **where the WonderMaker software is**:
 
    WonderMaker's **5 compiled modules** (`cs1237`, `hx711`, `heater_air_core`, `heater_feng`, `xy_offset_calibrator_core`: heaters, load cells, calibration) are binaries without a license to redistribute, so they are **not** in the repo. Give the installer a folder that holds them (`--modules DIR`), taken from your own printer or its image. Each file is checked against the factory checksum and refused if it differs. Without them everything installs, but `--enable-klipper` refuses to start Klipper.
 
-Then: install the Fluidd Toolheads panel (default yes), copy ZR Tools (default no), and a final "go ahead?".
+Then: install the Fluidd Toolheads panel (default yes), webcam support (yes), timelapse (yes), copy ZR Tools (no), and a final "go ahead?".
 
 Shortcuts: `--from-board IP`, `--from-image FILE`, `--from-stage DIR`, `--from-github --model ultra|ultra-s [--modules DIR]`.
 
@@ -99,12 +101,14 @@ Shortcuts: `--from-board IP`, `--from-image FILE`, `--from-stage DIR`, `--from-g
 | Groups | `moonraker-admin`, plus `dialout` and `plugdev` |
 | Python 3.9 | installed with `uv` into `~/.pythons` |
 | Unpack | `klipper`, `moonraker`, `printer_data`, `fluidd`, factory settings into `~`. Anything already there is moved to `~/wm-rpi-backup/old-<time>/` |
-| Environments | `klippy-env` and `moonraker-env` with WonderMaker's package versions |
+| Environments | `klippy-env` and `moonraker-env` built from `config/klippy-requirements.txt` and `config/moonraker-requirements.txt` (exact versions of WonderMaker's image). The environments themselves are not stored in git: they are machine-built folders, so they are rebuilt on the Pi |
 | Module check | tries to import the 10 compiled WonderMaker modules and tells you if one fails |
 | Services | `moonraker.service` enabled; `klipper.service` installed but **disabled and stopped** |
 | nginx | Fluidd on port 80 with the websocket, API and webcam routes |
 | CAN rule | brings `can0` up at 1 Mbit when the main board appears |
 | Fluidd panel / ZR Tools | optional, see 5 |
+| Timelapse | `ffmpeg`, and `moonraker-timelapse` at the commit WonderMaker ships (downloaded from mainsail-crew on GitHub) |
+| Webcams | `crowsnest` at WonderMaker's commit, installed unattended (builds `ustreamer`); your camera goes in `~/printer_data/config/crowsnest.conf` |
 
 ### 3.3 Safety checks
 
@@ -166,6 +170,7 @@ Without an Anycubic ACE Pro the ACE parts stay hidden. If you add one later, use
 | Can't read the old board | Check IP, power and the password. Or use an image (`--from-image`). |
 | A compiled module "does not import" | Python must be 3.9 and the CPU 64-bit ARM. Check: `cd ~/klipper/klippy/extras && ~/klippy-env/bin/python -c 'import cs1237'` |
 | Fluidd blank / old page | Hard-refresh (Ctrl/Cmd+Shift+R). Check `sudo nginx -t` and `systemctl status nginx`. |
+| No picture from the camera | `ls /dev/v4l/by-id/`, put that path on the `device:` line of `~/printer_data/config/crowsnest.conf`, `sudo systemctl restart crowsnest` |
 | Moonraker does not answer | `journalctl -u moonraker -n 50` |
 | No `can0` | Main board not powered or not on USB. `lsusb` should show `1d50:606f`. |
 | Klipper "mcu ... uuid" error | New board, new `canbus_uuid` (see 4). |
@@ -176,7 +181,7 @@ Without an Anycubic ACE Pro the ACE parts stay hidden. If you add one later, use
 installer.sh            the Pi installer
 factory/zru/            factory Klipper, Moonraker, settings, scripts (Ultra and Ultra-S), checksums, license notes
 scripts/                pull_from_board.sh, extract_from_image.sh, stage_from_repo.sh, board_check.sh
-config/                 systemd units, nginx files, can0 udev rule, Klipper Python requirements
+config/                 systemd units, nginx files, can0 udev rule, pinned Python requirements, crowsnest template, addon version pins
 fluidd/                 Fluidd v1.37.7 with the Toolheads panel (zip, checksum, patch)
 zr_tools/               optional KlipperScreen panel
 docs/                   HARDWARE.md and images
