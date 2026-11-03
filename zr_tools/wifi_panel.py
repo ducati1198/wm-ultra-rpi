@@ -122,8 +122,17 @@ class Panel(ScreenPanel):
         row.pack_start(back, True, True, 0)
         self.root.pack_start(row, False, False, 0)
         self.root.show_all()
-        entry.grab_focus()
-        self._screen.show_keyboard(entry=entry, box=self.content)
+        for ev in ("button-press-event", "touch-event"):   # same as KlipperScreen's own panels
+            entry.connect(ev, self._screen.show_keyboard)
+        GLib.timeout_add(400, self._open_keyboard, entry)
+
+    def _open_keyboard(self, entry):
+        try:
+            entry.grab_focus()
+            self._screen.show_keyboard(entry=entry)
+        except Exception:
+            logging.exception("could not open the on-screen keyboard")
+        return False
 
     def _try(self, net, pw):
         if not L.wifi_password_ok(pw):

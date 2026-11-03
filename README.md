@@ -233,18 +233,9 @@ Settings page, and the Calibrate page on a 5 inch 800x480 screen (compact):
 
 ### 5.2 Use the original WonderMaker screen as the KlipperScreen (optional)
 
-> **Not yet tested end to end.** The board's kernel has no virtual console (`/dev/tty0`), so stock KlipperScreen cannot start there. A live test showed X does run when it gets its own seat (display, framebuffer and touch assigned to `seat1`); the installer sets this up with udev rules and a custom service. Touch input through X still needs checking on hardware, and the full install has not been run on the board yet.
+> **Tested on one screen board (Nov 2026):** the install from GitHub, the display and touch work. The Wi-Fi page, the Pi address page and the full printing workflow still need more testing. The board's kernel has no virtual console (`/dev/tty0`), so the installer runs X on its own seat (display, framebuffer and touch assigned to `seat1`) with a custom service.
 
 Instead of buying a screen for the Pi, the original screen board can run KlipperScreen and talk to the Pi's Klipper/Moonraker over the network. The Pi is never checked or contacted by the install; KlipperScreen connects once the Pi is running. On the Pi, use the touchscreen option on (`./installer.sh --screen on`) so the ZR Tools macros are in `printer.cfg`.
-
-**First, on your Mac** (read-only, changes nothing on the board; it tells you READY or NOT READY):
-
-```bash
-git clone https://github.com/ducati1198/wm-ultra-rpi && cd wm-ultra-rpi
-bash scripts/screen_board_precheck.sh <board-ip> --pi wmpi.local --backup
-```
-
-It checks the board's display, touch, console, disk and memory, the factory services, the held X server, the clock, GitHub/PyPI/apt access, and runs an apt dry run. `--backup` also saves the board's config to your Mac. The report (private data removed) is saved next to where you ran it; send it if something fails.
 
 **Before you start: fix the board's clock and apt (other users need this).** On a factory screen board `sudo apt-get update` fails (Debian 11 was moved to an archive and the clock is often wrong), so even `sudo apt-get install -y git` fails. The script repairs apt itself, but if you want to do it by hand, or the script says apt fails, run this on the board:
 
