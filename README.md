@@ -2,7 +2,7 @@
 
 # WonderMaker ZR Ultra / Ultra-S: Raspberry Pi replacement
 
-**Replace a failed screen/host board with a Raspberry Pi running WonderMaker's own Klipper, Moonraker and Fluidd.**
+**Replace screen/host board with a Raspberry Pi running WonderMaker's own Klipper, Moonraker and Fluidd.**
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE) ![Status: untested on hardware](https://img.shields.io/badge/status-untested%20on%20hardware-orange)
 
