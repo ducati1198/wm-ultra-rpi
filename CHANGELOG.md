@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.0
+
+- One factory set for Ultra and Ultra-S (`factory/zru/`); `--model ultra|ultra-s` switches `[include zru-s.cfg]`.
+- Added `printer1-4.cfg` variants, WonderMaker helper scripts, MCU update scripts and checksums.
+- Wiring guide with annotated photos of the red USB connector (DM, DP, G; VIN is 24 V, not connected).
+
 ## 0.2.0
 
 - New source: factory Klipper, Moonraker and settings of the Ultra-S inside the repo (`--from-github`), with SHA256 checks. Compiled WonderMaker modules are not included; they are verified against factory checksums when you supply them.

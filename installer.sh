@@ -11,7 +11,7 @@
 # ./installer.sh --from-image FILE     take it from a disk image of the old board (.img / .img.gz)
 # ./installer.sh --from-stage DIR      take it from a folder made by scripts/pull_from_board.sh
 # ./installer.sh --from-github         take the factory files that are inside this repository (no printer needed)
-# ./installer.sh --model ultra-s       printer model for --from-github (ultra-s; ultra not available yet)
+# ./installer.sh --model ultra|ultra-s printer model for --from-github (default ultra-s)
 # ./installer.sh --modules DIR         folder with WonderMaker's 5 compiled modules (needed for --from-github)
 # ./installer.sh --check               report problems, change nothing
 # ./installer.sh --enable-klipper      start Klipper now and at every boot (do this when the main board is connected)
@@ -88,7 +88,7 @@ while [ $# -gt 0 ]; do
         --from-image)   SRC_KIND=image; SRC_ARG="${2:-}"; shift ;;
         --from-stage)   SRC_KIND=stage; SRC_ARG="${2:-}"; shift ;;
         --from-github|--from-repo) SRC_KIND=repo; SRC_ARG="repo" ;;
-        --model)        MODEL="${2:-}"; shift ;;
+        --model)        MODEL="${2:-}"; MODEL_SET=1; shift ;;
         --modules)      MODULES_DIR="${2:-}"; shift ;;
         --check)        MODE=check ;;
         --enable-klipper)  MODE=enable ;;
@@ -160,7 +160,10 @@ choose_source() {
             run bash "$SCRIPT_DIR/scripts/extract_from_image.sh" "$SRC_ARG" "$STAGE" || die_with_fix "could not read the image." "needs e2fsprogs and fdisk, and free space about the image size." ;;
         repo)
             FROM_FACTORY=1
-            [ -d "$SCRIPT_DIR/factory/$MODEL" ] || die_with_fix "no factory files for model '$MODEL' in this repository (only: $(ls "$SCRIPT_DIR/factory" | grep -v README | tr '\n' ' '))." "the Ultra (not S) has no files here yet: use option 1, 2 or 3 with files from an Ultra."
+            if [ -z "${MODEL_SET:-}" ] && [ "${WM_ASSUME_YES:-0}" != 1 ]; then
+                read -r -p "  Which printer? 1) ZR Ultra  2) ZR Ultra-S [2]: " m || m=""; [ "$m" = 1 ] && MODEL=ultra || MODEL=ultra-s
+            fi
+            case "$MODEL" in ultra|ultra-s) ;; *) die_with_fix "unknown model '$MODEL'." "use --model ultra or --model ultra-s." ;; esac
             print_info "Using the factory files of the $MODEL in this repository (Klipper and Moonraker are GPL; see factory/README.md)."
             echo "  The 5 compiled WonderMaker modules (heaters, load cells, calibration) are not in the repo: no license to publish them."
             if [ -z "$MODULES_DIR" ] && [ "$DRY" != 1 ] && [ "${WM_ASSUME_YES:-0}" != 1 ]; then

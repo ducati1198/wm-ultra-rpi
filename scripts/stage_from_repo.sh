@@ -3,7 +3,7 @@
 #
 #   ./stage_from_repo.sh <model> <stage-dir> [modules-dir]
 #
-#   model        ultra-s   (ultra: not available yet, see factory/README.md)
+#   model        ultra-s  or  ultra   (same firmware; the Ultra-S adds the chamber/air-filter/door file zru-s.cfg)
 #   modules-dir  folder holding WonderMaker's 5 compiled modules (*.so). They are NOT in this repo
 #                (no source, no license to redistribute). Without it the stage is built anyway,
 #                but heaters, load cells and tool calibration will not work.
@@ -12,9 +12,9 @@
 # factory checksums are refused.
 set -eu
 MODEL="${1:-}"; STAGE="${2:-}"; MODS="${3:-}"
-HERE="$(cd "$(dirname "$0")/.." && pwd)"; SRC="$HERE/factory/$MODEL"
+HERE="$(cd "$(dirname "$0")/.." && pwd)"; SRC="$HERE/factory/zru"
+case "$MODEL" in ultra|ultra-s) ;; *) echo "Unknown model '$MODEL' (use ultra or ultra-s)."; exit 1 ;; esac
 [ -n "$MODEL" ] && [ -n "$STAGE" ] || { echo "Usage: $0 <model> <stage-dir> [modules-dir]"; exit 1; }
-[ -d "$SRC" ] || { echo "No factory files for model '$MODEL' in this repository (see factory/README.md)."; exit 1; }
 ( cd "$SRC" && sha256sum -c SHA256SUMS >/dev/null ) || { echo "Checksum of the factory files does not match: the repository copy is damaged or changed."; exit 1; }
 
 mkdir -p "$STAGE"; W="$(mktemp -d "$STAGE/.work.XXXXXX")"; trap 'rm -rf "$W"' EXIT
@@ -38,6 +38,12 @@ mkdir -p "$W/printer_data/config" "$W/printer_data/systemd" "$W/printer_data/gco
 cp "$SRC/config/"* "$W/printer_data/config/"
 cp "$SRC/config/"* "$W/TM_T1/factory_settings/"
 cp "$HERE/config/env/"*.env "$W/printer_data/systemd/"
+# Same firmware for both models: only the line that includes zru-s.cfg differs (WonderMaker's own set_zru_include.sh does the same).
+for d in "$W/printer_data/config" "$W/TM_T1/factory_settings"; do
+  if [ "$MODEL" = ultra-s ]; then sed -i 's/^[#[:space:]]*\[include zru-s.cfg\]/[include zru-s.cfg]/' "$d/printer.cfg"
+  else sed -i 's/^[#[:space:]]*\[include zru-s.cfg\]/# [include zru-s.cfg]/' "$d/printer.cfg"; fi
+done
+sed -i "s/^model=.*/model=$([ "$MODEL" = ultra-s ] && echo 2 || echo 1)/" "$W/printer_data/config/tmt1.ini" 2>/dev/null || true
 tar czf "$STAGE/klipper.tgz"   -C "$W" klipper
 tar czf "$STAGE/moonraker.tgz" -C "$W" moonraker
 tar czf "$STAGE/data.tgz"      -C "$W" printer_data fluidd TM_T1
