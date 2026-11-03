@@ -131,7 +131,7 @@ class Panel(ViewsMixin, ScreenPanel):
         bar.set_homogeneous(True)
         self.nav_btns = {}
         for icon, label, cb, views in self._nav_entries():
-            b = self._button(icon, label, "color3", cb)
+            b = self._tab_button(icon, label, cb)
             b.set_size_request(-1, self.sz["nav_h"])
             bar.pack_start(b, True, True, 0)
             self.nav_btns[label] = (b, views)
@@ -383,23 +383,35 @@ class Panel(ViewsMixin, ScreenPanel):
             Gtk.StateFlags.NORMAL, Gdk.RGBA(r / 255.0, g / 255.0, b / 255.0, 1.0))
 
     def _button(self, icon, label, style, callback, *args):
-        btn = self._gtk.Button(icon, label, style)
+        """Icon beside the label and no vertical stretching: a slim, uniform button (more fits on the 5 inch screen)."""
+        try:
+            btn = self._gtk.Button(icon, label, style, scale=self._gtk.bsidescale, position=Gtk.PositionType.LEFT, lines=1)
+        except (TypeError, AttributeError):
+            btn = self._gtk.Button(icon, label, style)
+        btn.set_vexpand(False)
         btn.connect("clicked", lambda _w: callback(*args))
+        return btn
+
+    def _tab_button(self, icon, label, callback):
+        """Bottom tab bar: icon above the label."""
+        btn = self._gtk.Button(icon, label, "color3", lines=1)
+        btn.set_vexpand(False)
+        btn.connect("clicked", lambda _w: callback())
         return btn
 
     def _header(self, title, back=None, action=None):
         row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         if back is not None or self.view != self._home_view():
             btn = self._button("arrow-left", "Back", "color3", back or self.show_home)
-            btn.set_size_request(110, 46)
+            btn.set_size_request(96, self.sz["btn_h"])
             row.pack_start(btn, False, False, 0)
         lbl = self._label()
-        lbl.set_markup(f"<big><b>{title}</b></big>")
+        lbl.set_markup(f"<b>{title}</b>")
         row.pack_start(lbl, True, True, 0)
         if action is not None:
             icon, text, style, cb = action
             ab = self._button(icon, text, style, cb)
-            ab.set_size_request(120, 46)
+            ab.set_size_request(110, self.sz["btn_h"])
             row.pack_end(ab, False, False, 0)
         return row
 
@@ -427,7 +439,7 @@ class Panel(ViewsMixin, ScreenPanel):
                                ("settings", "Utilities", self.show_utilities),
                                ("heat-up", "Chamber", self.show_chamber)):
             b = self._button(icon, text, "color3", cb)
-            b.set_size_request(120, 46)
+            b.set_size_request(120, self.sz["btn_h"])
             top.pack_end(b, False, False, 0)
         self.root.pack_start(top, False, False, 0)
 
@@ -523,8 +535,8 @@ class Panel(ViewsMixin, ScreenPanel):
         card.get_style_context().add_class("zr_card")
         row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=14)
         for m in ("top", "bottom", "start", "end"):
-            getattr(row, "set_margin_" + m)(10)
-        self.w["e_swatch"] = self._swatch(64, 64)
+            getattr(row, "set_margin_" + m)(6)
+        self.w["e_swatch"] = self._swatch(52, 52)
         self.w["e_swatch"].set_valign(Gtk.Align.CENTER)
         row.pack_start(self.w["e_swatch"], False, False, 0)
         self.w["temp"] = self._label()
@@ -532,7 +544,7 @@ class Panel(ViewsMixin, ScreenPanel):
         self.w["temp"].set_justify(Gtk.Justification.LEFT)
         row.pack_start(self.w["temp"], True, True, 0)
         edit_btn = self._button("fine-tune", "Edit filament", "color1", self.show_tool_edit, i)
-        edit_btn.set_size_request(190, 60)
+        edit_btn.set_size_request(180, self.sz["btn_h"])
         edit_btn.set_valign(Gtk.Align.CENTER)
         row.pack_end(edit_btn, False, False, 0)
         card.add(row)
@@ -552,7 +564,7 @@ class Panel(ViewsMixin, ScreenPanel):
         ]
         for n, (icon, text, style, cb) in enumerate(items):
             btn = self._button(icon, text, style, cb, i)
-            btn.set_size_request(-1, self.sz["tile_h"])
+            btn.set_size_request(-1, self.sz["btn_h"])
             actions.attach(btn, n % 3, n // 3, 1, 1)
         page.pack_start(actions, False, False, 0)
 
@@ -589,7 +601,7 @@ class Panel(ViewsMixin, ScreenPanel):
         for n, (name, _t) in enumerate(MATERIALS):
             chip = Gtk.Button(label=name)
             chip.get_style_context().add_class("zr_chip")
-            chip.set_size_request(-1, 46)
+            chip.set_size_request(-1, self.sz["btn_h"] - 4)
             chip.connect("clicked", lambda _w, idx=n: self._pick_material(idx))
             mats.attach(chip, n % 4, n // 4, 1, 1)
             self.w["chips"][n] = chip
@@ -613,7 +625,7 @@ class Panel(ViewsMixin, ScreenPanel):
         page.pack_start(dots, False, False, 0)
 
         custom = self._button("fine-tune", "Custom colour", "color3", self._toggle_rgb)
-        custom.set_size_request(-1, 46)
+        custom.set_size_request(-1, self.sz["btn_h"])
         page.pack_start(custom, False, False, 0)
         rgb_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         rgb_box.set_no_show_all(True)
@@ -665,7 +677,7 @@ class Panel(ViewsMixin, ScreenPanel):
         minus = self._button("decrease", None, "color3", self._step, key, down)
         plus = self._button("increase", None, "color3", self._step, key, up)
         for b in (minus, plus):
-            b.set_size_request(80, 46)
+            b.set_size_request(80, self.sz["btn_h"])
         self.w[f"v_{key}"] = self._label()
         row.pack_start(minus, False, False, 0)
         row.pack_start(self.w[f"v_{key}"], True, True, 0)
@@ -804,7 +816,7 @@ class Panel(ViewsMixin, ScreenPanel):
             grid.attach(self._label(f"Slicer T{t}  ->"), 0, t, 1, 1)
             for h in range(NTOOLS):
                 b = Gtk.Button(label=f"Head {h + 1}")
-                b.set_size_request(-1, 46)
+                b.set_size_request(-1, self.sz["btn_h"])
                 b.connect("clicked", lambda _w, tt=t, hh=h: self._map(tt, hh))
                 grid.attach(b, 1 + h, t, 1, 1)
                 self.w["map_btns"][(t, h)] = b
@@ -814,7 +826,7 @@ class Panel(ViewsMixin, ScreenPanel):
             self.w["map_sw"][t] = sw
         self.root.pack_start(grid, False, False, 0)
         reset = self._button("refresh", "Reset 1:1", "color3", self._map_reset)
-        reset.set_size_request(-1, 50)
+        reset.set_size_request(-1, self.sz["btn_h"])
         self.root.pack_start(reset, False, False, 0)
         self.root.show_all()
         self._refresh_view()
@@ -871,7 +883,7 @@ class Panel(ViewsMixin, ScreenPanel):
         grid.set_column_homogeneous(True)
         for n, (icon, text, script, question) in enumerate(items):
             b = self._button(icon, text, "color%d" % (1 + n % 4), self._utility, text, script, question)
-            b.set_size_request(-1, 70)
+            b.set_size_request(-1, self.sz["tile_h"])
             grid.attach(b, n % 3, n // 3, 1, 1)
         self.root.pack_start(self._scrolled(grid), True, True, 0)
         self.root.show_all()
@@ -895,7 +907,7 @@ class Panel(ViewsMixin, ScreenPanel):
         for t in (0, 40, 50, 60):
             b = self._button("heat-up" if t else "cool-down", "Off" if t == 0 else f"{t} C",
                              "color2" if t else "color3", self._chamber_set, t)
-            b.set_size_request(-1, 60)
+            b.set_size_request(-1, self.sz["btn_h"])
             presets.pack_start(b, True, True, 0)
         self.root.pack_start(presets, False, False, 0)
 

@@ -50,8 +50,8 @@ def resolve_density(setting, width):
 def sizes(density):
     """Pixel sizes used by the views for a density."""
     if density == "compact":
-        return {"btn_h": 56, "tile_h": 64, "nav_h": 56, "cols": 3}
-    return {"btn_h": 70, "tile_h": 84, "nav_h": 66, "cols": 3}
+        return {"btn_h": 40, "tile_h": 44, "nav_h": 52, "cols": 2}
+    return {"btn_h": 54, "tile_h": 60, "nav_h": 64, "cols": 3}
 
 
 # --------------------------------------------------------------------------------------
