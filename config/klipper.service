@@ -1,0 +1,14 @@
+[Unit]
+Description=Klipper 3D printer firmware host (WonderMaker fork)
+After=network.target
+# Not enabled by the installer: it starts only when you run ./installer.sh --enable-klipper
+
+[Service]
+Type=simple
+User=t13dp
+RemainAfterExit=no
+WorkingDirectory=/home/t13dp/klipper
+EnvironmentFile=/home/t13dp/printer_data/systemd/klipper.env
+ExecStart=/home/t13dp/klippy-env/bin/python $KLIPPER_ARGS
+Restart=always
+RestartSec=10

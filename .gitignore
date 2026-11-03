@@ -1,0 +1,6 @@
+stage/
+*.img
+*.img.gz
+*.tgz
+*.log
+.DS_Store

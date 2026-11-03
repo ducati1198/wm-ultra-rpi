@@ -1,0 +1,17 @@
+[Unit]
+Description=Moonraker API server (WonderMaker fork)
+After=network.target
+
+[Service]
+Type=simple
+User=t13dp
+SupplementaryGroups=moonraker-admin
+RemainAfterExit=no
+WorkingDirectory=/home/t13dp/moonraker
+EnvironmentFile=/home/t13dp/printer_data/systemd/moonraker.env
+ExecStart=/home/t13dp/moonraker-env/bin/python $MOONRAKER_ARGS
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
