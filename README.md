@@ -268,15 +268,20 @@ Then on the **screen board** (SSH in as `t13dp`, it needs internet):
 ```bash
 # no git needed (the factory image's apt is broken; the script repairs it itself before installing anything)
 curl -fsSL https://codeload.github.com/ducati1198/wm-ultra-rpi/tar.gz/refs/heads/main | tar xz && cd wm-ultra-rpi-main
-bash scripts/screen_board.sh --pi wmpi.local --dry-run     # shows every change, changes nothing
-bash scripts/screen_board.sh --pi wmpi.local
+bash scripts/screen_board.sh --dry-run     # shows every change, changes nothing (it asks for the Pi address)
+bash scripts/screen_board.sh               # asks for your Pi's IP address or name, then installs
+```
+
+The script asks for the Pi's IP address (Enter = `wmpi.local`). You can also give it with `--pi <address>`, and change it later with `bash scripts/screen_board.sh --set-pi <address>`. The Pi does not have to be running during the install.
+
+```bash
 ```
 
 What it does, in this order (everything that can fail comes before the factory app is stopped):
 
 1. Checks: nothing is printing, disk space, apt works, GitHub reachable. If a check fails nothing is changed.
 2. Debian 11 is archived, so apt is pointed at `archive.debian.org` with the date checks off (the same fix as on the original board). It only runs `apt-get install --no-upgrade`, **never `apt upgrade`**.
-3. Installs the X11 and KlipperScreen packages, KlipperScreen at the pinned commit, and ZR Tools. WonderMaker's own held X server is kept; its matching `xserver-xorg-legacy` is taken from `/packages/xserver` on the board.
+3. Installs the X11 and KlipperScreen packages (and a Wi-Fi page that uses the board's own `wpa_supplicant`, because the stock KlipperScreen Network page needs NetworkManager, which this board does not use: scan, tap a network, type the password; nothing is saved unless the connection works), KlipperScreen at the pinned commit, and ZR Tools. WonderMaker's own held X server is kept; its matching `xserver-xorg-legacy` is taken from `/packages/xserver` on the board.
 4. Stops and **disables** (deletes nothing) `makerbase-client` (the factory screen app), klipper, moonraker, nginx, crowsnest, makerbase-webcam, janus, klipper-mcu and hostapd, and obico/octoapp if you installed them. The previous state is saved in `~/wm-screen-backup/disabled.list`.
 5. Starts KlipperScreen with the Rockchip modesetting driver; if X does not start it switches to the plain framebuffer (`fbdev`) driver by itself (`--screen-driver fbdev` forces it).
 

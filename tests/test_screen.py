@@ -33,6 +33,17 @@ class Logic(unittest.TestCase):
         self.assertEqual(L.load_settings(p), L.DEFAULTS)
         shutil.rmtree(d)
 
+    def test_wifi_parsing(self):
+        scan = "bssid / frequency / signal level / flags / ssid\naa:bb\t2412\t-50\t[WPA2-PSK-CCMP][ESS]\tHome\naa:cc\t5745\t-70\t[WPA2-PSK-CCMP]\tHome\ncc:dd\t2437\t-80\t[ESS]\tOpenCafe\nee:ff\t2437\t-40\t[ESS]\t\n"
+        nets = L.wifi_parse_scan(scan)
+        self.assertEqual([n["ssid"] for n in nets], ["Home", "OpenCafe"])
+        self.assertEqual(nets[0]["signal"], -50)
+        self.assertTrue(nets[0]["secured"]); self.assertFalse(nets[1]["secured"])
+        self.assertEqual(L.wifi_parse_status("wpa_state=COMPLETED\nssid=Home\nip_address=1.2.3.4")["ip_address"], "1.2.3.4")
+        self.assertEqual(L.wifi_parse_networks("network id / ssid / bssid / flags\n0\tHome\tany\t[CURRENT]"), {"Home": 0})
+        self.assertTrue(L.wifi_password_ok("12345678")); self.assertFalse(L.wifi_password_ok("short"))
+        self.assertEqual(L.wifi_signal_bars(-50), 4); self.assertEqual(L.wifi_signal_bars(-90), 1)
+
     def test_density(self):
         self.assertEqual(L.resolve_density("auto", 800), "compact")
         self.assertEqual(L.resolve_density("auto", 1024), "comfortable")

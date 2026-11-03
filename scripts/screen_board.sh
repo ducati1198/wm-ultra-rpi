@@ -55,6 +55,7 @@ while [ $# -gt 0 ]; do
     case "$1" in
         --pi) PI_HOST="${2:-}"; shift ;;
         --screen-driver) case "${2:-}" in modesetting|fbdev) DRIVER="$2" ;; *) print_error "--screen-driver needs modesetting or fbdev"; exit 1 ;; esac; shift ;;
+        --set-pi) MODE=setpi; PI_HOST="${2:-}"; shift ;;
         --status) MODE=status ;;
         --uninstall-klipperscreen) MODE=uninstall ;;
         --factory-restore) MODE=restore ;;
@@ -97,6 +98,17 @@ printing_now() {   # the factory Moonraker on this board
         echo "$s" | grep -q '"state": *"printing"\|"state":"printing"\|"state": *"paused"\|"state":"paused"' && return 0
     done; return 1
 }
+valid_host() { [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] && [ "${#1}" -le 253 ]; }
+ask_pi() {   # the Pi's IP address or name; asked unless --pi was given
+    if [ -z "$PI_HOST" ]; then
+        if [ "${WM_ASSUME_YES:-0}" = 1 ] || [ ! -t 0 ]; then PI_HOST="wmpi.local"; print_info "No --pi given: using $PI_HOST (change later: bash scripts/screen_board.sh --set-pi <address>)"
+        else
+            while :; do read -r -p "$(echo -e "${YELLOW}?${NC} IP address or name of your Raspberry Pi [wmpi.local]: ")" PI_HOST || PI_HOST=""; PI_HOST="${PI_HOST:-wmpi.local}"
+                valid_host "$PI_HOST" && break; print_warning "Use letters, digits, dots and dashes only."; PI_HOST=""; done
+        fi
+    fi
+    valid_host "$PI_HOST" || die_with_fix "'$PI_HOST' is not a valid address." "use the Pi's IP (for example 192.0.2.10) or name (wmpi.local)."
+}
 apt_fix() {   # Debian 11 is archived: point apt at archive.debian.org and ignore the old dates (same fix as on the original board)
     local sl=/etc/apt/sources.list conf=/etc/apt/apt.conf.d/99no-check-valid-until
     [ "$TESTING" = 1 ] && { SUDO apt-archive-fix; return 0; }
@@ -121,7 +133,7 @@ preflight() {
         [ "$(uname -m)" = aarch64 ] || die_with_fix "not a 64-bit ARM board." "run it on the WonderMaker screen board."
         [ -e /dev/fb0 ] || print_warning "/dev/fb0 not found: the screen may not be initialised."
     fi
-    [ -n "$PI_HOST" ] || PI_HOST="wmpi.local"   # only written into KlipperScreen.conf; the Pi is not contacted
+    ask_pi   # only written into KlipperScreen.conf; the Pi is not contacted
     if printing_now && [ "$FORCE" != 1 ]; then die_with_fix "a print is running or paused." "wait until it finishes (or --force)."; fi
     local free; free="$(disk_free_mb)"; [ "${free:-0}" -gt 1500 ] && print_success "disk space ${free} MB free" || die_with_fix "only ${free} MB free." "free space (old logs, ~/printer_data/gcodes) first."
     apt_fix; apt_ok && print_success "apt works (archive.debian.org)" || die_with_fix "apt update fails." "check the board's internet access and date; see README 'Screen board'. Nothing was changed."
@@ -213,6 +225,8 @@ step_klipperscreen() {
     # ZR Tools panel files
     if [ "$DRY" != 1 ]; then
         mkdir -p "$KS_DIR/panels"; cp "$REPO_DIR"/zr_tools/{zr_tools.py,zr_views.py,zr_logic.py} "$KS_DIR/panels/"
+        # The stock Network panel needs NetworkManager. This board uses wpa_supplicant (WonderMaker's setup), so use a wpa_cli panel instead.
+        if [ -S /run/wpa_supplicant/wlan0 ] || systemctl is-active --quiet makerbase-wlan0 2>/dev/null; then cp "$REPO_DIR/zr_tools/wifi_panel.py" "$KS_DIR/panels/network.py"; fi
         [ -d "$KS_DIR/.git" ] && { mkdir -p "$KS_DIR/.git/info"; grep -qs '^panels/zr_' "$KS_DIR/.git/info/exclude" || echo 'panels/zr_*.py' >> "$KS_DIR/.git/info/exclude"; }
     fi
     write_ks_conf
@@ -416,6 +430,14 @@ do_restore() {
     if [ "$REBOOT" = 1 ]; then print_info "Rebooting..."; SUDO systemctl reboot; fi
 }
 
+do_setpi() {   # change the Pi address of an installed KlipperScreen
+    valid_host "$PI_HOST" || die_with_fix "'$PI_HOST' is not a valid address." "bash scripts/screen_board.sh --set-pi 192.0.2.10"
+    local f="$CFG_DIR/KlipperScreen.conf"; [ -f "$f" ] || die_with_fix "KlipperScreen is not installed here." "run the installer first."
+    run sed -i -E "s/^moonraker_host:.*/moonraker_host: $PI_HOST/" "$f"
+    SUDO systemctl restart KlipperScreen
+    print_success "KlipperScreen now connects to $PI_HOST"
+}
+
 do_status() {
     print_header "Screen board status (read-only)"
     local u; for u in "${SERVICES[@]}" KlipperScreen; do svc_exists "$u" || continue
@@ -428,6 +450,7 @@ do_status() {
 case "$MODE" in
     install) do_install ;;
     status) do_status ;;
+    setpi) do_setpi ;;
     uninstall) do_uninstall ;;
     restore) do_restore ;;
 esac

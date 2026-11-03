@@ -233,3 +233,55 @@ def board_mode(marker=None):
 def factory_restore_command(script=None):
     """The script re-starts itself under systemd (--detach), because stopping KlipperScreen would otherwise kill it."""
     return ["sudo", "-n", script or BOARD_SCRIPT, "--factory-restore", "--yes", "--detach"]
+
+
+# ---------------------------------------------------------------------------
+# Wi-Fi on the screen board (wpa_supplicant + wpa_cli; no NetworkManager)
+# ---------------------------------------------------------------------------
+def wifi_parse_scan(text):
+    """wpa_cli scan_results -> [{ssid, signal, secured}] strongest first, one entry per name, hidden names dropped."""
+    best = {}
+    for line in (text or "").splitlines():
+        parts = line.split("\t")
+        if len(parts) < 5 or parts[0] == "bssid / frequency / signal level / flags / ssid":
+            continue
+        ssid = parts[4].strip()
+        if not ssid or "\\x00" in ssid:
+            continue
+        try:
+            sig = int(parts[2])
+        except ValueError:
+            continue
+        flags = parts[3]
+        secured = any(k in flags for k in ("WPA", "WEP", "RSN", "SAE"))
+        if ssid not in best or sig > best[ssid]["signal"]:
+            best[ssid] = {"ssid": ssid, "signal": sig, "secured": secured}
+    return sorted(best.values(), key=lambda n: -n["signal"])
+
+
+def wifi_signal_bars(dbm):
+    return 4 if dbm >= -55 else 3 if dbm >= -65 else 2 if dbm >= -75 else 1
+
+
+def wifi_parse_status(text):
+    """wpa_cli status -> dict (key=value lines)."""
+    d = {}
+    for line in (text or "").splitlines():
+        if "=" in line:
+            k, v = line.split("=", 1)
+            d[k.strip()] = v.strip()
+    return d
+
+
+def wifi_parse_networks(text):
+    """wpa_cli list_networks -> {ssid: id}"""
+    out = {}
+    for line in (text or "").splitlines()[1:]:
+        p = line.split("\t")
+        if len(p) >= 2 and p[0].isdigit():
+            out[p[1]] = int(p[0])
+    return out
+
+
+def wifi_password_ok(pw):
+    return 8 <= len(pw) <= 63
