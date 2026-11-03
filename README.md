@@ -265,12 +265,14 @@ Then on the **screen board** (SSH in as `t13dp`, it needs internet). Pick one wa
 **Option A: no git needed** (works even if apt is broken)
 
 ```bash
+cd ~
 curl -fsSL https://codeload.github.com/ducati1198/wm-ultra-rpi/tar.gz/refs/heads/main | tar xz && cd wm-ultra-rpi-main
 ```
 
 **Option B: with git** (after the clock and apt fix above, so `apt-get install -y git` works)
 
 ```bash
+cd ~
 git clone https://github.com/ducati1198/wm-ultra-rpi && cd wm-ultra-rpi
 ```
 
