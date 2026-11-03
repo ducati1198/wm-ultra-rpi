@@ -107,8 +107,8 @@ Shortcuts: `--from-board IP`, `--from-image FILE`, `--from-stage DIR`, `--from-g
 | nginx | Fluidd on port 80 with the websocket, API and webcam routes |
 | CAN rule | brings `can0` up at 1 Mbit when the main board appears |
 | Fluidd panel / ZR Tools | optional, see 5 |
-| Timelapse | `ffmpeg`, and `moonraker-timelapse` at the commit WonderMaker ships (downloaded from mainsail-crew on GitHub) |
-| Webcams | `crowsnest` at WonderMaker's commit, installed unattended (builds `ustreamer`); your camera goes in `~/printer_data/config/crowsnest.conf` |
+| Timelapse | `ffmpeg` and `moonraker-timelapse` (latest release; it is the same version WonderMaker ships), downloaded from mainsail-crew on GitHub |
+| Webcams | `crowsnest` v5.0.12 (latest release; WonderMaker ships a 2023 version), installed unattended (builds `ustreamer`); your camera goes in `~/printer_data/config/crowsnest.conf` |
 
 ### 3.3 Safety checks
 

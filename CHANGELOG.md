@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.1
+
+- crowsnest is now v5.0.12 (latest release) instead of WonderMaker's 2023 version. Same install method, config keys and service. Moonraker timelapse was already the latest upstream version.
+
 ## 0.4.0
 
 - Exact package lists of WonderMaker's `klippy-env` (numpy 2.0.2 etc.) and `moonraker-env`, read from the factory image.
