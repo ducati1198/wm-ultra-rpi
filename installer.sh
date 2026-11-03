@@ -26,7 +26,7 @@
 # ./installer.sh --enable-klipper      same as --first-start
 # ./installer.sh --disable-klipper     stop Klipper and stop it from starting at boot
 # ./installer.sh --uninstall           remove what the installer added to the system (your files in ~ stay)
-# ./installer.sh --screen on|off       add (or skip) a KlipperScreen touchscreen on the Pi (asked if not given; default yes)
+# ./installer.sh --screen on|off|macros   KlipperScreen on the Pi (on), nothing (off), or only the ZR Tools macros (macros: for the WonderMaker screen board). Asked if not given; default on
 # ./installer.sh --screen-layout tabs|grid   touch layout: tabs = big buttons + bottom tabs (default), grid = card grid
 # ./installer.sh --screen-backend x11|weston|cage   graphics stack for KlipperScreen (default x11)
 # ./installer.sh --screen-remove       remove KlipperScreen from this Pi (Klipper, Moonraker and Fluidd stay)
@@ -121,7 +121,7 @@ while [ $# -gt 0 ]; do
         --backup)       MODE=backup; case "${2:-}" in ""|--*) ;; *) ARG1="$2"; shift ;; esac ;;
         --restore)      MODE=restore; ARG1="${2:-}"; shift ;;
         --support-bundle) MODE=bundle ;;
-        --screen)       case "${2:-}" in on|yes|1) WANT_SCREEN=1 ;; off|no|0) WANT_SCREEN=0 ;; *) print_error "--screen needs on or off"; exit 1 ;; esac; shift ;;
+        --screen)       case "${2:-}" in on|yes|1) WANT_SCREEN=1 ;; off|no|0) WANT_SCREEN=0 ;; macros) WANT_SCREEN=macros ;; *) print_error "--screen needs on, off or macros"; exit 1 ;; esac; shift ;;
         --screen-layout) case "${2:-}" in tabs|grid) SCREEN_LAYOUT="$2" ;; *) print_error "--screen-layout needs tabs or grid"; exit 1 ;; esac; shift ;;
         --screen-backend) case "${2:-}" in x11|weston|cage) SCREEN_BACKEND="$2" ;; *) print_error "--screen-backend needs x11, weston or cage"; exit 1 ;; esac; shift ;;
         --screen-test)  MODE=screentest ;;
@@ -463,7 +463,19 @@ copy_zr_panel() {  # (re)copy the panel files into KlipperScreen
     fi
 }
 
+step_macros() {   # only the ZR Tools macros in printer.cfg: for people whose screen is the WonderMaker screen board (its KlipperScreen sends these macros to this Pi)
+    print_header "Step 11: ZR Tools macros (no KlipperScreen on this Pi)"
+    why "The ZR Tools page on the WonderMaker screen board sends commands such as ZR_SET_TOOL_INFO and ZR_LOAD to Klipper. They are macros in zr_tools.cfg, which printer.cfg must include. KlipperScreen itself is not installed on this Pi."
+    if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would copy zr_tools.cfg and add [include zr_tools.cfg] to printer.cfg${NC}"; return 0; fi
+    mkdir -p "$HOME_DIR/printer_data/config"
+    if [ -f "$HOME_DIR/printer_data/config/printer.cfg" ]; then
+        HOME="$HOME_DIR" ZR_NO_RESTART=1 bash "$REPO_DIR/zr_tools/install_zr_tools.sh" >/dev/null && print_success "ZR Tools macros added to printer.cfg" \
+            || warn_later "Could not add the ZR Tools macros. Run ./installer.sh --update."
+    else warn_later "printer.cfg not found: ZR Tools macros not installed. Run ./installer.sh --update."; fi
+}
+
 step_screen() {
+    [ "$WANT_SCREEN" = macros ] && { step_macros; return 0; }
     [ "$WANT_SCREEN" = 1 ] || return 0
     print_header "Step 11: touchscreen (KlipperScreen + ZR Tools)"
     why "A screen connected to the Pi shows KlipperScreen with a ZR Tools page: toolheads, filament, climate, calibration, ACE Pro (if present). Not yet tested on hardware."
@@ -506,9 +518,9 @@ do_screen_remove() {
         rm -rf "$KS_DIR" "$HOME_DIR/.KlipperScreen-env"
         local f="$HOME_DIR/printer_data/config/KlipperScreen.conf"
         [ -f "$f" ] && sed -i '/^\[menu __main zr_tools\]/,/^$/d' "$f"
-        WANT_SCREEN=0; save_answers
+        WANT_SCREEN=macros; save_answers     # the ZR Tools macros stay in printer.cfg
     fi
-    print_success "KlipperScreen removed. Your settings file zr_screen.conf was kept. Add it again with: ./installer.sh --screen on --update"
+    print_success "KlipperScreen removed. The ZR Tools macros and your settings file zr_screen.conf were kept. Add KlipperScreen again with: ./installer.sh --screen on --update"
 }
 
 do_screen_layout() {
@@ -576,7 +588,9 @@ questions() {
     if [ "$WANT_SCREEN" = ask ]; then
         local r t; read -r r t < <(detect_screen)
         [ -n "$r" ] && print_info "A screen is connected: $r"
-        if ask_yn "Add a touchscreen (KlipperScreen with the ZR Tools page) on this Pi?" y; then WANT_SCREEN=1; else WANT_SCREEN=0; fi
+        if ask_yn "Add a touchscreen (KlipperScreen with the ZR Tools page) on this Pi?" y; then WANT_SCREEN=1
+        elif ask_yn "Add only the ZR Tools macros (needed if the WonderMaker screen board is your screen)?" y; then WANT_SCREEN=macros
+        else WANT_SCREEN=0; fi
     fi
 }
 
@@ -722,7 +736,7 @@ show_plan() {
     local d moved=""; for d in klipper moonraker printer_data fluidd TM_T1; do [ -e "$HOME_DIR/$d" ] && moved="$moved ~/$d"; done
     [ -n "$moved" ] && echo "  Moved to backup (~/wm-rpi-backup/old-*):$moved"
     echo "  Installs:        system packages, Python 3.9, Klipper/Moonraker environments, Moonraker + nginx services, can0 rule"
-    echo "  Optional:        panel=$([ "$WANT_PANEL" = 1 ] && echo yes || echo no)  webcam=$([ "$WANT_CROWSNEST" = 1 ] && echo yes || echo no)  timelapse=$([ "$WANT_TIMELAPSE" = 1 ] && echo yes || echo no)  touchscreen=$([ "$WANT_SCREEN" = 1 ] && echo yes || echo no)"
+    echo "  Optional:        panel=$([ "$WANT_PANEL" = 1 ] && echo yes || echo no)  webcam=$([ "$WANT_CROWSNEST" = 1 ] && echo yes || echo no)  timelapse=$([ "$WANT_TIMELAPSE" = 1 ] && echo yes || echo no)  touchscreen=$([ "$WANT_SCREEN" = 1 ] && echo yes || { [ "$WANT_SCREEN" = macros ] && echo "macros only" || echo no; })"
     [ "$AUTOSTART" = 1 ] && echo "  At the end:      Klipper, Moonraker, nginx and crowsnest are enabled and started (checks are shown; failures are reported)" \
                          || echo "  At the end:      Klipper stays off (--no-start)"
 }
@@ -907,6 +921,7 @@ do_update() {
     if [ "$WANT_SCREEN" = 1 ]; then
         if [ "$(addon_pin klipperscreen | cut -d'|' -f2)" != "${OLD_KS_PIN:-}" ] || [ ! -d "$KS_DIR" ]; then step_screen; else copy_zr_panel; print_success "ZR Tools screen files refreshed"; fi
     fi
+    if [ "$WANT_SCREEN" = macros ]; then step_macros; fi
     if [ "$WANT_TIMELAPSE" = 1 ]; then step_timelapse; fi
     if [ "$WANT_CROWSNEST" = 1 ] && [ "$(addon_pin crowsnest | cut -d'|' -f2)" != "${OLD_CN_PIN:-}" ]; then step_crowsnest; fi
     save_answers
@@ -1014,6 +1029,10 @@ do_doctor() {
         [ "$(service_enabled KlipperScreen)" = enabled ] && doc_ok "KlipperScreen starts at boot" || { doc_bad "KlipperScreen will not start at boot" "The screen stays black after a restart."; offer_fix "enable KlipperScreen" bash -c "sudo systemctl enable KlipperScreen"; }
         local r t; read -r r t < <(detect_screen); [ -n "$r" ] && doc_ok "screen found ($r)" || doc_bad "no screen detected" "Check the video cable and power."
         [ "$t" = touch ] && doc_ok "touch device found" || doc_bad "no touch device detected" "Check the USB touch cable."
+    fi
+    if [ "$WANT_SCREEN" = macros ]; then
+        local c="$HOME_DIR/printer_data/config"
+        { [ -f "$c/zr_tools.cfg" ] && grep -q '^\[include zr_tools.cfg\]' "$c/printer.cfg" 2>/dev/null; } && doc_ok "ZR Tools macros are in printer.cfg" || doc_bad "ZR Tools macros are missing from printer.cfg" "Run ./installer.sh --update."
     fi
     ntp_ok && doc_ok "clock is synchronized" || doc_bad "clock is not synchronized" "HTTPS downloads and file times go wrong. Check the network."
     echo; [ "$DOC_PROBLEMS" = 0 ] && print_success "No problems found." || { print_warning "$DOC_PROBLEMS problem(s) found. For a report to share: ./installer.sh --support-bundle"; return 1; }

@@ -76,6 +76,9 @@ H5="$T/h5"; mkdir -p "$H5"; inst "$H5" --from-stage "$T/stage" --screen off --sc
 check "screen off: nothing installed" "[ ! -d $H5/KlipperScreen ] && grep -q WANT_SCREEN=0 $H5/wm-rpi-backup/install.conf"
 H6="$T/h6"; mkdir -p "$H6"; inst "$H6" --from-stage "$T/stage" --screen on --screen-layout grid --screen-backend cage >/dev/null
 check "options: grid + cage" "grep -q 'layout = grid' $H6/printer_data/config/zr_screen.conf && grep -q 'backend=cage' $H6/.sudo.log"
+H7="$T/h7"; mkdir -p "$H7"; inst "$H7" --from-stage "$T/stage" --screen macros >/dev/null
+check "screen macros: only the macros, no KlipperScreen" "[ ! -d $H7/KlipperScreen ] && ! grep -q 'KlipperScreen-install' $H7/.sudo.log && [ -f $H7/printer_data/config/zr_tools.cfg ] && grep -q '^\\[include zr_tools.cfg\\]' $H7/printer_data/config/printer.cfg && grep -q WANT_SCREEN=macros $H7/wm-rpi-backup/install.conf"
+check "screen: bad value fails" "! bash $ROOT/installer.sh --screen maybe"
 check "--screen-test is read-only" "WM_TEST_SCREEN=800x480 WM_TEST_TOUCH=0 bash $ROOT/installer.sh --screen-test | grep -q 'compact'"
 check "bad --screen-layout value fails" "! bash $ROOT/installer.sh --screen-layout round"
 check "screen python tests" "python3 -I -W ignore $ROOT/tests/test_screen.py"
@@ -281,7 +284,7 @@ check "update: a changed panel in the panel repository is installed" "grep -q NE
 echo "== screen removal on the Pi"
 printf 'y\n' | WM_HOME="$H3" WM_INSTALLER_TEST=1 bash "$ROOT/installer.sh" --screen-remove > "$T/rm.out" 2>&1
 check "screen-remove: folder and service gone" "[ ! -d $H3/KlipperScreen ] && grep -q 'systemctl disable KlipperScreen' $H3/.sudo.log"
-check "screen-remove: answers say no screen" "grep -q WANT_SCREEN=0 $H3/wm-rpi-backup/install.conf"
+check "screen-remove: answers keep only the macros" "grep -q WANT_SCREEN=macros $H3/wm-rpi-backup/install.conf"
 check "screen-remove: Klipper stays (macros kept)" "[ -f $H3/printer_data/config/zr_tools.cfg ] && [ -d $H3/klipper ]"
 
 echo "== screen board script (factory screen as KlipperScreen)"
