@@ -254,14 +254,34 @@ sudo apt-get install -y git
 
 Never run `apt upgrade` or `apt full-upgrade` on this board: it can replace WonderMaker's held X server and break the screen. The script only uses `apt-get install --no-upgrade`.
 
-Then on the **screen board** (SSH in as `t13dp`, it needs internet):
+Then on the **screen board** (SSH in as `t13dp`, it needs internet). Pick one way to get the files:
+
+**Option A: no git needed** (works even if apt is broken)
 
 ```bash
-# no git needed (the factory image's apt is broken; the script repairs it itself before installing anything)
 curl -fsSL https://codeload.github.com/ducati1198/wm-ultra-rpi/tar.gz/refs/heads/main | tar xz && cd wm-ultra-rpi-main
-bash scripts/screen_board.sh --dry-run     # shows every change, changes nothing (it asks for the Pi address)
-bash scripts/screen_board.sh               # asks for your Pi's IP address or name, then installs
 ```
+
+**Option B: with git** (after the clock and apt fix above, so `apt-get install -y git` works)
+
+```bash
+git clone https://github.com/ducati1198/wm-ultra-rpi && cd wm-ultra-rpi
+```
+
+Then, with either option:
+
+```bash
+bash scripts/screen_board.sh --dry-run     # shows every change, changes nothing (it asks for the Pi's IP address)
+bash scripts/screen_board.sh               # asks for your Pi's IP address, then installs
+```
+
+**To uninstall KlipperScreen and go back to the factory screen** (over SSH, as `t13dp`):
+
+```bash
+bash ~/wm-screen-backup/screen_board.sh --factory-restore
+```
+
+It removes KlipperScreen, turns the factory services back on exactly as they were, and reboots the board. Nothing is deleted.
 
 The script asks for your Pi's IP address. You can also give it with `--pi <address>`. To change it later, tap **Pi address** (on the start screen while the Pi cannot be reached, or in the More menu), or run `bash scripts/screen_board.sh --set-pi <address>`. The Pi does not have to be running during the install.
 
