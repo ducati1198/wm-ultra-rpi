@@ -330,7 +330,9 @@ step_services_files() {
     SUDO systemctl daemon-reload
     SUDO systemctl enable moonraker
 }
-polkit_rule_present() { [ -f /etc/polkit-1/rules.d/moonraker.rules ] || [ -f /usr/share/polkit-1/rules.d/moonraker.rules ] || [ -f /etc/polkit-1/localauthority/50-local.d/10-moonraker.pkla ]; }
+polkit_rule_present() {   # rules.d is root/polkitd-only (mode 700), so a plain test as the user cannot see the file
+    SUDO test -f /etc/polkit-1/rules.d/moonraker.rules || SUDO test -f /usr/share/polkit-1/rules.d/moonraker.rules || SUDO test -f /etc/polkit-1/localauthority/50-local.d/10-moonraker.pkla
+}
 step_polkit() {   # without this rule Moonraker may not restart services (Fluidd shows "PolKit warnings detected")
     why "Moonraker needs a PolicyKit rule to start, stop and restart services (Klipper, crowsnest, KlipperScreen) from Fluidd. WonderMaker's own image has it; a fresh Pi does not."
     if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would run: moonraker/scripts/set-policykit-rules.sh${NC}"; return 0; fi

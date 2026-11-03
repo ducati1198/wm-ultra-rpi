@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.13.6
+
+- Fix: the PolicyKit check could not see the rule (its folder is root-only), so it reported a false problem. It now checks with sudo.
+
 ## 0.13.5
 
 - Fix: Fluidd showed "PolKit warnings detected / Moonraker not authorized for PolicyKit" on a fresh Pi, so it could not restart services. The installer now installs Moonraker's PolicyKit rule (its own script), `--repair` re-installs it, and `--doctor` checks for it.
