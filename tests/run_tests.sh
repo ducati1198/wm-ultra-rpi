@@ -320,4 +320,11 @@ check "board uninstall-klipperscreen: removes it AND re-enables the factory serv
 B6="$T/b6"; mkdir -p "$B6/printer_data/config"; sb "$B6" --pi wmpi.local >/dev/null; sb "$B6" --pi wmpi.local >/dev/null
 check "board: running twice keeps the ORIGINAL saved state" "grep -q 'makerbase-client enabled active' $B6/wm-screen-backup/disabled.list"
 
+echo "== screen board pre-check (runs on the Mac)"
+PC="$ROOT/scripts/screen_board_precheck.sh"; mkdir -p "$T/pc"
+check "precheck syntax" "bash -n $PC"
+check "precheck reads package and service lists from screen_board.sh" "(cd $T/pc && bash $PC --local-test | grep -q SUMMARY)"
+check "precheck writes a scrubbed report" "ls $T/pc/screen_board_precheck_*.txt >/dev/null && ! grep -q TM88888 $T/pc/screen_board_precheck_*.txt"
+check "precheck is read-only (no sudo, no service changes in its code)" "! grep -E 'systemctl (stop|start|disable|enable|restart)|apt-get (install|upgrade|remove)[^|]*[^s] ' $PC | grep -v -E '^[[:space:]]*#|-s install|Still to do|sudo systemctl' | grep -q ."
+check "precheck needs a board address" "! bash $PC"
 echo; echo "passed: $PASS  failed: $FAIL"; [ "$FAIL" = 0 ]

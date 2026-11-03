@@ -237,7 +237,16 @@ Settings page, and the Calibrate page on a 5 inch 800x480 screen (compact):
 
 Instead of buying a screen for the Pi, the original screen board can run KlipperScreen and talk to the Pi's Klipper/Moonraker over the network. The Pi must already be installed and running (section 3), with the touchscreen option on (`./installer.sh --screen on`) so the ZR Tools macros are in `printer.cfg`.
 
-On the **screen board** (SSH in as `t13dp`, it needs internet):
+**First, on your Mac** (read-only, changes nothing on the board; it tells you READY or NOT READY):
+
+```bash
+git clone https://github.com/ducati1198/wm-ultra-rpi && cd wm-ultra-rpi
+bash scripts/screen_board_precheck.sh <board-ip> --pi wmpi.local --backup
+```
+
+It checks the board's display, touch, console, disk and memory, the factory services, the held X server, the Pi (Moonraker, print state, ZR macros), the clock, GitHub/PyPI/apt access, and runs an apt dry run. `--backup` also saves the board's config to your Mac. The report (private data removed) is saved next to where you ran it; send it if something fails.
+
+Then on the **screen board** (SSH in as `t13dp`, it needs internet):
 
 ```bash
 git clone https://github.com/ducati1198/wm-ultra-rpi && cd wm-ultra-rpi
