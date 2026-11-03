@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.13.3
+
+- Fix (found on the first real Pi install): on Debian 12 the home folder is private, so nginx answered "403 Forbidden" and Fluidd did not open. The installer now runs `chmod o+x ~` (pass-through only), `--repair` does the same, and `--doctor` checks that the Fluidd page opens.
+
 ## 0.13.2
 
 - Pi installer: `--screen macros` adds only the ZR Tools macros to `printer.cfg` (no KlipperScreen on the Pi), for people who use the WonderMaker screen board. Answering no to "Add a touchscreen?" now offers it. `--screen-remove` keeps the macros.

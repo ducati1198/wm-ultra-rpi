@@ -38,7 +38,7 @@ The installer never flashes any board and never starts Klipper unless you ask fo
 | Exact package versions of WonderMaker's `klippy-env` and `moonraker-env` | pinned lists in `config/`, read from the factory image |
 | Webcams and timelapse | crowsnest and Moonraker timelapse, the versions WonderMaker ships |
 | Fluidd with a **Toolheads** panel | four toolheads, chamber, air filter, doors, print with colours, filament mapping |
-| Safe by default | Moonraker and Fluidd work right away, **Klipper stays off** until you connect the main board |
+| Safe without the printer | Moonraker and Fluidd work right away. Without the main board Klipper starts but only reports "cannot connect" (nothing moves); `--no-start` leaves it off until `--first-start` |
 | Optional touchscreen | KlipperScreen with a **ZR Tools** page, if you connect a screen to the Pi (**not yet tested on hardware**) |
 
 ![Before and after](docs/img/overview.svg)

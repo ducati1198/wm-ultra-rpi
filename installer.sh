@@ -343,6 +343,9 @@ step_nginx() {
     SUDO install -m 644 "$SCRIPT_DIR/config/nginx_fluidd.conf"      /etc/nginx/sites-available/fluidd
     SUDO ln -sf /etc/nginx/sites-available/fluidd /etc/nginx/sites-enabled/fluidd
     SUDO rm -f /etc/nginx/sites-enabled/default
+    # Debian 12 makes the home folder private (700), so nginx (www-data) cannot reach ~/fluidd and answers "403 Forbidden".
+    # o+x lets other users pass through the folder to a path they already know; it does not let them list or read your files.
+    SUDO chmod o+x "$HOME_DIR"
     for f in /etc/nginx/conf.d/common_vars.conf /etc/nginx/conf.d/upstreams.conf /etc/nginx/sites-available/fluidd; do record "FILE $f"; done
     record "LINK /etc/nginx/sites-enabled/fluidd"
     SUDO nginx -t && SUDO systemctl enable nginx && SUDO systemctl restart nginx
@@ -1017,6 +1020,10 @@ do_doctor() {
     if can_exists; then
         can_is_up && doc_ok "can0 is up" || { doc_bad "can0 is down" "Klipper cannot reach the toolheads."; offer_fix "bring can0 up (1 Mbit)" bash -c "sudo ip link set can0 up type can bitrate 1000000"; }
     else doc_bad "no can0 interface" "It appears when the main board is connected."; fi
+    if [ "$TESTING" != 1 ]; then
+        local hc; hc="$(curl -s -m 5 -o /dev/null -w '%{http_code}' http://127.0.0.1/ 2>/dev/null)"
+        [ "$hc" = 200 ] && doc_ok "Fluidd page opens" || { doc_bad "Fluidd page answers HTTP ${hc:-none}" "403 means nginx cannot read your home folder (Debian 12 makes it private)."; offer_fix "let nginx pass through the home folder" bash -c "chmod o+x '$HOME_DIR' && sudo systemctl reload nginx"; }
+    fi
     [ -n "$(api_get /server/info)" ] && doc_ok "Moonraker API answers" || doc_bad "Moonraker API does not answer" "Last log lines: $(tail -n 3 "$HOME_DIR/printer_data/logs/moonraker.log" 2>/dev/null | tr '\n' ' ')"
     local free; free=$(df -Pm "$HOME_DIR" | awk 'NR==2{print $4}'); [ "${free:-0}" -gt 800 ] && doc_ok "disk space (${free} MB free)" || doc_bad "only ${free} MB free" "Old backups: ~/wm-rpi-backup and ~/wm-backups. Gcode files: ~/printer_data/gcodes."
     local p; p="$(power_flags)"; if [ -z "$p" ] || [ "$p" = 0x0 ]; then doc_ok "no power problems reported"; else doc_bad "the Pi reported power/heat flags $p" "Use the official 5 V / 3 A supply and a short cable."; fi
