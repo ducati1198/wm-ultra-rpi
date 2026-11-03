@@ -34,3 +34,16 @@ Touchscreen replacement, webcams (the nginx routes for four mjpg-streamer camera
 - Touch controller: **Goodix GT911** on a 6-pin flex (1 VDD, 2 SCL, 3 SDA, 4 RST, 5 INT, 6 GND), flex marked `YZ-GG500890`. It is an **I2C** touch panel (not USB), driven by the board's own kernel (`goodix` driver).
 - LCD flex marked `INANBO-T50CRCBHi-V12`: a 5.0 inch module, so ZR Tools uses the compact size.
 - The display and touch are wired to the screen board (WM-ZR-M), so they only work when that board runs KlipperScreen itself. They cannot be plugged into a Raspberry Pi as a USB screen.
+
+### What the factory screen board runs (read from the factory image, not from a live board)
+
+| Item | Finding |
+|---|---|
+| OS | Debian 11 (bullseye) aarch64, Python 3.9.2, image `KLP_IMG_WM_ZRU_V1.0.26` |
+| Screen app | `makerbase-client` (service) runs `~/TM_T1/bin/client`, an LVGL program that draws straight to `/dev/fb0` and reads the touch from `/dev/input/event0`. It links no GTK/Qt, and no X server or display manager is enabled |
+| Kernel | Rockchip RK3308B kernel in the `boot` partition (Android boot image). Device tree: Goodix GT911 at I2C 0x5d, touch area 800x480; simple RGB panel, native 800x480 (also 1024x600 and 480x272 timings), PWM backlight |
+| X11 | `xserver-xorg-core`, `-input-libinput`, `-input-evdev`, `-video-fbdev` installed; `/etc/X11/xorg.conf.d/20-modesetting.conf` (Rockchip modesetting, glamor) exists. No GTK, PyGObject or libmpv; `gcc` and `make` are present |
+| Services enabled | klipper, moonraker, nginx, crowsnest, janus, hostapd, klipper-mcu, makerbase-client, makerbase-webcam, makerbase-wlan0, makerbase-mac, makerbase-net-mods, makerbase-exfat, ssh, networking |
+| apt | `/etc/apt/sources.list` points to archive.debian.org (bullseye is archived); `Check-Valid-Until`/`Check-Date` are off |
+
+Not verified (needs the live board): whether apt reaches the archive from it, whether X11 starts on this kernel, free disk and RAM.
