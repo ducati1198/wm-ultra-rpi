@@ -235,7 +235,7 @@ Settings page, and the Calibrate page on a 5 inch 800x480 screen (compact):
 
 > **Not yet tested end to end.** The board's kernel has no virtual console (`/dev/tty0`), so stock KlipperScreen cannot start there. A live test showed X does run when it gets its own seat (display, framebuffer and touch assigned to `seat1`); the installer sets this up with udev rules and a custom service. Touch input through X still needs checking on hardware, and the full install has not been run on the board yet.
 
-Instead of buying a screen for the Pi, the original screen board can run KlipperScreen and talk to the Pi's Klipper/Moonraker over the network. The Pi must already be installed and running (section 3), with the touchscreen option on (`./installer.sh --screen on`) so the ZR Tools macros are in `printer.cfg`.
+Instead of buying a screen for the Pi, the original screen board can run KlipperScreen and talk to the Pi's Klipper/Moonraker over the network. The Pi does not have to be running to install this; KlipperScreen connects once it is. On the Pi, use the touchscreen option on (`./installer.sh --screen on`) so the ZR Tools macros are in `printer.cfg`.
 
 **First, on your Mac** (read-only, changes nothing on the board; it tells you READY or NOT READY):
 

@@ -126,8 +126,9 @@ preflight() {
         [ -e /dev/fb0 ] || print_warning "/dev/fb0 not found: the screen may not be initialised."
         [ -e /dev/tty0 ] || print_warning "/dev/tty0 not found: KlipperScreen's service needs a virtual console and may not start."
     fi
-    [ -n "$PI_HOST" ] || die_with_fix "no Pi address given." "add --pi wmpi.local (or the Pi's IP)."
-    pi_ok && print_success "The Pi answers: $(pi_url) (Klipper connected)" || die_with_fix "the Pi at $PI_HOST does not answer Moonraker (or Klipper is not connected)." "start the Pi first (./installer.sh --first-start on the Pi), check the address, and that moonraker.conf trusts this board's address. Nothing was changed."
+    [ -n "$PI_HOST" ] || { PI_HOST="wmpi.local"; print_warning "No --pi given: using $PI_HOST (change it later in ~/KlipperScreen.conf or ~/printer_data/config/KlipperScreen.conf)."; }
+    if pi_ok; then print_success "The Pi answers: $(pi_url) (Klipper connected)"
+    else print_warning "The Pi at $PI_HOST does not answer yet. That is fine: KlipperScreen is installed anyway and connects when the Pi is running."; fi
     if printing_now && [ "$FORCE" != 1 ]; then die_with_fix "a print is running or paused." "wait until it finishes (or --force)."; fi
     local free; free="$(disk_free_mb)"; [ "${free:-0}" -gt 1500 ] && print_success "disk space ${free} MB free" || die_with_fix "only ${free} MB free." "free space (old logs, ~/printer_data/gcodes) first."
     apt_fix; apt_ok && print_success "apt works (archive.debian.org)" || die_with_fix "apt update fails." "check the board's internet access and date; see README 'Screen board'. Nothing was changed."
