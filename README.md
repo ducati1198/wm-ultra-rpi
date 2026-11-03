@@ -165,6 +165,16 @@ After the install, open `http://<pi address>/`. Fluidd shows "Klippy disconnecte
 
 ## 5. Fluidd panel and ZR Tools
 
+**Without an ACE Pro** (the default):
+
+![Fluidd without an ACE Pro](docs/img/fluidd-without-acepro.png)
+
+**With an ACE Pro** (add the [ACE Pro panel](https://github.com/ducati1198/wm-ultra-fluidd-acepro-panel) and an ACE card appears under Toolheads):
+
+![Fluidd with an ACE Pro](docs/img/fluidd-with-acepro.png)
+
+Full dashboard without an ACE Pro:
+
 ![Fluidd dashboard without an ACE Pro](docs/img/fluidd-dashboard-no-ace.png)
 
 ![Toolheads card](docs/img/fluidd-toolheads-card.png)
