@@ -4,9 +4,8 @@
 #   ./stage_from_repo.sh <model> <stage-dir> [modules-dir]
 #
 #   model        ultra-s  or  ultra   (same firmware; the Ultra-S adds the chamber/air-filter/door file zru-s.cfg)
-#   modules-dir  folder holding WonderMaker's 5 compiled modules (*.so). They are NOT in this repo
-#                (no source, no license to redistribute). Without it the stage is built anyway,
-#                but heaters, load cells and tool calibration will not work.
+#   modules-dir  optional: folder with your own copies of WonderMaker's 5 compiled modules (*.so).
+#                The repository already contains them; yours replace them if they match the checksums.
 #
 # Every file is checked against checksums before it is used. Modules that do not match the
 # factory checksums are refused.
@@ -20,7 +19,7 @@ case "$MODEL" in ultra|ultra-s) ;; *) echo "Unknown model '$MODEL' (use ultra or
 mkdir -p "$STAGE"; W="$(mktemp -d "$STAGE/.work.XXXXXX")"; trap 'rm -rf "$W"' EXIT
 cp -a "$SRC/klipper" "$SRC/moonraker" "$W/"
 
-MODULES_OK=0
+# The 5 compiled modules ship inside factory/zru/klipper. Optionally replace them with your own copies.
 if [ -n "$MODS" ]; then
   [ -d "$MODS" ] || { echo "Modules folder not found: $MODS"; exit 1; }
   while read -r sum path; do
@@ -29,10 +28,12 @@ if [ -n "$MODS" ]; then
     [ "$(sha256sum "$MODS/$f" | cut -d' ' -f1)" = "$sum" ] || { echo "$f is not the factory file (checksum differs). Refused."; exit 1; }
     cp "$MODS/$f" "$W/klipper/$path"
   done < "$SRC/modules.sha256"
-  MODULES_OK=1; echo "Compiled modules: all 5 match the factory checksums."
-else
-  echo "Compiled modules: NOT included. Klipper will not run the heaters, load cells or calibration until they are added."
 fi
+MODULES_OK=1
+while read -r sum path; do
+  [ -f "$W/klipper/$path" ] && [ "$(sha256sum "$W/klipper/$path" | cut -d' ' -f1)" = "$sum" ] || { MODULES_OK=0; echo "Compiled module missing or not factory: $(basename "$path")"; }
+done < "$SRC/modules.sha256"
+[ "$MODULES_OK" = 1 ] && echo "Compiled modules: all 5 present and match the factory checksums."
 
 mkdir -p "$W/printer_data/config" "$W/printer_data/systemd" "$W/printer_data/gcodes" "$W/fluidd" "$W/TM_T1/factory_settings"
 cp "$SRC/config/"* "$W/printer_data/config/"

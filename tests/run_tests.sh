@@ -114,20 +114,21 @@ else echo "  (skipped: mke2fs/debugfs missing)"; fi
 echo "== factory files from the repository (no printer)"
 (cd "$ROOT/factory/zru" && sha256sum -c SHA256SUMS >/dev/null) && echo "  ok   factory checksums" && PASS=$((PASS+1))
 check "factory sources are plain folders, committed" "[ -f $ROOT/factory/zru/klipper/klippy/klippy.py ] && [ -f $ROOT/factory/zru/moonraker/moonraker/moonraker.py ] && ! git -C $ROOT check-ignore -q factory/zru/klipper/klippy/klippy.py"
-check "no compiled module in the repo" "! find $ROOT/factory -name '*.so' | grep -q . && ! tar tzf $ROOT/factory/zru/klipper.tgz | grep -q '\.so$'"
+check "the 5 compiled modules are in the repo and match their factory checksums" "cd $ROOT/factory/zru/klipper && sha256sum -c ../modules.sha256"
 check "klipper archive has its license" "[ -f $ROOT/factory/zru/klipper/COPYING ] && [ -f $ROOT/factory/zru/moonraker/LICENSE ]"
 check "factory config has placeholder CAN ids only" "grep -q aa0000000000 $ROOT/factory/zru/config/wm_zru_mcu.cfg"
 HG="$T/hg"; mkdir -p "$HG"
 OUT="$(inst "$HG" --from-github --model ultra-s)"; echo "$OUT" > "$T/gh.out"
-check "install from repo works without modules" "[ -f $HG/klipper/klippy/klippy.py ] && [ -f $HG/printer_data/config/printer.cfg ]"
-check "warns that modules are missing" "grep -q 'compiled modules were NOT installed' $T/gh.out"
+check "install from repo works" "[ -f $HG/klipper/klippy/klippy.py ] && [ -f $HG/printer_data/config/printer.cfg ]"
+check "no missing-modules warning (they are bundled)" "! grep -q 'compiled modules were NOT installed' $T/gh.out && grep -q 'all 5 present' $T/gh.out"
+check "bundled modules end up in ~/klipper" "ls $HG/klipper/klippy/extras/hx711.cpython-39-aarch64-linux-gnu.so"
 check "web interface installed (factory data has none)" "[ -f $HG/fluidd/index.html ]"
 check "env files in place" "grep -q KLIPPER_ARGS $HG/printer_data/systemd/klipper.env"
 check "unknown model refused" "! inst $T/hg2 --from-github --model nope"
 check "ultra-s model enables zru-s.cfg" "grep -q '^\\[include zru-s.cfg\\]' $HG/printer_data/config/printer.cfg"
 HU="$T/hu"; mkdir -p "$HU"; inst "$HU" --from-github --model ultra >/dev/null
 check "ultra model leaves zru-s.cfg off" "grep -q '^# \\[include zru-s.cfg\\]' $HU/printer_data/config/printer.cfg && ! grep -q '^\\[include zru-s.cfg\\]' $HU/printer_data/config/printer.cfg"
-check "no MCU binary or flasher in the repo" "! find $ROOT/factory -name '*.bin' -o -name hid-flash | grep -q ."
+check "MCU firmware and flasher match their checksums" "cd $ROOT/factory/zru/mcu && sha256sum -c binaries.sha256"
 check "model variants of printer.cfg present" "[ -f $ROOT/factory/zru/config-variants/printer4.cfg ]"
 # modules: wrong files refused, right files accepted (use a copy of the repo with matching fake checksums)
 mkdir -p "$T/mods"; for n in cs1237 heater_air_core heater_feng hx711 xy_offset_calibrator_core; do echo "fake $n" > "$T/mods/$n.cpython-39-aarch64-linux-gnu.so"; done

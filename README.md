@@ -49,7 +49,7 @@ The installer never flashes any board and never starts Klipper unless you ask fo
 - Raspberry Pi OS **Bookworm 64-bit**, written with Raspberry Pi Imager. In the imager's settings set the **username to `t13dp`** (WonderMaker's software has `/home/t13dp` built in), enable SSH, and set your Wi-Fi or use a cable.
 - The **replacement main board** (WM-ZR-D V1.2): it carries the Klipper USB-CAN bridge (USB id `1d50:606f`), and the toolheads and filament hub stay on its CAN bus.
 - A **custom cable** from the Pi's USB-A port to the red 4-pin connector of the main board (DM, DP, G only; its VIN pin is 24 V). See [docs/WIRING.md](docs/WIRING.md).
-- The WonderMaker software: from **your own printer** (reachable old board, a disk image, or a folder made earlier) or the factory files in this repo (see 3.1). The 5 compiled modules always come from a real printer or image.
+- The WonderMaker software: from **your own printer** (reachable old board, a disk image, or a folder made earlier) or the factory files in this repo (see 3.1). 
 
 ### 2.2 How it is connected
 
@@ -86,11 +86,7 @@ The installer first asks **where the WonderMaker software is**:
 3. **A stage folder** (`klipper.tgz`, `moonraker.tgz`, `data.tgz`) made by `scripts/pull_from_board.sh` or `scripts/extract_from_image.sh`.
 4. **Nothing at all: the factory files inside this repository** (`--from-github`). The repo carries the original Klipper and Moonraker (both GPL v3, license included) and the factory settings, with SHA256 checksums that are verified first. The **Ultra** and **Ultra-S** use the same files; `--model ultra|ultra-s` switches the one include line that differs. See [factory/README.md](factory/README.md).
 
-   WonderMaker's **5 compiled modules** (`cs1237`, `hx711`, `heater_air_core`, `heater_feng`, `xy_offset_calibrator_core`: heaters, load cells, calibration) are binaries without a license to redistribute, so they are **not** in the repo. Give the installer a folder that holds them (`--modules DIR`), taken from your own printer or its image. Each file is checked against the factory checksum and refused if it differs. Without them everything installs, but `--enable-klipper` refuses to start Klipper.
-
-Then: install the Fluidd Toolheads panel (default yes), webcam support (yes), timelapse (yes), copy ZR Tools (no), and a final "go ahead?".
-
-Shortcuts: `--from-board IP`, `--from-image FILE`, `--from-stage DIR`, `--from-github --model ultra|ultra-s [--modules DIR]`.
+   WonderMaker's **5 compiled modules** (`cs1237`, `hx711`, `heater_air_core`, `heater_feng`, `xy_offset_calibrator_core`: heaters, load cells, calibration) are bundled in the repo too, copied unchanged from an Ultra-S and checked against their factory checksums. They are WonderMaker's binaries (no published license): see the takedown note in [factory/README.md](factory/README.md). `--modules DIR` uses your own copies instead.
 
 ### 3.2 What it does
 
@@ -188,7 +184,7 @@ docs/                   HARDWARE.md and images
 tests/run_tests.sh      tests (fake home, synthetic disk image)
 ```
 
-`factory/` holds the GPL parts (Klipper, Moonraker), the factory settings and WonderMaker's helper scripts. WonderMaker's compiled modules and MCU firmware (binaries without source) and your own calibration are deliberately **not** in this repository, see [factory/README.md](factory/README.md).
+`factory/` holds WonderMaker's Klipper and Moonraker (GPL), the factory settings, helper scripts, and their compiled modules and MCU firmware (WonderMaker's binaries, see [factory/README.md](factory/README.md)). Your own calibration is not in the repository.
 
 ## 9. Credits and license
 

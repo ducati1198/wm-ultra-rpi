@@ -12,7 +12,7 @@
 # ./installer.sh --from-stage DIR      take it from a folder made by scripts/pull_from_board.sh
 # ./installer.sh --from-github         take the factory files that are inside this repository (no printer needed)
 # ./installer.sh --model ultra|ultra-s printer model for --from-github (default ultra-s)
-# ./installer.sh --modules DIR         folder with WonderMaker's 5 compiled modules (needed for --from-github)
+# ./installer.sh --modules DIR         optional: your own copies of the 5 compiled modules (replace the bundled ones)
 # ./installer.sh --check               report problems, change nothing
 # ./installer.sh --enable-klipper      start Klipper now and at every boot (do this when the main board is connected)
 # ./installer.sh --disable-klipper     stop Klipper and stop it from starting at boot
@@ -165,11 +165,7 @@ choose_source() {
             fi
             case "$MODEL" in ultra|ultra-s) ;; *) die_with_fix "unknown model '$MODEL'." "use --model ultra or --model ultra-s." ;; esac
             print_info "Using the factory files of the $MODEL in this repository (Klipper and Moonraker are GPL; see factory/README.md)."
-            echo "  The 5 compiled WonderMaker modules (heaters, load cells, calibration) are not in the repo: no license to publish them."
-            if [ -z "$MODULES_DIR" ] && [ "$DRY" != 1 ] && [ "${WM_ASSUME_YES:-0}" != 1 ]; then
-                echo "  They come from your printer or its image. Folder with the *.so files (empty = add later):"
-                read -r -p "  Modules folder: " MODULES_DIR || MODULES_DIR=""
-            fi
+            echo "  The repository includes WonderMaker's 5 compiled modules (heaters, load cells, calibration), checked against factory checksums."
             run bash "$SCRIPT_DIR/scripts/stage_from_repo.sh" "$MODEL" "$STAGE" $MODULES_DIR || die_with_fix "could not build the factory stage." "see the message above. A modules folder must hold the unmodified factory *.so files." ;;
         stage)
             [ -d "$SRC_ARG" ] || die_with_fix "stage folder not found: $SRC_ARG" "give the full path."

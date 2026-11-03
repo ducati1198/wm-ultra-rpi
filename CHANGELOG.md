@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.0
+
+- Klipper and Moonraker are plain folders in `factory/zru/` (the earlier archives were never pushed).
+- WonderMaker's 5 compiled modules, `c_helper.so`, the MCU firmware and `hid-flash` are now included, with checksums and a takedown note. `--from-github` no longer needs a modules folder.
+
 ## 0.4.1
 
 - crowsnest is now v5.0.12 (latest release) instead of WonderMaker's 2023 version. Same install method, config keys and service. Moonraker timelapse was already the latest upstream version.

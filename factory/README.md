@@ -21,20 +21,19 @@ The ZR Ultra and ZR Ultra-S run the **same** firmware and files. The only differ
 | Python environments | not stored (machine-built folders): rebuilt from `config/klippy-requirements.txt` and `config/moonraker-requirements.txt` |
 | Checksums | `SHA256SUMS`, `modules.sha256` (compiled modules), `mcu/binaries.sha256` (MCU firmware and flasher) |
 
-## What is NOT here, and why
+## Binary files from WonderMaker (included at the repository owner's request)
 
-| Item | Why |
-|---|---|
-| The 5 compiled Python modules: `cs1237`, `hx711`, `heater_air_core`, `heater_feng`, `xy_offset_calibrator_core` | Binaries without source and without any license that allows copying them. Klipper is GPL v3, so a copy of derived binaries without their source would break that license as well |
-| MCU firmware `klipper*.bin` and the `hid-flash` tool | Same reason (no matching source in the package). Also never needed: this project never flashes any board |
-| WonderMaker's touchscreen app and encrypted update package | Not ours to publish |
-| Your calibration, saved variables, logs | They belong to your printer |
+| Item | Where | Note |
+|---|---|---|
+| The 5 compiled Python modules: `cs1237`, `hx711`, `heater_air_core`, `heater_feng`, `xy_offset_calibrator_core` | `zru/klipper/klippy/extras/` | WonderMaker's binaries, copied unchanged from a ZR Ultra-S. **No source and no license to redistribute are published by WonderMaker.** They stay WonderMaker's property |
+| MCU firmware `klipper*.bin` and the `hid-flash` tool | `zru/mcu/` | Never used or run by the installer, which never flashes anything |
+| `c_helper.so` | `zru/klipper/klippy/chelper/` | Klipper rebuilds it by itself if needed |
 
-Where they come from: your own printer or its image, or WonderMaker's official download page (the update package there is encrypted for the printer's own updater, so it cannot be unpacked here). The installer checks the 5 modules against `modules.sha256` and refuses a modified file.
+Not included: WonderMaker's touchscreen app and its encrypted update package, and your own calibration, saved variables and logs.
+
+**Takedown:** if WonderMaker or any rights holder asks, these binaries will be removed. Their checksums stay in `modules.sha256` and `mcu/binaries.sha256`, so you can still verify files taken from your own printer. `--modules DIR` makes the installer use your own copies instead of the bundled ones.
 
 WonderMaker's official firmware download: https://wondermaker3d.gitbook.io/wondermaker3d/printer-series/zr-ultra/documentation-package/firmware-file-download
-
-If WonderMaker gives written permission to redistribute the binaries, they can be added here.
 
 Note: three Moonraker Python files (`server.py`, `application.py`, `storage_monitor.py`) had Windows line endings in WonderMaker's copy; they are stored with Unix line endings (Git converts them on upload). Nothing else differs.
 
