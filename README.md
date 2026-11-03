@@ -207,6 +207,25 @@ The screen is detected for you: size from the video output (800x480 and smaller 
 
 **Settings page:** layout (tabs/grid), density (auto/compact/comfortable) and light/dark theme. They are stored in `~/printer_data/config/zr_screen.conf` (not in KlipperScreen's own settings). You can also change the layout with `./installer.sh --screen-layout grid`.
 
+**What it looks like** (drawn illustrations of the intended look, not photos; real screens will differ in small details):
+
+Layout `tabs` (default), 7 inch 1024x600:
+
+![ZR Tools tabs layout](docs/img/screen-tabs.png)
+
+Layout `grid`:
+
+![ZR Tools grid layout](docs/img/screen-grid.png)
+
+ACE Pro page (only shown when an ACE Pro is present):
+
+![ZR Tools ACE Pro page](docs/img/screen-ace.png)
+
+Settings page, and the Calibrate page on a 5 inch 800x480 screen (compact):
+
+![ZR Tools settings](docs/img/screen-settings.png)
+![ZR Tools calibrate, 5 inch](docs/img/screen-calib5.png)
+
 **Rotation** is an operating-system setting, not a ZR Tools one. On X11 use `xrandr --output <name> --rotate left` (and a matching touch matrix); for Weston, `transform=90` in `weston.ini`. See the KlipperScreen documentation.
 
 `--update`, `--repair` and `--doctor` copy the panel files back if a KlipperScreen update removed them. Switching the WonderMaker screen board itself into a KlipperScreen is a later step and is not part of this.
