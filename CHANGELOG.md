@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.13.10
+
+- README: the OrcaSlicer plugin step says the file can also be downloaded from the orca_plugin folder of the panel repository.
+
 ## 0.13.9
 
 - README: links to wm-ultra-fluidd-acepro-panel and its OrcaSlicer plugin at the top, in the plugin section and in the credits.
