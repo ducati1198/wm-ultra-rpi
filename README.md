@@ -249,7 +249,8 @@ It checks the board's display, touch, console, disk and memory, the factory serv
 Then on the **screen board** (SSH in as `t13dp`, it needs internet):
 
 ```bash
-git clone https://github.com/ducati1198/wm-ultra-rpi && cd wm-ultra-rpi
+# no git needed (the factory image's apt is broken; the script repairs it itself before installing anything)
+curl -fsSL https://codeload.github.com/ducati1198/wm-ultra-rpi/tar.gz/refs/heads/main | tar xz && cd wm-ultra-rpi-main
 bash scripts/screen_board.sh --pi wmpi.local --dry-run     # shows every change, changes nothing
 bash scripts/screen_board.sh --pi wmpi.local
 ```

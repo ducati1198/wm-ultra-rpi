@@ -3,7 +3,7 @@
 # KlipperScreen on the WonderMaker screen board (WM-ZR-M, RK3308B)            NOT YET TESTED ON HARDWARE
 # =============================================================================
 # Run ON the screen board (Debian 11, user t13dp), from a clone of this repository:
-#   git clone https://github.com/ducati1198/wm-ultra-rpi && cd wm-ultra-rpi
+#   curl -fsSL https://codeload.github.com/ducati1198/wm-ultra-rpi/tar.gz/refs/heads/main | tar xz && cd wm-ultra-rpi-main
 #   bash scripts/screen_board.sh --pi wmpi.local            install (asks first)
 #
 # bash scripts/screen_board.sh --pi HOST [--screen-driver modesetting|fbdev] [--dry-run] [--yes]   install
@@ -191,8 +191,13 @@ fetch_ks() {
     local pin url sha; pin="$(addon_pin klipperscreen)"; url="${pin%|*}"; sha="${pin#*|}"
     if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would run: git clone $url $KS_DIR @ ${sha:0:7}${NC}"; return 0; fi
     if [ "$TESTING" = 1 ]; then mkdir -p "$KS_DIR/panels" "$KS_DIR/scripts"; echo "[test] fetch $url @ $sha" >> "$HOME_DIR/.sudo.log"; return 0; fi
-    [ -d "$KS_DIR/.git" ] || git clone -q "$url" "$KS_DIR" || return 1
-    git -C "$KS_DIR" checkout -q "$sha"
+    if command -v git >/dev/null 2>&1; then   # git if the board has it, otherwise the plain tarball of the pinned commit (no git needed)
+        [ -d "$KS_DIR/.git" ] || git clone -q "$url" "$KS_DIR" || return 1
+        git -C "$KS_DIR" checkout -q "$sha"
+    else
+        rm -rf "$KS_DIR"; mkdir -p "$KS_DIR"
+        curl -fsSL "https://codeload.github.com/${url#https://github.com/}/tar.gz/$sha" | tar -xz --strip-components=1 -C "$KS_DIR" || return 1
+    fi
 }
 
 step_klipperscreen() {
