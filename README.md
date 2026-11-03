@@ -259,7 +259,7 @@ What it does, in this order (everything that can fail comes before the factory a
 |---|---|
 | On the screen: **ZR Tools > More > System > Factory mode** | asks to confirm, then does the same as the command below |
 | `bash ~/wm-screen-backup/screen_board.sh --factory-restore` | removes KlipperScreen, re-enables exactly the services that were enabled before, reboots |
-| `bash scripts/screen_board.sh --uninstall-klipperscreen` | removes KlipperScreen only; the factory services stay off (screen stays black until a restore) |
+| `bash scripts/screen_board.sh --uninstall-klipperscreen` | same as `--factory-restore`: KlipperScreen is never removed without turning the factory services back on |
 | `bash scripts/screen_board.sh --status` | read-only: what is enabled, running and installed |
 
 To read the board first (nothing is changed): `scripts/screen_board_inspect.sh`. Notes: the board's Reboot/Shut down buttons in ZR Tools act on the **Pi**; the Pi's `moonraker.conf` must trust the board's address; the apt packages stay installed after a restore.

@@ -8,7 +8,7 @@
 #
 # bash scripts/screen_board.sh --pi HOST [--screen-driver modesetting|fbdev] [--dry-run] [--yes]   install
 # bash scripts/screen_board.sh --status                      read-only: what is installed / disabled
-# bash scripts/screen_board.sh --uninstall-klipperscreen     remove KlipperScreen only (factory services stay off; the screen stays black)
+# bash scripts/screen_board.sh --uninstall-klipperscreen     same as --factory-restore (KlipperScreen is never removed without turning the factory services back on)
 # bash scripts/screen_board.sh --factory-restore             remove KlipperScreen, turn the factory services back on, reboot
 #                                                            (also the "Factory mode" button on the screen: ZR Tools > More > System)
 # Options: --no-reboot, --force (ignore a running print), --yes
@@ -315,9 +315,10 @@ remove_klipperscreen() {
     print_success "KlipperScreen removed. The installed apt packages and your factory files are left alone."
 }
 
-do_uninstall() {
-    [ -d "$KS_DIR" ] || [ -f /etc/systemd/system/KlipperScreen.service ] || [ -f "$BK/board_mode" ] || [ "$TESTING" = 1 ] || die_with_fix "KlipperScreen is not installed here." "nothing to remove."
-    echo "This removes KlipperScreen only. The factory services stay OFF, so the screen stays black until: bash scripts/screen_board.sh --factory-restore"
+do_uninstall() {   # removing KlipperScreen must never leave the screen black: the factory services come back too
+    if [ -f "$BK/disabled.list" ]; then do_restore; return; fi
+    [ -d "$KS_DIR" ] || [ -f /etc/systemd/system/KlipperScreen.service ] || [ "$TESTING" = 1 ] || die_with_fix "KlipperScreen is not installed here." "nothing to remove."
+    print_warning "No saved service list found: only KlipperScreen is removed. Enable the factory services by hand if the screen stays black."
     ask_yn "Continue?" n || exit 0
     remove_klipperscreen
 }
