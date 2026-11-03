@@ -80,14 +80,7 @@ command -v Xorg >/dev/null && ok "Xorg present" || bad "no Xorg"; command -v xin
 info "Xwrapper.config: $(grep -v '^#' /etc/X11/Xwrapper.config 2>/dev/null | tr '\n' ' ')"; ls /etc/X11/xorg.conf.d 2>/dev/null | sed 's/^/[INFO] xorg.conf.d: /'
 [ -f /etc/X11/xorg.conf.d/20-modesetting.conf ] && ok "Rockchip modesetting config present" || warn "no 20-modesetting.conf"
 
-sec "6. Network: Pi, apt, GitHub, PyPI"
-getent hosts "$PI_HOST" >/dev/null 2>&1 || echo "$PI_HOST" | grep -qE '^[0-9.]+$' && ok "the Pi name resolves ($PI_HOST)" || warn "cannot resolve $PI_HOST from the board" "use the Pi's IP address with --pi"
-ping -c1 -W3 "$PI_HOST" >/dev/null 2>&1 && ok "ping to the Pi works" || warn "no ping reply from the Pi" "may just be blocked; the Moonraker test below decides"
-inf=$(curlq "http://$PI_HOST:7125/server/info" 8)
-echo "$inf" | grep -q '"klippy_connected": *true' && ok "the Pi's Moonraker answers and Klipper is connected" || { echo "$inf" | grep -q klippy && bad "Moonraker answers but Klipper is not connected" "start Klipper on the Pi (./installer.sh --first-start)" || bad "the Pi's Moonraker does not answer from this board" "check the Pi is on, the address, and trusted_clients in the Pi's moonraker.conf"; }
-pst=$(curlq "http://$PI_HOST:7125/printer/objects/query?print_stats" 6 | tr -d ' \n'); case "$pst" in *'"state":"printing"'*|*'"state":"paused"'*) bad "the Pi is printing/paused" "wait";; *'"state"'*) ok "no print running on the Pi";; esac
-lst=$(curlq "http://$PI_HOST:7125/printer/objects/list" 8); echo "$lst" | grep -q 'gcode_macro ZR_' && ok "ZR Tools macros are on the Pi" || warn "ZR Tools macros not found on the Pi" "install the Pi with --screen on (or run zr_tools/install_zr_tools.sh on the Pi), else some ZR pages will not work"
-echo "$lst" | grep -q 'lis2dw' && info "Pi has the LIS2DW accelerometer object"
+sec "6. Network: apt, GitHub, PyPI"
 s=$(date +%s); skew=$(( s - ${MAC_EPOCH:-$s} )); [ "${skew#-}" -lt 86400 ] && ok "board clock is within a day of your computer (${skew}s)" || bad "board clock is off by ${skew}s" "HTTPS to GitHub/PyPI will fail; set the date (sudo date -s ...) or fix NTP"
 grep -q archive.debian.org /etc/apt/sources.list 2>/dev/null && ok "apt sources use archive.debian.org" || warn "apt sources do not use archive.debian.org" "the installer will switch them (keeps a copy)"
 [ -f /etc/apt/apt.conf.d/99no-check-valid-until ] && ok "apt date-check override present" || warn "no 99no-check-valid-until" "the installer will create it"

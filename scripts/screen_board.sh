@@ -89,13 +89,9 @@ svc_active()  { if [ "$TESTING" = 1 ]; then [ -e "$HOME_DIR/.svc/$1.active" ]; e
 
 # ---------------------------------------------------------------- checks
 pi_url() { echo "http://${PI_HOST}:7125"; }
-pi_ok() {
-    if [ "$TESTING" = 1 ]; then [ "${WM_TEST_PI_OK:-1}" = 1 ]; return; fi
-    curl -fsS -m 6 "$(pi_url)/server/info" 2>/dev/null | grep -q '"klippy_connected"'
-}
-printing_now() {   # local (factory) Moonraker or the Pi
+printing_now() {   # the factory Moonraker on this board
     if [ "$TESTING" = 1 ]; then [ "${WM_TEST_PRINTING:-0}" = 1 ]; return; fi
-    local u s; for u in "http://127.0.0.1:7125" "$([ -n "$PI_HOST" ] && pi_url)"; do
+    local u s; for u in "http://127.0.0.1:7125"; do
         [ -n "$u" ] || continue
         s="$(curl -fsS -m 4 "$u/printer/objects/query?print_stats" 2>/dev/null)"
         echo "$s" | grep -q '"state": *"printing"\|"state":"printing"\|"state": *"paused"\|"state":"paused"' && return 0
@@ -126,9 +122,7 @@ preflight() {
         [ -e /dev/fb0 ] || print_warning "/dev/fb0 not found: the screen may not be initialised."
         [ -e /dev/tty0 ] || print_warning "/dev/tty0 not found: KlipperScreen's service needs a virtual console and may not start."
     fi
-    [ -n "$PI_HOST" ] || { PI_HOST="wmpi.local"; print_warning "No --pi given: using $PI_HOST (change it later in ~/KlipperScreen.conf or ~/printer_data/config/KlipperScreen.conf)."; }
-    if pi_ok; then print_success "The Pi answers: $(pi_url) (Klipper connected)"
-    else print_warning "The Pi at $PI_HOST does not answer yet. That is fine: KlipperScreen is installed anyway and connects when the Pi is running."; fi
+    [ -n "$PI_HOST" ] || PI_HOST="wmpi.local"   # only written into KlipperScreen.conf; the Pi is not contacted
     if printing_now && [ "$FORCE" != 1 ]; then die_with_fix "a print is running or paused." "wait until it finishes (or --force)."; fi
     local free; free="$(disk_free_mb)"; [ "${free:-0}" -gt 1500 ] && print_success "disk space ${free} MB free" || die_with_fix "only ${free} MB free." "free space (old logs, ~/printer_data/gcodes) first."
     apt_fix; apt_ok && print_success "apt works (archive.debian.org)" || die_with_fix "apt update fails." "check the board's internet access and date; see README 'Screen board'. Nothing was changed."

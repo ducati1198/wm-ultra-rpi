@@ -7,7 +7,7 @@
 #   bash scripts/screen_board_preflight_mac.sh BOARD_IP [--pi PI_ADDRESS] [--user t13dp] [--with-apt-update]
 #
 # BOARD_IP  the screen board's IP (the original WonderMaker screen board, login t13dp / TM88888 by default)
-# --pi      optional: the Raspberry Pi (wmpi.local or its IP). If it is not running yet, leave it out: the Pi checks are skipped or only warn
+# --pi      ignored (kept so old command lines still work); the Pi is not checked
 # --xtest   ALSO try to start an X server on the board (NOT read-only: stops the factory screen app for about a minute, then starts it again; asks for the sudo password)
 # --with-apt-update  also run "sudo apt-get update" on the board (only refreshes the package lists; asks for the sudo password)
 # You type the SSH password once (the connection is reused).
@@ -118,17 +118,6 @@ code=$(curl -s -m 10 -o /dev/null -w '%{http_code}' http://archive.debian.org/de
 [ "$code" = 200 ] && r PASS "archive.debian.org bullseye reachable" "" || r FAIL "archive.debian.org not reachable (HTTP $code)" "apt cannot fetch packages"
 grep -hE '^deb ' /etc/apt/sources.list 2>/dev/null | grep -q archive.debian.org && r PASS "sources.list uses archive.debian.org" "" || r WARN "sources.list does not use archive.debian.org" "the installer rewrites it (original saved)"
 grep -rqs 'Check-Valid-Until "false"' /etc/apt/apt.conf.d && r PASS "apt date check disabled" "" || r WARN "apt date check is on" "the installer adds /etc/apt/apt.conf.d/99no-check-valid-until"
-r SECTION "Connection to the Pi (optional: it can be switched off for now)" ""
-if [ -z "$PI" ]; then r INFO "no Pi address given" "Pi checks skipped; the real install needs the Pi running"
-else
-    info=$(curl -s -m 6 -w '\n%{http_code}' "http://${PI}:7125/server/info" 2>/dev/null); icode="${info##*$'\n'}"; ibody="${info%$'\n'*}"
-    if [ "$icode" = 200 ]; then
-        r PASS "Pi Moonraker answers from the board" "http://${PI}:7125"
-        echo "$ibody" | grep -q '"klippy_connected": *true' && r PASS "Klipper is connected on the Pi" "" || r WARN "Klipper is not connected on the Pi" "needed before the real install"
-        if curl -fsS -m 6 "http://${PI}:7125/printer/objects/query?print_stats" 2>/dev/null | grep -Eq '"state": ?"(printing|paused)"'; then r FAIL "a print is running on the Pi" "wait until it is done"; else r PASS "Pi: no print running" ""; fi
-    elif [ "$icode" = 401 ] || [ "$icode" = 403 ]; then r WARN "Pi refuses the board (HTTP $icode)" "add the board's address to trusted_clients in the Pi's moonraker.conf"
-    else r WARN "Pi not reachable from the board (HTTP ${icode:-none})" "OK for now. Before the real install: Pi on, port 7125, name resolves from the board (try its IP)"; fi
-fi
 r SECTION "Can the packages be installed without damage? (simulation, changes nothing)" ""
 PK="xinit xinput x11-xserver-utils xserver-xorg-input-evdev xserver-xorg-input-libinput xserver-xorg-video-fbdev libgirepository1.0-dev gcc libcairo2-dev pkg-config python3-dev gir1.2-gtk-3.0 librsvg2-common libopenjp2-7 libdbus-glib-1-dev autoconf python3-venv libsystemd-dev git curl"
 if [ -n "$(ls /var/lib/apt/lists/*Packages* 2>/dev/null | head -n1)" ]; then
@@ -178,16 +167,6 @@ command -v curl >/dev/null && show PASS "curl available" "" || show FAIL "curl m
 if [ "$LOCAL" != 1 ]; then
     if ping -c1 -t3 "$BOARD" >/dev/null 2>&1; then show PASS "board answers ping" "$BOARD"; else show WARN "board does not answer ping" "$BOARD (ping may be blocked; trying SSH)"; fi
 fi
-if [ -z "$PI" ]; then show INFO "Pi checks skipped" "no --pi given (fine while the Pi is not running)"
-else
-    code=$(curl -s -m 8 -o /dev/null -w '%{http_code}' "http://${PI}:7125/server/info" 2>/dev/null)
-    if [ "$code" = 200 ]; then
-        show PASS "Pi Moonraker answers from your Mac" "$PI"
-        macros="$(curl -fsS -m 8 "http://${PI}:7125/printer/objects/list" 2>/dev/null)"
-        echo "$macros" | grep -q 'gcode_macro ZR_' && show PASS "Pi has the ZR Tools macros" "" || show WARN "Pi has no ZR Tools macros yet" "on the Pi run: ./installer.sh --screen on --update   (or bash zr_tools/install_zr_tools.sh)"
-        echo "$macros" | grep -q 'lis2dw' && show INFO "accelerometer (lis2dw) present on the Pi's Klipper" "" || show INFO "no lis2dw in Klipper" "the Input shaper tile will be hidden"
-    else show WARN "Pi Moonraker not reachable from your Mac (HTTP ${code:-none})" "$PI: OK for now, needed before the real install"; fi
-fi
 tmpcode=$(curl -s -m 10 -o /dev/null -w '%{http_code}' "https://github.com/KlipperScreen/KlipperScreen/commit/${KS_SHA}" 2>/dev/null)
 [ "$tmpcode" = 200 ] && show PASS "pinned KlipperScreen commit reachable from your Mac" "${KS_SHA:0:7}" || show WARN "could not check the pinned commit from your Mac" "HTTP $tmpcode"
 
@@ -229,5 +208,5 @@ if [ "$NFAIL" = 0 ] && [ "$GOT" -ge 1 ]; then V="READY (with $NWARN warning(s))"
 echo "$V   -  pass: $NPASS  warn: $NWARN  fail: $NFAIL"
 { echo "wm-ultra-rpi screen board preflight $(date)"; sed -E 's/((password|passwd|token|secret|psk)[[:space:]]*[:=][[:space:]]*).*/\1<removed>/I; s/\b(10\.[0-9]+\.[0-9]+\.[0-9]+|192\.168\.[0-9]+\.[0-9]+|172\.(1[6-9]|2[0-9]|3[01])\.[0-9]+\.[0-9]+)\b/<private-ip>/g' "$TMP"; echo; echo "$V"; } > "$REPORT"
 echo "Report saved: $REPORT"
-[ "$RC" = 0 ] && echo "Nothing blocks the install. Next: bash scripts/screen_board.sh --pi $PI --dry-run (on the board)." || echo "Fix the FAIL lines (or send me the report), then run this again."
+[ "$RC" = 0 ] && echo "Nothing blocks the install. Next: bash scripts/screen_board.sh --dry-run (on the board)." || echo "Fix the FAIL lines (or send me the report), then run this again."
 exit $RC

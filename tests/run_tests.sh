@@ -306,7 +306,7 @@ check "restore: KlipperScreen gone" "[ ! -d $B1/KlipperScreen ] && [ ! -e $B1/.s
 check "restore: reboots" "grep -q 'systemctl reboot' $B1/.sudo.log"
 check "restore: list archived" "ls $B1/wm-screen-backup/disabled.list.restored-* >/dev/null"
 B2="$T/b2"; mkdir -p "$B2"
-check "board: installs even when the Pi is off (warning only)" "WM_TEST_PI_OK=0 WM_TEST_SERVICES='klipper' WM_HOME=$B2 WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash $SB --pi wmpi.local >$T/pioff.out 2>&1 && grep -q 'does not answer yet' $T/pioff.out && [ -f $B2/wm-screen-backup/disabled.list ]"
+check "board: never contacts the Pi (no Pi check in the script)" "! grep -q 'pi_ok\|klippy_connected' $SB"
 check "board: refuses while printing" "! WM_TEST_PRINTING=1 WM_TEST_SERVICES='klipper' WM_HOME=$B2 WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash $SB --pi wmpi.local"
 check "board: refuses when apt is broken" "! WM_TEST_APT_OK=0 WM_TEST_SERVICES='klipper' WM_HOME=$B2 WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash $SB --pi wmpi.local"
 check "board: temporary swap added when RAM is small, none when RAM is big" "grep -q wm-tmp-swap $B1/.sudo.log && WM_TEST_MEM_MB=2000 WM_TEST_SERVICES=klipper WM_HOME=$T/b7 WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash $SB --pi x >/dev/null 2>&1; ! grep -q wm-tmp-swap $T/b7/.sudo.log"
@@ -333,11 +333,10 @@ PF="$ROOT/scripts/screen_board_preflight_mac.sh"
 check "preflight syntax" "bash -n $PF"
 check "preflight needs the board address" "! bash $PF"
 WM_REPORT="$T/pf2.txt" bash "$PF" --local-test > "$T/pf2.out" 2>&1
-check "preflight works without --pi (Pi off): Pi checks skipped, not failed" "grep -q 'no Pi address given' $T/pf2.out && ! grep -q 'FAIL.*Pi' $T/pf2.out"
+check "preflight has no Pi checks" "! grep -qi 'Pi Moonraker\\|Pi checks' $T/pf2.out"
 WM_REPORT="$T/pf3.txt" bash "$PF" --local-test --pi 127.0.0.1 > "$T/pf3.out" 2>&1
-check "preflight: unreachable Pi is only a warning" "grep -q 'WARN.*Pi not reachable' $T/pf3.out && ! grep -q 'FAIL.*Pi' $T/pf3.out"
 WM_REPORT="$T/pf.txt" bash "$PF" --local-test --pi 127.0.0.1 > "$T/pf.out" 2>&1; PFRC=$?
-check "preflight runs all sections and gives a verdict" "grep -q 'On the screen board' $T/pf.out && grep -q 'Connection to the Pi' $T/pf.out && grep -q 'Verdict' $T/pf.out && [ -s $T/pf.txt ]"
+check "preflight runs all sections and gives a verdict" "grep -q 'On the screen board' $T/pf.out && grep -q 'Verdict' $T/pf.out && [ -s $T/pf.txt ]"
 check "preflight says NOT READY on a machine that is not the board" "[ $PFRC = 1 ] && grep -q 'NOT READY' $T/pf.out"
 remote_part() { awk '/read -r -d .. REMOTE/{f=1} f{print} /^RSH/{f=0}' "$PF" | grep -v 'apt-get -s'; }
 check "preflight read-only part has no write/install commands" "! remote_part | grep -E 'apt-get (install|upgrade)|rm -rf|systemctl (stop|disable|start|enable)|dpkg -i'"
