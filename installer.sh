@@ -330,10 +330,22 @@ step_services_files() {
     SUDO systemctl daemon-reload
     SUDO systemctl enable moonraker
 }
+polkit_rule_present() { [ -f /etc/polkit-1/rules.d/moonraker.rules ] || [ -f /usr/share/polkit-1/rules.d/moonraker.rules ] || [ -f /etc/polkit-1/localauthority/50-local.d/10-moonraker.pkla ]; }
+step_polkit() {   # without this rule Moonraker may not restart services (Fluidd shows "PolKit warnings detected")
+    why "Moonraker needs a PolicyKit rule to start, stop and restart services (Klipper, crowsnest, KlipperScreen) from Fluidd. WonderMaker's own image has it; a fresh Pi does not."
+    if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would run: moonraker/scripts/set-policykit-rules.sh${NC}"; return 0; fi
+    if [ "$TESTING" = 1 ]; then echo "[test] polkit rules" >> "$HOME_DIR/.sudo.log"; return 0; fi
+    if [ -f "$HOME_DIR/moonraker/scripts/set-policykit-rules.sh" ]; then
+        bash "$HOME_DIR/moonraker/scripts/set-policykit-rules.sh" >/dev/null 2>&1 && polkit_rule_present && { record "FILE /etc/polkit-1/rules.d/moonraker.rules"; print_success "PolicyKit rule for Moonraker installed"; return 0; }
+    fi
+    warn_later "Could not install Moonraker's PolicyKit rule: Fluidd will show a PolKit warning and cannot restart services. Run: ./installer.sh --repair"
+}
+
 step_services() {
     print_header "Step 7: Klipper and Moonraker services"
     why "Moonraker (the web API) starts at boot. Klipper is installed but NOT enabled and NOT started until the final checks pass: the main board may not be connected yet."
     step_services_files
+    step_polkit
     SUDO systemctl disable klipper
     SUDO systemctl stop klipper
     print_success "Services installed (Klipper stays off for now)"
@@ -942,7 +954,7 @@ do_repair() {
     why "Restores groups, service files, nginx and the can0 rule. Your data and the enabled/disabled state of Klipper are not touched."
     guard_not_printing
     load_answers || true
-    step_groups; step_services_files; step_nginx; step_can
+    step_groups; step_services_files; step_polkit; step_nginx; step_can
     [ "$WANT_SCREEN" = 1 ] && [ -d "$KS_DIR" ] && copy_zr_panel
     SUDO systemctl restart moonraker
     self_test; print_success "Repaired."
@@ -1025,6 +1037,7 @@ do_doctor() {
         can_is_up && doc_ok "can0 is up" || { doc_bad "can0 is down" "Klipper cannot reach the toolheads."; offer_fix "bring can0 up (1 Mbit)" bash -c "sudo ip link set can0 up type can bitrate 1000000"; }
     else doc_bad "no can0 interface" "It appears when the main board is connected."; fi
     if [ "$TESTING" != 1 ]; then
+        polkit_rule_present && doc_ok "Moonraker's PolicyKit rule is installed" || { doc_bad "Moonraker's PolicyKit rule is missing" "Fluidd shows a PolKit warning and cannot restart services."; offer_fix "install it" step_polkit; }
         local hc; hc="$(curl -s -m 5 -o /dev/null -w '%{http_code}' http://127.0.0.1/ 2>/dev/null)"
         [ "$hc" = 200 ] && doc_ok "Fluidd page opens" || { doc_bad "Fluidd page answers HTTP ${hc:-none}" "403 means nginx cannot read your home folder (Debian 12 makes it private)."; offer_fix "let nginx pass through the home folder" bash -c "chmod o+x '$HOME_DIR' && sudo systemctl reload nginx"; }
     fi

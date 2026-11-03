@@ -79,6 +79,7 @@ check "options: grid + cage" "grep -q 'layout = grid' $H6/printer_data/config/zr
 H7="$T/h7"; mkdir -p "$H7"; inst "$H7" --from-stage "$T/stage" --screen macros >/dev/null
 check "screen macros: only the macros, no KlipperScreen" "[ ! -d $H7/KlipperScreen ] && ! grep -q 'KlipperScreen-install' $H7/.sudo.log && [ -f $H7/printer_data/config/zr_tools.cfg ] && grep -q '^\\[include zr_tools.cfg\\]' $H7/printer_data/config/printer.cfg && grep -q WANT_SCREEN=macros $H7/wm-rpi-backup/install.conf"
 check "nginx step lets nginx reach the home folder (Fluidd 403 fix)" "grep -q 'chmod o+x' $H7/.sudo.log"
+check "polkit rule step runs (Fluidd PolKit warning fix)" "grep -q 'polkit rules' $H7/.sudo.log"
 check "screen: bad value fails" "! bash $ROOT/installer.sh --screen maybe"
 check "--screen-test is read-only" "WM_TEST_SCREEN=800x480 WM_TEST_TOUCH=0 bash $ROOT/installer.sh --screen-test | grep -q 'compact'"
 check "bad --screen-layout value fails" "! bash $ROOT/installer.sh --screen-layout round"
