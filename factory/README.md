@@ -12,8 +12,8 @@ The ZR Ultra and ZR Ultra-S run the **same** firmware and files. The only differ
 
 | Item | Files |
 |---|---|
-| Klipper (WonderMaker's modified copy) | `klipper.tgz`: GPL v3, `COPYING` inside |
-| Moonraker (WonderMaker's copy) | `moonraker.tgz`: GPL v3, license inside |
+| Klipper (WonderMaker's modified copy) | [`klipper/`](zru/klipper): browsable source folder, GPL v3 (`COPYING`) |
+| Moonraker (WonderMaker's copy) | [`moonraker/`](zru/moonraker): browsable source folder, GPL v3 (`LICENSE`) |
 | Factory settings | `config/`: `printer.cfg`, macros, extruders, hub, load cell, offset calibration, Moonraker config, `tmt1.ini`, `saved_variables.cfg`, `zru-s.cfg` |
 | `printer.cfg` per toolhead count | `config-variants/printer1.cfg` ... `printer4.cfg` (1 to 4 toolheads, as WonderMaker ships them) |
 | WonderMaker's helper scripts | `scripts/` (CAN id tools, restore factory settings, `set_zru_include.sh`, ...) |

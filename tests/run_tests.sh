@@ -27,7 +27,7 @@ check "--help prints" "bash $ROOT/installer.sh --help | grep -q from-image"
 check "unknown option fails" "! bash $ROOT/installer.sh --nope"
 check "fluidd zip checksum" "cd $ROOT/fluidd && sha256sum -c fluidd-v1.37.7-zr-ace.zip.sha256"
 check "no Claude mention in repo files" "! grep -rIl -i 'claude' $ROOT --exclude-dir=.git --exclude=tests --exclude=run_tests.sh --exclude=*.patch --exclude=*.zip"
-check "no private addresses in repo files" "! grep -rIlE '10\.11\.88\.|192\.168\.1\.' $ROOT --exclude-dir=.git --exclude=*.patch"
+check "no private addresses in repo files" "! grep -rIlE '10\.11\.88\.|192\.168\.1\.' $ROOT --exclude-dir=.git --exclude-dir=klipper --exclude-dir=moonraker --exclude=*.patch"
 check "service files do not enable klipper" "! grep -q 'WantedBy' $ROOT/config/klipper.service"
 
 echo "== install from stage folder"
@@ -113,8 +113,9 @@ else echo "  (skipped: mke2fs/debugfs missing)"; fi
 
 echo "== factory files from the repository (no printer)"
 (cd "$ROOT/factory/zru" && sha256sum -c SHA256SUMS >/dev/null) && echo "  ok   factory checksums" && PASS=$((PASS+1))
+check "factory sources are plain folders, committed" "[ -f $ROOT/factory/zru/klipper/klippy/klippy.py ] && [ -f $ROOT/factory/zru/moonraker/moonraker/moonraker.py ] && ! git -C $ROOT check-ignore -q factory/zru/klipper/klippy/klippy.py"
 check "no compiled module in the repo" "! find $ROOT/factory -name '*.so' | grep -q . && ! tar tzf $ROOT/factory/zru/klipper.tgz | grep -q '\.so$'"
-check "klipper archive has its license" "tar tzf $ROOT/factory/zru/klipper.tgz | grep -q klipper/COPYING"
+check "klipper archive has its license" "[ -f $ROOT/factory/zru/klipper/COPYING ] && [ -f $ROOT/factory/zru/moonraker/LICENSE ]"
 check "factory config has placeholder CAN ids only" "grep -q aa0000000000 $ROOT/factory/zru/config/wm_zru_mcu.cfg"
 HG="$T/hg"; mkdir -p "$HG"
 OUT="$(inst "$HG" --from-github --model ultra-s)"; echo "$OUT" > "$T/gh.out"
@@ -134,7 +135,7 @@ check "modules with wrong checksum refused" "! bash $ROOT/scripts/stage_from_rep
 RC2="$T/repocopy"; mkdir -p "$RC2"; cp -a "$ROOT/scripts" "$ROOT/config" "$ROOT/factory" "$RC2/"
 ( cd "$T/mods" && sha256sum *.so | sed 's#  #  klippy/extras/#' ) > "$RC2/factory/zru/modules.sha256"
 check "modules with matching checksum accepted" "bash $RC2/scripts/stage_from_repo.sh ultra-s $T/st_ok $T/mods && [ \"\$(cat $T/st_ok/modules_ok)\" = 1 ] && tar xzOf $T/st_ok/klipper.tgz klipper/klippy/extras/hx711.cpython-39-aarch64-linux-gnu.so | grep -q 'fake hx711'"
-check "damaged repo files refused" "cp -a $ROOT/factory $T/damaged_f && echo x >> $T/damaged_f/zru/moonraker.tgz && mkdir -p $T/dm && cp -a $ROOT/scripts $ROOT/config $T/dm/ && rm -rf $T/dm/factory && cp -a $T/damaged_f $T/dm/factory && ! bash $T/dm/scripts/stage_from_repo.sh ultra-s $T/st_dm"
+check "damaged repo files refused" "cp -a $ROOT/factory $T/damaged_f && echo x >> $T/damaged_f/zru/moonraker/README.md && mkdir -p $T/dm && cp -a $ROOT/scripts $ROOT/config $T/dm/ && rm -rf $T/dm/factory && cp -a $T/damaged_f $T/dm/factory && ! bash $T/dm/scripts/stage_from_repo.sh ultra-s $T/st_dm"
 
 echo "== crowsnest, timelapse, pinned environments"
 check "addon pins are full commit ids" "grep -qE '^crowsnest\\|https://github.com/mainsail-crew/crowsnest\\|[0-9a-f]{40}\$' $ROOT/config/pins/addons.txt && grep -qE '^moonraker-timelapse\\|.*\\|[0-9a-f]{40}\$' $ROOT/config/pins/addons.txt"

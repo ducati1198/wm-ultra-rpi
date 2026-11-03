@@ -1,0 +1,215 @@
+# -*- coding: utf-8 -*-
+import os, time, logging
+import configparser
+import shutil
+import pyudev
+
+# ANSI 转义码定义颜色
+RESET = "\033[0m"
+GREEN = "\033[92m"
+RED = "\033[91m"
+CYAN = "\033[96m"
+YELLOW = "\033[93m"
+
+class FeederMonitor:
+    def __init__(self, config):
+        self.printer = config.get_printer()
+        self.reactor = reactor = self.printer.get_reactor()
+
+        self.gcode = self.printer.lookup_object("gcode")
+
+        self.serial_monitor_timer = reactor.register_timer(self.monitor_serial_by_id)
+
+        self.printer.register_event_handler("klippy:ready", self._handle_ready)
+
+        # 初始化 pyudev 用于检测 tty 设备
+        self.context = pyudev.Context()
+        self.monitor = pyudev.Monitor.from_netlink(self.context)
+        self.monitor.filter_by(subsystem='tty')  # 监控 tty 子系统
+
+        self.config_mcu_serial = {}
+
+        self.dst_box_cfg = '/home/t13dp/printer_data/config/box.cfg'
+        self.src_box_cfg_with_0 = '/home/t13dp/cfg_with_0'
+        self.src_box_cfg_with_1 = '/home/t13dp/cfg_with_1'
+        self.src_box_cfg_with_2 = '/home/t13dp/cfg_with_2'
+
+
+    def _handle_ready(self):
+        self.get_config_mcu_serials()
+        # self.previous_klippy_state = self.klippy_state
+        self.klippy_state = 'ready'
+        if self.printer.get_start_args().get('debugoutput') is None:
+            reactor = self.printer.get_reactor()
+            reactor.update_timer(self.serial_monitor_timer, reactor.NOW)
+
+    def get_config_mcu_serials(self):
+        config = configparser.ConfigParser()
+        # 定义文件路径和配置字典
+        config_files = ["/home/t13dp/printer_data/config/box0.cfg", "/home/t13dp/printer_data/config/box1.cfg"]
+
+        # 遍历配置文件路径
+        for config_file in config_files:
+            if os.path.exists(config_file):
+                config.read(config_file)
+
+            # 获取文件名中的 box 编号
+            box_name = os.path.basename(config_file).split('.')[0]
+
+            # 检查配置文件中是否存在目标 section
+            section_name = f"mcu {box_name}"
+            if config.has_section(section_name):
+                # 获取 serial 值并写入字典
+                serial = config.get(section_name, 'serial')
+                self.config_mcu_serial[box_name] = serial
+
+        # logging.info(f"\033[92m Current TTY Devices: {self.config_mcu_serial} \033[0m ")
+
+    def monitor_serial_by_id(self, eventtime):
+        """监控设备路径是否与配置匹配"""
+        current_devices = {}
+
+        # 列出当前所有 tty 设备并找到 /dev/serial/by-id/ 下的路径
+        for device in self.context.list_devices(subsystem='tty'):
+            device_node = device.device_node
+            devlinks = device.get('DEVLINKS', '').split()
+
+            # 获取 /dev/serial/by-id/ 下的链接路径
+            serial_by_id = [link for link in devlinks if '/dev/serial/by-id/' in link and 'QIDI_MAX4-BOX' in link]
+
+            plus4_id = [link for link in devlinks if '/dev/serial/by-id/' in link and 'QIDI_PLUS4-BOX' in link]
+            if serial_by_id:
+                current_devices[device_node] = serial_by_id[0]
+            if plus4_id:
+                
+                script = '/home/t13dp/mcu_update_QD_Plus_Box.sh /home/t13dp/klipper_box_max4.bin ' + plus4_id[0] 
+                logging.info(f"\033[92m {script} \033[0m")
+                os.system(script)
+                return eventtime + 15.
+
+        # logging.info(f"\033[94m Current TTY Devices: {current_devices} \033[0m ")
+        # 比对配置路径和当前设备路径
+
+        device_count = len(current_devices)
+
+        if device_count == 1 and self._is_config_match(current_devices, box0=True):
+            if self.has_only_box0_section(self.dst_box_cfg) == False:
+                shutil.copy(self.src_box_cfg_with_1, self.dst_box_cfg)
+                self._request_restart()
+            # logging.info(GREEN+"Device count and path match for 1 device; no update needed."+RESET)
+            return eventtime + 5.
+        elif device_count == 2 and self._is_config_match(current_devices, box0=True, box1=True):
+            if self.has_only_box0_and_box1_sections(self.dst_box_cfg) == False:
+                shutil.copy(self.src_box_cfg_with_2, self.dst_box_cfg)
+                self._request_restart()
+            # logging.info(GREEN+"Device count and path match for 2 devices; no update needed."+RESET)
+            return eventtime + 5.
+        elif device_count == 0:
+            if self.is_config_file_empty('/home/t13dp/printer_data/config/box.cfg'):
+                # logging.warning("No devices detected.")
+                return eventtime + 5.
+            else:
+                shutil.copy(self.src_box_cfg_with_0, self.dst_box_cfg)
+                self._request_restart()
+
+        # 根据设备数量更新配置文件
+        if device_count == 1:
+            self._update_config_file("box0.cfg", current_devices, box_index=0)
+            shutil.copy(self.src_box_cfg_with_1, self.dst_box_cfg)
+            self._request_restart()
+        elif device_count == 2:
+            self._update_config_file("box0.cfg", current_devices, box_index=0)
+            self._update_config_file("box1.cfg", current_devices, box_index=1)
+            shutil.copy(self.src_box_cfg_with_2, self.dst_box_cfg)
+            self._request_restart()
+        else:
+            shutil.copy(self.src_box_cfg_with_0, self.dst_box_cfg)
+            self._request_restart()
+
+
+        return eventtime + 5.  # 设定下次检查的时间间隔
+
+    def _is_config_match(self, current_devices, box0=False, box1=False):
+        match = True
+        if box0:
+            config_device_path = self.config_mcu_serial.get("box0")
+            current_device_path = list(current_devices.values())[0] if current_devices else None
+            if config_device_path != current_device_path:
+                match = False
+
+        if box1:
+            config_device_path = self.config_mcu_serial.get("box1")
+            current_device_path = list(current_devices.values())[1] if len(current_devices) > 1 else None
+            if config_device_path != current_device_path:
+                match = False
+        return match
+
+    def _update_config_file(self, config_file, current_devices, box_index=0):
+        config_path = f"/home/t13dp/printer_data/config/{config_file}"
+        box_name = f"box{box_index}"
+        current_device_path = list(current_devices.values())[box_index]
+        config = configparser.ConfigParser()
+        config.read(config_path)
+        section_name = f"mcu {box_name}"
+        # if not config.has_section(section_name):
+        #     config.add_section(section_name)
+        config.set(section_name, 'serial', current_device_path)
+
+        # 写入更新后的配置
+        with open(config_path, 'w') as configfile:
+            config.write(configfile)
+        logging.info(f"Updated {config_file} with new device path: {current_device_path}")
+        self.get_config_mcu_serials()
+
+    def is_config_file_empty(self, file_path):
+        config = configparser.ConfigParser()
+        
+        # 如果文件存在，读取文件内容
+        if os.path.exists(file_path):
+            config.read(file_path)
+            # 检查是否有任何 section
+            if not config.sections():
+                print("配置文件为空或没有任何配置项。")
+                return True
+            else:
+                print("配置文件包含配置项。")
+                return False
+        else:
+            print("配置文件不存在。")
+            return None
+
+    def has_only_box0_section(self, file_path):
+        config = configparser.ConfigParser(allow_no_value=True)
+        if os.path.exists(file_path):
+            config.read(file_path)
+            if config.sections() == ["include box0.cfg"]:
+                return True
+            else:
+                return False
+        else:
+            return False
+
+    def has_only_box0_and_box1_sections(self, file_path):
+        config = configparser.ConfigParser(allow_no_value=True)
+        if os.path.exists(file_path):
+            config.read(file_path)
+            if set(config.sections()) == {"include box0.cfg", "include box1.cfg"}:
+                return True
+            else:
+                return False
+        else:
+            return False
+    def _request_restart(self):
+        toolhead = self.printer.lookup_object('toolhead')
+        print_time = toolhead.get_last_move_time()
+        self.printer.send_event("gcode:request_restart", print_time)
+        toolhead.dwell(0.500)
+        toolhead.wait_moves()
+        self.printer.request_exit('error_exit')
+        # self.printer.request_exit('firmware_restart')
+
+def add_printer_objects(config):
+    config.get_printer().add_object('feedermonitor', FeederMonitor(config))
+
+    
+

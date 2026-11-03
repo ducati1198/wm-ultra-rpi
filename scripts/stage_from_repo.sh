@@ -18,7 +18,7 @@ case "$MODEL" in ultra|ultra-s) ;; *) echo "Unknown model '$MODEL' (use ultra or
 ( cd "$SRC" && sha256sum -c SHA256SUMS >/dev/null ) || { echo "Checksum of the factory files does not match: the repository copy is damaged or changed."; exit 1; }
 
 mkdir -p "$STAGE"; W="$(mktemp -d "$STAGE/.work.XXXXXX")"; trap 'rm -rf "$W"' EXIT
-tar xzf "$SRC/klipper.tgz" -C "$W"; tar xzf "$SRC/moonraker.tgz" -C "$W"
+cp -a "$SRC/klipper" "$SRC/moonraker" "$W/"
 
 MODULES_OK=0
 if [ -n "$MODS" ]; then
