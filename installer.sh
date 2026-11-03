@@ -167,13 +167,16 @@ ask_model() {
 
 choose_source() {
     print_header "Where is the WonderMaker software?"
-    echo "The Pi runs WonderMaker's own Klipper, Moonraker and your settings. They are not in this repo."
-    echo "They are copied from your own printer: from the old board, from an image of it, or from a folder."
+    echo "The Pi runs WonderMaker's own Klipper, Moonraker and your settings."
+    echo -e "${GREEN}Recommended: option 1.${NC} If the old WonderMaker screen board still starts and is on your network, copy everything from it over SSH:"
+    echo "  your printer_data (config, calibration, saved variables), klipper, moonraker, fluidd and the factory settings."
+    echo "  That is exactly what your printer ran, with your own settings. The old board is only read, nothing is written to it."
+    echo "  Use the other options only if the old board will not start."
     if [ -z "$SRC_KIND" ]; then
-        echo "  1) The old board is still reachable on the network (SSH)"
+        echo -e "  1) The old board is still reachable on the network (SSH)  ${GREEN}<- recommended${NC}"
         echo "  2) I have a disk image of its SD card / eMMC"
         echo "  3) I already have a stage folder (klipper.tgz, moonraker.tgz, data.tgz)"
-        echo "  4) I have nothing: use the factory files inside this repository (needs the 5 compiled modules, see below)"
+        echo "  4) I have nothing: use the factory files inside this repository (factory defaults, not your own settings)"
         local c; read -r -p "$(echo -e "${YELLOW}?${NC} Choose 1, 2, 3 or 4: ")" c || c=""
         case "$c" in
             1) SRC_KIND=board; read -r -p "  Old board IP address: " SRC_ARG ;;

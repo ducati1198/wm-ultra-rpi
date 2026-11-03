@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.8.1
+
+- Option 1 (copy from the old board over SSH) is now marked as the recommended source, in the README and in the installer menu.
+
 ## 0.8.0
 
 - The Fluidd panel is downloaded from `ducati1198/wm-ultra-fluidd-acepro-panel` (`fluidd/` on `main`) at install and by `--update`, verified with the `.sha256` published there. The copy in `fluidd/` is only the offline fallback.
