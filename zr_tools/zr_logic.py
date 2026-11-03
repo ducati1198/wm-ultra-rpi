@@ -215,3 +215,21 @@ def read_pi_temp(path="/sys/class/thermal/thermal_zone0/temp"):
 
 def web_url(hostname, ip):
     return "http://%s.local/" % hostname if hostname else ("http://%s/" % ip if ip else "")
+
+
+# --------------------------------------------------------------------------------------
+# Factory screen board mode (KlipperScreen installed on the WonderMaker screen board)
+# --------------------------------------------------------------------------------------
+BOARD_DIR = os.path.expanduser("~/wm-screen-backup")
+BOARD_MARKER = os.path.join(BOARD_DIR, "board_mode")          # written by scripts/screen_board.sh
+BOARD_SCRIPT = "/usr/local/sbin/wm-factory-restore"           # root-owned copy of the script; sudoers allows only this one command
+
+
+def board_mode(marker=None):
+    """True when this KlipperScreen runs on the WonderMaker screen board (the restore button is shown then)."""
+    return os.path.exists(marker or BOARD_MARKER)
+
+
+def factory_restore_command(script=None):
+    """The script re-starts itself under systemd (--detach), because stopping KlipperScreen would otherwise kill it."""
+    return ["sudo", "-n", script or BOARD_SCRIPT, "--factory-restore", "--yes", "--detach"]

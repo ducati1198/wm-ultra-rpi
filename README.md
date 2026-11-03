@@ -137,6 +137,7 @@ The installer first asks **which printer you have** (ZR Ultra or ZR Ultra-S; or 
 | `./installer.sh --from-github --model ultra --modules DIR` | use the factory files in this repo; modules from your printer |
 | `./installer.sh --check` | report problems, change nothing |
 | `./installer.sh --dry-run` | show the plan and what would change |
+| `./installer.sh --screen-remove` | removes KlipperScreen from the Pi (Klipper, Moonraker, Fluidd stay) |
 | `./installer.sh --first-start` | checks with the main board connected, fixes `canbus_uuid` (asks, keeps a copy), then enables and starts Klipper and the other services |
 | `./installer.sh --hw-test` | read-only live test: USB bridge, can0, CAN devices, camera picture, services |
 | `./installer.sh --doctor` | finds problems, explains them, offers a fix for each (asks first) |
@@ -229,6 +230,41 @@ Settings page, and the Calibrate page on a 5 inch 800x480 screen (compact):
 **Rotation** is an operating-system setting, not a ZR Tools one. On X11 use `xrandr --output <name> --rotate left` (and a matching touch matrix); for Weston, `transform=90` in `weston.ini`. See the KlipperScreen documentation.
 
 `--update`, `--repair` and `--doctor` copy the panel files back if a KlipperScreen update removed them. Switching the WonderMaker screen board itself into a KlipperScreen is a later step and is not part of this.
+
+### 5.2 Use the original WonderMaker screen as the KlipperScreen (optional)
+
+> **Not yet tested on hardware.** Written from the factory image (Debian 11, Rockchip kernel with the Goodix GT911 touch and the 800x480 panel already supported). Please test with the printer idle.
+
+Instead of buying a screen for the Pi, the original screen board can run KlipperScreen and talk to the Pi's Klipper/Moonraker over the network. The Pi must already be installed and running (section 3), with the touchscreen option on (`./installer.sh --screen on`) so the ZR Tools macros are in `printer.cfg`.
+
+On the **screen board** (SSH in as `t13dp`, it needs internet):
+
+```bash
+git clone https://github.com/ducati1198/wm-ultra-rpi && cd wm-ultra-rpi
+bash scripts/screen_board.sh --pi wmpi.local --dry-run     # shows every change, changes nothing
+bash scripts/screen_board.sh --pi wmpi.local
+```
+
+What it does, in this order (everything that can fail comes before the factory app is stopped):
+
+1. Checks: the Pi answers Moonraker, nothing is printing, disk space, apt works, GitHub reachable. If a check fails nothing is changed.
+2. Debian 11 is archived, so apt is pointed at `archive.debian.org` with the date checks off (the same fix as on the original board). It only runs `apt-get install --no-upgrade`, **never `apt upgrade`**.
+3. Installs the X11 and KlipperScreen packages, KlipperScreen at the pinned commit, and ZR Tools. WonderMaker's own held X server is kept; its matching `xserver-xorg-legacy` is taken from `/packages/xserver` on the board.
+4. Stops and **disables** (deletes nothing) `makerbase-client` (the factory screen app), klipper, moonraker, nginx, crowsnest, makerbase-webcam, janus, klipper-mcu and hostapd, and obico/octoapp if you installed them. The previous state is saved in `~/wm-screen-backup/disabled.list`.
+5. Starts KlipperScreen with the Rockchip modesetting driver; if X does not start it switches to the plain framebuffer (`fbdev`) driver by itself (`--screen-driver fbdev` forces it).
+
+**Go back to the factory software** (any of these, nothing is lost):
+
+| How | What happens |
+|---|---|
+| On the screen: **ZR Tools > More > System > Factory mode** | asks to confirm, then does the same as the command below |
+| `bash ~/wm-screen-backup/screen_board.sh --factory-restore` | removes KlipperScreen, re-enables exactly the services that were enabled before, reboots |
+| `bash scripts/screen_board.sh --uninstall-klipperscreen` | removes KlipperScreen only; the factory services stay off (screen stays black until a restore) |
+| `bash scripts/screen_board.sh --status` | read-only: what is enabled, running and installed |
+
+To read the board first (nothing is changed): `scripts/screen_board_inspect.sh`. Notes: the board's Reboot/Shut down buttons in ZR Tools act on the **Pi**; the Pi's `moonraker.conf` must trust the board's address; the apt packages stay installed after a restore.
+
+On the Pi, `./installer.sh --screen-remove` removes KlipperScreen again (Klipper, Moonraker and Fluidd stay).
 
 ## 6. Go back / uninstall
 

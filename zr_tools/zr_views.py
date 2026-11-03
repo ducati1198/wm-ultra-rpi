@@ -361,9 +361,14 @@ class ViewsMixin:
         body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         self.w["sys"] = self._label("", wrap=True)
         body.pack_start(self.w["sys"], False, False, 0)
-        tiles = [("sd", "Backup settings", self._sys_backup),
-                 ("refresh", "Reboot", self._sys_reboot),
-                 ("shutdown", "Shut down", self._sys_shutdown)]
+        if L.board_mode():     # KlipperScreen runs on the WonderMaker screen board
+            tiles = [("home", "Factory mode", self._sys_factory),
+                     ("refresh", "Reboot the Pi", self._sys_reboot),
+                     ("shutdown", "Shut down the Pi", self._sys_shutdown)]
+        else:
+            tiles = [("sd", "Backup settings", self._sys_backup),
+                     ("refresh", "Reboot", self._sys_reboot),
+                     ("shutdown", "Shut down", self._sys_shutdown)]
         body.pack_start(self._tile_grid(tiles), False, False, 0)
         self.root.pack_start(self._scrolled(body), True, True, 0)
         self.root.show_all()
@@ -438,6 +443,20 @@ class ViewsMixin:
             if response_id == Gtk.ResponseType.OK:
                 func()
         self._gtk.Dialog(title, buttons, label, _resp)
+
+    def _sys_factory(self):
+        if not self._require_idle():
+            return
+        self._confirm_call("Factory mode",
+                           "Switch this screen back to the WonderMaker factory software?\n"
+                           "KlipperScreen is removed, the factory services are turned back on and the board reboots.",
+                           self._run_factory_restore)
+
+    def _run_factory_restore(self):
+        try:
+            subprocess.Popen(L.factory_restore_command(), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+        except OSError as e:
+            self._screen.show_popup_message("Could not start the restore: %s" % e)
 
     def _sys_reboot(self):
         if self._require_idle():

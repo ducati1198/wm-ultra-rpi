@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.11.0
+
+- New: `scripts/screen_board.sh` runs KlipperScreen on the original WonderMaker screen board (Debian 11) and connects it to the Pi. It stops and disables the factory screen app and the Klipper/Moonraker services (nothing deleted, state saved), uses `apt-get install --no-upgrade` only, keeps WonderMaker's held X server, and falls back from the modesetting to the fbdev driver if X does not start. **Not yet tested on hardware.**
+- Go back: on-screen **Factory mode** button (ZR Tools > More > System), `--factory-restore`, `--uninstall-klipperscreen`, `--status`, `--dry-run`. Refuses if the Pi does not answer or a print is running.
+- New on the Pi: `./installer.sh --screen-remove`.
+- `scripts/screen_board_inspect.sh`: read-only report of the screen board. Panel hardware facts in `docs/HARDWARE.md`.
+
 ## 0.10.0
 
 - New: optional touchscreen. The installer asks "Add a touchscreen?" (default yes; `--screen on|off`) and installs KlipperScreen pinned to commit 34610ce with X11 (`--screen-backend x11|weston|cage`), plus the ZR Tools pages: Toolheads, Filament, Climate, Calibrate, ACE Pro (only if present), More, Settings.

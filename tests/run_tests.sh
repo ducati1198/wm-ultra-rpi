@@ -278,4 +278,46 @@ check "update: panel already latest, nothing replaced" "grep -q 'already the lat
 WM_TEST_PANEL_DIR="$T/pnl" inst "$P2" --update > "$T/p2v.out"
 check "update: a changed panel in the panel repository is installed" "grep -q NEWEST-PANEL $P2/fluidd/index.html"
 
+echo "== screen removal on the Pi"
+printf 'y\n' | WM_HOME="$H3" WM_INSTALLER_TEST=1 bash "$ROOT/installer.sh" --screen-remove > "$T/rm.out" 2>&1
+check "screen-remove: folder and service gone" "[ ! -d $H3/KlipperScreen ] && grep -q 'systemctl disable KlipperScreen' $H3/.sudo.log"
+check "screen-remove: answers say no screen" "grep -q WANT_SCREEN=0 $H3/wm-rpi-backup/install.conf"
+check "screen-remove: Klipper stays (macros kept)" "[ -f $H3/printer_data/config/zr_tools.cfg ] && [ -d $H3/klipper ]"
+
+echo "== screen board script (factory screen as KlipperScreen)"
+SB="$ROOT/scripts/screen_board.sh"
+sb() { local h="$1"; shift; WM_TEST_SERVICES="${WM_TEST_SERVICES-makerbase-client klipper moonraker nginx crowsnest janus hostapd klipper-mcu makerbase-webcam}" WM_HOME="$h" WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash "$SB" "$@" 2>&1; }
+check "board script syntax" "bash -n $SB"
+B1="$T/b1"; mkdir -p "$B1/printer_data/config"
+sb "$B1" --pi wmpi.local > "$T/b1.out"
+check "board: factory services stopped and disabled" "[ ! -e $B1/.svc/makerbase-client.active ] && [ ! -e $B1/.svc/klipper.enabled ] && [ ! -e $B1/.svc/nginx.enabled ]"
+check "board: ssh/network services untouched (not in list)" "! grep -q 'systemctl stop ssh' $B1/.sudo.log"
+check "board: previous state saved" "grep -q 'makerbase-client enabled active' $B1/wm-screen-backup/disabled.list"
+check "board: KlipperScreen config points at the Pi" "grep -q 'moonraker_host: wmpi.local' $B1/printer_data/config/KlipperScreen.conf"
+check "board: ZR Tools files copied" "[ -f $B1/KlipperScreen/panels/zr_tools.py ] && [ -f $B1/KlipperScreen/panels/zr_logic.py ]"
+check "board: uses pinned KlipperScreen commit" "grep -q '34610ceae31e12a10cc980e20a1dec9976f97dd4' $B1/.sudo.log"
+check "board: installs with apt-get install --no-upgrade, never upgrade" "grep -q 'apt-get install -y --no-upgrade' $B1/.sudo.log && ! grep -q -E 'apt(-get)? (dist-)?upgrade' $B1/.sudo.log"
+check "board: factory mode button prepared" "[ -f $B1/wm-screen-backup/board_mode ] && grep -q sudoers $B1/.sudo.log"
+check "board: KlipperScreen service enabled and started" "[ -e $B1/.svc/KlipperScreen.enabled ] && [ -e $B1/.svc/KlipperScreen.active ]"
+check "board: --status runs" "WM_HOME=$B1 WM_INSTALLER_TEST=1 bash $SB --status | grep -q 'Mode: KlipperScreen'"
+sb "$B1" --factory-restore > "$T/b1r.out"
+check "restore: factory services back (enabled)" "[ -e $B1/.svc/makerbase-client.enabled ] && [ -e $B1/.svc/klipper.enabled ] && [ -e $B1/.svc/nginx.enabled ]"
+check "restore: KlipperScreen gone" "[ ! -d $B1/KlipperScreen ] && [ ! -e $B1/.svc/KlipperScreen.enabled ] && [ ! -f $B1/wm-screen-backup/board_mode ]"
+check "restore: reboots" "grep -q 'systemctl reboot' $B1/.sudo.log"
+check "restore: list archived" "ls $B1/wm-screen-backup/disabled.list.restored-* >/dev/null"
+B2="$T/b2"; mkdir -p "$B2"
+check "board: refuses when the Pi does not answer, changes nothing" "! WM_TEST_PI_OK=0 WM_TEST_SERVICES='klipper' WM_HOME=$B2 WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash $SB --pi wmpi.local && [ ! -f $B2/wm-screen-backup/disabled.list ] && ! grep -q 'systemctl stop' $B2/.sudo.log"
+check "board: refuses while printing" "! WM_TEST_PRINTING=1 WM_TEST_SERVICES='klipper' WM_HOME=$B2 WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash $SB --pi wmpi.local"
+check "board: refuses when apt is broken" "! WM_TEST_APT_OK=0 WM_TEST_SERVICES='klipper' WM_HOME=$B2 WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash $SB --pi wmpi.local"
+check "board: needs --pi" "! WM_HOME=$B2 WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash $SB"
+B3="$T/b3"; mkdir -p "$B3/printer_data/config"
+WM_TEST_KS_OK=fbdev sb "$B3" --pi 10.0.0.5 > "$T/b3.out"
+check "board: X falls back to fbdev when modesetting does not start" "[ -e $B3/.fbdev ] && grep -q 'fbdev' $T/b3.out"
+B4="$T/b4"; mkdir -p "$B4/printer_data/config"; sb "$B4" --pi wmpi.local --dry-run > "$T/b4.out"
+check "board: dry run changes nothing" "[ ! -d $B4/KlipperScreen ] && [ ! -s $B4/.sudo.log ] && grep -q 'would run' $T/b4.out"
+B5="$T/b5"; mkdir -p "$B5/printer_data/config"; sb "$B5" --pi wmpi.local >/dev/null; printf 'y\n' | WM_HOME="$B5" WM_INSTALLER_TEST=1 bash "$SB" --uninstall-klipperscreen > "$T/b5u.out" 2>&1
+check "board uninstall-klipperscreen: removes it, factory stays off, list kept" "[ ! -d $B5/KlipperScreen ] && [ ! -e $B5/.svc/makerbase-client.enabled ] && [ -f $B5/wm-screen-backup/disabled.list ]"
+B6="$T/b6"; mkdir -p "$B6/printer_data/config"; sb "$B6" --pi wmpi.local >/dev/null; sb "$B6" --pi wmpi.local >/dev/null
+check "board: running twice keeps the ORIGINAL saved state" "grep -q 'makerbase-client enabled active' $B6/wm-screen-backup/disabled.list"
+
 echo; echo "passed: $PASS  failed: $FAIL"; [ "$FAIL" = 0 ]

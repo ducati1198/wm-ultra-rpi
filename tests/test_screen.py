@@ -97,6 +97,15 @@ class Logic(unittest.TestCase):
         c = L.collision_settings({"threshold": "25.0", "action": "pause", "window_size": "2", "sensor": "lis2dw"})
         self.assertEqual((c["threshold"], c["action"]), ("25.0", "pause"))
 
+    def test_board_mode_and_restore_command(self):
+        d = tempfile.mkdtemp(); m = os.path.join(d, "board_mode")
+        self.assertFalse(L.board_mode(m))
+        open(m, "w").close()
+        self.assertTrue(L.board_mode(m))
+        self.assertEqual(L.factory_restore_command("/x/wm")[:3], ["sudo", "-n", "/x/wm"])
+        self.assertIn("--detach", L.factory_restore_command())
+        shutil.rmtree(d)
+
     def test_throttled_text(self):
         self.assertEqual(L.throttled_text("0x0"), "ok")
         self.assertEqual(L.throttled_text("0x50005"), "under-voltage now")
@@ -204,6 +213,18 @@ class Smoke(unittest.TestCase):
         zl = sys.modules["panels.zr_logic"]
         self.assertEqual(zl.load_settings(zl.SETTINGS_FILE)["layout"], "grid")
         self.assertIsNone(p.nav)
+
+    def test_system_page_factory_button_only_on_board(self):
+        p, screen = self.make("tabs")
+        zl = sys.modules["panels.zr_logic"]
+        p.show_system()
+        d = tempfile.mkdtemp(); m = os.path.join(d, "board_mode"); open(m, "w").close()
+        with mock.patch.object(zl, "BOARD_MARKER", m):
+            p.show_system()
+        with mock.patch.object(zl, "board_mode", return_value=True), mock.patch("subprocess.Popen") as popen:
+            p._run_factory_restore()
+            self.assertEqual(popen.call_args.args[0][-1], "--detach")
+        shutil.rmtree(d)
 
     def test_back_goes_home(self):
         p, _ = self.make("grid"); p.show_collision()

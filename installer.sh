@@ -29,6 +29,7 @@
 # ./installer.sh --screen on|off       add (or skip) a KlipperScreen touchscreen on the Pi (asked if not given; default yes)
 # ./installer.sh --screen-layout tabs|grid   touch layout: tabs = big buttons + bottom tabs (default), grid = card grid
 # ./installer.sh --screen-backend x11|weston|cage   graphics stack for KlipperScreen (default x11)
+# ./installer.sh --screen-remove       remove KlipperScreen from this Pi (Klipper, Moonraker and Fluidd stay)
 # ./installer.sh --screen-test         read-only: show the screen and touch device found on this Pi
 # ./installer.sh --no-start            at the end of an install do not enable or start Klipper
 # ./installer.sh --force               continue even if a print is active (not recommended)
@@ -124,6 +125,7 @@ while [ $# -gt 0 ]; do
         --screen-layout) case "${2:-}" in tabs|grid) SCREEN_LAYOUT="$2" ;; *) print_error "--screen-layout needs tabs or grid"; exit 1 ;; esac; shift ;;
         --screen-backend) case "${2:-}" in x11|weston|cage) SCREEN_BACKEND="$2" ;; *) print_error "--screen-backend needs x11, weston or cage"; exit 1 ;; esac; shift ;;
         --screen-test)  MODE=screentest ;;
+        --screen-remove) MODE=screenremove ;;
         --no-start)     AUTOSTART=0 ;;
         --force)        FORCE=1 ;;
         --disable-klipper) MODE=disable ;;
@@ -490,6 +492,23 @@ step_screen() {
     [ "$AUTOSTART" = 1 ] && SUDO systemctl restart KlipperScreen
     print_success "Touchscreen installed (layout: $(sed -n 's/^layout *= *//p' "$ZR_CONF" 2>/dev/null | head -n1)). Change it with ./installer.sh --screen-layout tabs|grid or on the ZR Tools Settings page."
     [ "$SCREEN_BACKEND" = x11 ] && echo "  Rotate: add 'xrandr --output <name> --rotate left' to an X11 autostart (README, 'Touchscreen')."
+}
+
+do_screen_remove() {
+    print_header "Remove the touchscreen (KlipperScreen)"
+    load_answers || true
+    [ -d "$KS_DIR" ] || [ "$TESTING" = 1 ] || [ -f /etc/systemd/system/KlipperScreen.service ] || die_with_fix "KlipperScreen is not installed on this Pi." "nothing to remove."
+    echo "Removes the KlipperScreen service, ~/KlipperScreen and its Python environment. Klipper, Moonraker, Fluidd and the ZR Tools macros stay."
+    ask_yn "Continue?" n || exit 0
+    SUDO systemctl stop KlipperScreen; SUDO systemctl disable KlipperScreen
+    SUDO rm -f /etc/systemd/system/KlipperScreen.service; SUDO systemctl daemon-reload
+    if [ "$DRY" != 1 ]; then
+        rm -rf "$KS_DIR" "$HOME_DIR/.KlipperScreen-env"
+        local f="$HOME_DIR/printer_data/config/KlipperScreen.conf"
+        [ -f "$f" ] && sed -i '/^\[menu __main zr_tools\]/,/^$/d' "$f"
+        WANT_SCREEN=0; save_answers
+    fi
+    print_success "KlipperScreen removed. Your settings file zr_screen.conf was kept. Add it again with: ./installer.sh --screen on --update"
 }
 
 do_screen_layout() {
@@ -1094,6 +1113,7 @@ case "$MODE" in
     uninstall)  do_uninstall; exit 0 ;;
     screentest) do_screen_test; exit 0 ;;
     screenlayout) do_screen_layout; exit 0 ;;
+    screenremove) do_screen_remove; exit 0 ;;
 esac
 
 if [ -n "$SCREEN_LAYOUT" ] && [ "$MODE" = install ] && [ "$WANT_SCREEN" = ask ] && [ -f "$CONF" ]; then do_screen_layout; exit 0; fi
