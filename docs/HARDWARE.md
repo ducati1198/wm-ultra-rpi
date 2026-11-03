@@ -51,5 +51,6 @@ Not verified (needs the live board): whether apt reaches the archive from it, wh
 ### Result of the live check on the screen board (Nov 3, 2026)
 
 - The board (Debian 11, kernel 5.10.160) has **no virtual console**: no `/dev/tty0`, no `/sys/class/vtconsole`, the only console is the serial `ttyFIQ0`.
+- Live X test (reversible): X starts and stays up at 800x480 (modesetting with `AccelMethod none`, and fbdev) when run with `-seat seat1 -novtswitch -sharevts` after `loginctl attach seat1` for `card0` and `fb0`, a udev rule putting the Goodix touchscreen on `seat1`, and `xkb-data` reinstalled (the image has `/usr/share/X11` removed). A fake `/dev/tty0` does not work (VT ioctls fail). udev tags the touchscreen as "Keyboard Touchscreen"; touch events through X are not yet verified.
 - WonderMaker's X server (1.20.11) starts, loads the `modesetting`/`fbdev` drivers, then stops with `Fatal server error: parse_vt_settings: Cannot open /dev/tty0`. The flags `-novtswitch -sharevts -keeptty` do not help. So stock KlipperScreen (GTK on X11) cannot run on this board without a workaround.
 - Everything else checked fine: 800x480 framebuffer, Goodix touch, apt (archive.debian.org), GitHub/PyPI access. RAM is 487 MB with no swap (the installer adds a temporary swap file).

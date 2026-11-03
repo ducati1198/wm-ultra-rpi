@@ -233,7 +233,7 @@ Settings page, and the Calibrate page on a 5 inch 800x480 screen (compact):
 
 ### 5.2 Use the original WonderMaker screen as the KlipperScreen (optional)
 
-> **Blocked for now.** A live check on the board found that its kernel has no virtual console (`/dev/tty0`), and the X server stops with "Cannot open /dev/tty0", so KlipperScreen cannot start on it as it is. The scripts below are written but must not be used until this is solved (see docs/HARDWARE.md). The Pi touchscreen option (5.1) is not affected.
+> **Not yet tested end to end.** The board's kernel has no virtual console (`/dev/tty0`), so stock KlipperScreen cannot start there. A live test showed X does run when it gets its own seat (display, framebuffer and touch assigned to `seat1`); the installer sets this up with udev rules and a custom service. Touch input through X still needs checking on hardware, and the full install has not been run on the board yet.
 
 Instead of buying a screen for the Pi, the original screen board can run KlipperScreen and talk to the Pi's Klipper/Moonraker over the network. The Pi must already be installed and running (section 3), with the touchscreen option on (`./installer.sh --screen on`) so the ZR Tools macros are in `printer.cfg`.
 

@@ -186,6 +186,8 @@ step_packages() {
         else warn_later "xserver-xorg-legacy is missing and /packages/xserver has no copy. KlipperScreen's X may not start."; fi
     fi
     SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-upgrade $APT_PKGS || die_with_fix "apt could not install the packages." "see the messages above; rerun this script after fixing. The factory services are still running (nothing was disabled yet)."
+    # The factory image has /usr/share/X11 removed (X cannot build a keymap or find its input config): put it back
+    SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y --reinstall xkb-data xserver-xorg-input-libinput xserver-xorg-input-evdev || warn_later "Could not restore the X keyboard data (xkb-data): X may not start."
     SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-upgrade libmpv-dev fonts-nanum fonts-ipafont >/dev/null 2>&1 || print_info "Optional packages (libmpv, CJK fonts) skipped."
     print_success "Packages installed"
 }
@@ -216,6 +218,7 @@ step_klipperscreen() {
     fi
     write_ks_conf
     write_service
+    step_seat
     step_x_config
     print_success "KlipperScreen installed in $KS_DIR"
 }
@@ -238,18 +241,66 @@ E
     [ -f "$CFG_DIR/zr_screen.conf" ] || printf '# Written by screen_board.sh and the ZR Tools Settings page\n[screen]\nlayout = tabs\ndensity = compact\ntheme = dark\n' > "$CFG_DIR/zr_screen.conf"
 }
 
+# The board's kernel has no virtual console (/dev/tty0), so stock KlipperScreen cannot start. Verified on the board (Nov 3, 2026):
+# X starts when it runs on its OWN seat (-seat seat1, no VT needed) with the display, framebuffer and touch assigned to that seat.
+KS_START=/usr/local/sbin/wm-ks-start; KS_CLIENT=/usr/local/sbin/wm-ks-client; XINPUT=/etc/X11/wm-ks-input.conf; TOUCH_RULE=/etc/udev/rules.d/72-wm-touch-seat1.rules
 write_service() {
-    local svc=/etc/systemd/system/KlipperScreen.service tpl="$KS_DIR/scripts/KlipperScreen.service" s
-    if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would write $svc, /etc/X11/Xwrapper.config, add $WM_USER to the tty/video/input groups${NC}"
-    elif [ "$TESTING" != 1 ]; then
-        [ -f "$tpl" ] || die_with_fix "KlipperScreen's service template is missing." "rerun the script."
-        s="$(cat "$tpl")"; s="${s//KS_USER/$WM_USER}"; s="${s//KS_ENV/$KS_ENV}"; s="${s//KS_DIR/$KS_DIR}"; s="${s//KS_BACKEND/X}"
-        echo "$s" | sudo tee "$svc" >/dev/null
-        printf 'allowed_users=anybody\nneeds_root_rights=yes\n' | sudo tee /etc/X11/Xwrapper.config >/dev/null
-        sudo groupadd -f klipperscreen; sudo adduser "$WM_USER" tty >/dev/null; sudo adduser "$WM_USER" klipperscreen >/dev/null; sudo adduser "$WM_USER" video >/dev/null 2>&1; sudo adduser "$WM_USER" input >/dev/null 2>&1
-    else echo "[test] write service + Xwrapper" >> "$HOME_DIR/.sudo.log"; fi
+    local svc=/etc/systemd/system/KlipperScreen.service
+    if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would write $svc, $KS_START, $KS_CLIENT, $XINPUT (X on its own seat, no tty0 needed)${NC}"
+    elif [ "$TESTING" = 1 ]; then echo "[test] write service (seat1, no tty0)" >> "$HOME_DIR/.sudo.log"
+    else
+        sudo tee "$XINPUT" >/dev/null <<'E'
+Section "InputClass"
+    Identifier "wm touchscreen"
+    MatchIsTouchscreen "on"
+    MatchDevicePath "/dev/input/event*"
+    Driver "libinput"
+EndSection
+E
+        sudo tee "$KS_CLIENT" >/dev/null <<E
+#!/bin/bash
+# KlipperScreen itself runs as $WM_USER; the X server (started by xinit) runs as root on seat1
+exec runuser -u $WM_USER -- env HOME=$HOME_DIR DISPLAY=:0 $KS_ENV/bin/python $KS_DIR/screen.py
+E
+        sudo tee "$KS_START" >/dev/null <<E
+#!/bin/bash
+exec /usr/bin/xinit $KS_CLIENT -- /usr/lib/xorg/Xorg :0 -seat seat1 -novtswitch -sharevts -nolisten tcp -noreset -config $XINPUT
+E
+        sudo chmod 755 "$KS_CLIENT" "$KS_START"
+        sudo tee "$svc" >/dev/null <<E
+[Unit]
+Description=KlipperScreen on the WonderMaker screen board (own X seat, no virtual console)
+After=systemd-udevd.service systemd-logind.service network-online.target
+
+[Service]
+Type=simple
+ExecStart=$KS_START
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
+E
+        sudo adduser "$WM_USER" video >/dev/null 2>&1; sudo adduser "$WM_USER" input >/dev/null 2>&1
+    fi
     SUDO systemctl daemon-reload
-    SUDO systemctl set-default multi-user.target
+}
+
+step_seat() {   # put the display, framebuffer and touch on seat1 (udev rules; recorded so the uninstall removes exactly these)
+    print_header "Display and touch on their own seat"
+    if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would run: loginctl attach seat1 (card0, fb0) and add $TOUCH_RULE${NC}"; return 0; fi
+    mkdir -p "$BK"
+    if [ "$TESTING" = 1 ]; then echo "[test] seat1 attach + touch rule" >> "$HOME_DIR/.sudo.log"; echo "72-wm-touch-seat1.rules" > "$BK/udev_rules.created"; return 0; fi
+    local before after d p f
+    before="$(ls /etc/udev/rules.d 2>/dev/null)"
+    for d in /dev/dri/card0 /dev/fb0; do
+        p="$(udevadm info -q path -n "$d" 2>/dev/null)"; [ -n "$p" ] && sudo loginctl attach seat1 "/sys$p" || warn_later "Could not put $d on seat1."
+    done
+    printf 'SUBSYSTEM=="input", ENV{ID_INPUT_TOUCHSCREEN}=="1", TAG+="seat", ENV{ID_SEAT}="seat1"\n' | sudo tee "$TOUCH_RULE" >/dev/null
+    sudo udevadm control --reload; sudo udevadm trigger; sudo udevadm settle
+    after="$(ls /etc/udev/rules.d 2>/dev/null)"
+    diff <(echo "$before") <(echo "$after") | sed -n 's/^> //p' > "$BK/udev_rules.created"
+    print_success "seat1 has: $(sudo loginctl seat-status seat1 2>/dev/null | grep -c -E 'drm:card0$|graphics:fb0|input:event') device(s)"
 }
 
 step_x_config() {
@@ -321,11 +372,12 @@ remove_klipperscreen() {
     if [ "$DRY" != 1 ]; then
         [ -f "$BK/default.target" ] && SUDO systemctl set-default "$(cat "$BK/default.target")"
         if [ "$TESTING" != 1 ]; then
-            [ -f "$BK/Xwrapper.config.orig" ] && sudo cp "$BK/Xwrapper.config.orig" /etc/X11/Xwrapper.config
+            local rf; if [ -f "$BK/udev_rules.created" ]; then while read -r rf; do [ -n "$rf" ] && sudo rm -f "/etc/udev/rules.d/$rf"; done < "$BK/udev_rules.created"; rm -f "$BK/udev_rules.created"; fi
+            sudo rm -f "$TOUCH_RULE" "$KS_START" "$KS_CLIENT" "$XINPUT"; sudo udevadm control --reload; sudo udevadm trigger; sudo udevadm settle
             [ -f "$XDIR/10-wm-fbdev.conf" ] && sudo rm -f "$XDIR/10-wm-fbdev.conf"
             [ -f "$XDIR/20-modesetting.conf.wm-disabled" ] && sudo mv "$XDIR/20-modesetting.conf.wm-disabled" "$XDIR/20-modesetting.conf"
             sudo rm -f /etc/sudoers.d/wm-factory-restore /usr/local/sbin/wm-factory-restore
-        else echo "[test] restore Xwrapper, X conf, remove sudoers" >> "$HOME_DIR/.sudo.log"; rm -f "$HOME_DIR/.fbdev"; fi
+        else echo "[test] remove seat rules, X conf, sudoers" >> "$HOME_DIR/.sudo.log"; rm -f "$HOME_DIR/.fbdev" "$BK/udev_rules.created"; fi
         rm -rf "$KS_DIR" "$KS_ENV"; rm -f "$BK/board_mode"
         [ -f "$BK/KlipperScreen.conf.orig" ] && cp "$BK/KlipperScreen.conf.orig" "$CFG_DIR/KlipperScreen.conf" || rm -f "$CFG_DIR/KlipperScreen.conf"
         rm -f "$CFG_DIR/zr_screen.conf"
