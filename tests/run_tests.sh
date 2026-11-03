@@ -241,4 +241,18 @@ echo "== pre-flight"
 check "no internet: install refused before changing anything" "! WM_TEST_NO_NET=1 WM_HOME=$T/pf WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash $ROOT/installer.sh --from-github --model ultra && [ ! -d $T/pf/klipper ]"
 check "under-voltage is reported" "WM_TEST_THROTTLED=0x50005 WM_TEST_CANQUERY=$T/can_ok.txt inst $T/pf2 --from-github --model ultra | grep -q 'under-voltage'"
 
+echo "== panel comes from the panel repository"
+mkdir -p "$T/pnl"; python3 - "$T/pnl/fluidd-new.zip" <<'PY'
+import sys, zipfile
+z = zipfile.ZipFile(sys.argv[1], "w"); z.writestr("index.html", "<html>NEWEST-PANEL</html>"); z.close()
+PY
+P1="$T/p1"; mkdir -p "$P1"; WM_TEST_PANEL_DIR="$T/pnl" inst "$P1" --from-github --model ultra --no-start > "$T/p1.out"
+check "newest panel from the panel repository is installed" "grep -q NEWEST-PANEL $P1/fluidd/index.html && grep -q 'panel repository' $T/p1.out"
+P2="$T/p2"; mkdir -p "$P2"; inst "$P2" --from-github --model ultra --no-start > "$T/p2.out"
+check "no panel repository: bundled copy is used" "grep -q 'copy in this repository' $T/p2.out && grep -q -i fluidd $P2/fluidd/index.html"
+inst "$P2" --update > "$T/p2u.out"
+check "update: panel already latest, nothing replaced" "grep -q 'already the latest' $T/p2u.out"
+WM_TEST_PANEL_DIR="$T/pnl" inst "$P2" --update > "$T/p2v.out"
+check "update: a changed panel in the panel repository is installed" "grep -q NEWEST-PANEL $P2/fluidd/index.html"
+
 echo; echo "passed: $PASS  failed: $FAIL"; [ "$FAIL" = 0 ]

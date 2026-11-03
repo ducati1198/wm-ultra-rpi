@@ -58,6 +58,7 @@ STAMP="$(date +%Y%m%d-%H%M%S)"
 BACKUP_ROOT="$HOME_DIR/wm-rpi-backup"
 STATE="$BACKUP_ROOT/installed.manifest"
 CONF="$BACKUP_ROOT/install.conf"
+PANEL_REPO="ducati1198/wm-ultra-fluidd-acepro-panel"; PANEL_ZIP=""; PANEL_FROM=""
 FORCE=0; AUTOSTART=1; ARG1=""; OLD_VERSION=""
 STAGE=""
 declare -a WARNINGS=()
@@ -343,13 +344,38 @@ step_can() {
     print_success "can0 rule installed"
 }
 
+panel_get() {  # sets PANEL_ZIP and PANEL_FROM: the newest panel from the panel repository, else the copy in this repository
+    [ -n "$PANEL_ZIP" ] && return 0
+    local tmp="$BACKUP_ROOT/.panel-dl"; local name="" api raw
+    if [ "$TESTING" = 1 ]; then
+        if [ -n "${WM_TEST_PANEL_DIR:-}" ]; then name="$(ls "$WM_TEST_PANEL_DIR"/*.zip 2>/dev/null | head -1)"; [ -n "$name" ] && PANEL_ZIP="$name" && PANEL_FROM="the panel repository (test)" && return 0; fi
+    elif [ "$DRY" != 1 ]; then
+        mkdir -p "$tmp"; rm -f "$tmp"/*
+        api="https://api.github.com/repos/$PANEL_REPO/contents/fluidd?ref=main"
+        raw="https://raw.githubusercontent.com/$PANEL_REPO/main/fluidd"
+        name="$(curl -fsS -m 15 "$api" 2>/dev/null | python3 -c 'import sys,json
+try: print(next(f["name"] for f in json.load(sys.stdin) if f["name"].endswith(".zip")))
+except Exception: pass' 2>/dev/null)"
+        if [ -n "$name" ] && curl -fsSL -m 120 -o "$tmp/$name" "$raw/$name" && curl -fsSL -m 20 -o "$tmp/$name.sha256" "$raw/$name.sha256" \
+           && ( cd "$tmp" && sha256sum -c "$name.sha256" >/dev/null 2>&1 ) \
+           && python3 -c 'import sys,zipfile;z=zipfile.ZipFile(sys.argv[1]);assert "index.html" in z.namelist()' "$tmp/$name" 2>/dev/null; then
+            PANEL_ZIP="$tmp/$name"; PANEL_FROM="github.com/$PANEL_REPO ($name)"
+            print_success "Latest Fluidd panel downloaded from $PANEL_REPO (checksum ok)"; return 0
+        fi
+        print_warning "Could not get a verified panel from $PANEL_REPO: using the copy that is in this repository."
+    fi
+    local b="$SCRIPT_DIR/fluidd/fluidd-v1.37.7-zr-ace.zip"
+    ( cd "$SCRIPT_DIR/fluidd" && sha256sum -c fluidd-v1.37.7-zr-ace.zip.sha256 >/dev/null 2>&1 ) || { print_warning "Checksum of the bundled Fluidd zip does not match: panel skipped."; return 1; }
+    PANEL_ZIP="$b"; PANEL_FROM="the copy in this repository"
+}
+
 step_panel() {
     [ -f "$HOME_DIR/fluidd/index.html" ] || [ "$DRY" = 1 ] || WANT_PANEL=1   # factory files carry no web interface: the panel build is the web interface
     [ "$WANT_PANEL" = 1 ] || return 0
     print_header "Step 10: Fluidd with the WonderMaker Toolheads panel"
     why "The Fluidd that came with the printer has no toolhead panel for the Ultra-S. This build adds it (toolheads, chamber, air filter, colours, filament mapping)."
-    local zip="$SCRIPT_DIR/fluidd/fluidd-v1.37.7-zr-ace.zip"
-    ( cd "$SCRIPT_DIR/fluidd" && sha256sum -c fluidd-v1.37.7-zr-ace.zip.sha256 >/dev/null 2>&1 ) || { print_warning "Checksum of the Fluidd zip does not match: panel skipped."; warn_later "Fluidd panel skipped (checksum)."; return; }
+    panel_get || { warn_later "Fluidd panel skipped (no usable zip)."; return; }
+    local zip="$PANEL_ZIP"
     if [ "$DRY" != 1 ]; then
         python3 -c "import zipfile,sys;zipfile.ZipFile(sys.argv[1])" "$zip" 2>/dev/null || { print_warning "Zip unreadable: panel skipped."; return; }
         local keep="$BACKUP_ROOT/fluidd-$STAMP"; mkdir -p "$keep"
@@ -362,7 +388,7 @@ zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])
 PY
         [ -f "$keep/config.json.keep" ] && cp "$keep/config.json.keep" "$HOME_DIR/fluidd/config.json"
     else echo -e "  ${DIM}would replace ~/fluidd with the panel build (old one saved)${NC}"; fi
-    print_success "Fluidd panel installed. Hard-refresh the browser (Ctrl/Cmd+Shift+R)."
+    print_success "Fluidd panel installed (from $PANEL_FROM). Hard-refresh the browser (Ctrl/Cmd+Shift+R)."
 }
 
 step_zrtools() {
@@ -550,7 +576,7 @@ WANT_TIMELAPSE=$WANT_TIMELAPSE
 WANT_CROWSNEST=$WANT_CROWSNEST
 CROWSNEST_PIN=$(addon_pin crowsnest | cut -d'|' -f2)
 TIMELAPSE_PIN=$(addon_pin moonraker-timelapse | cut -d'|' -f2)
-PANEL_SHA=$(sha256sum "$SCRIPT_DIR/fluidd/fluidd-v1.37.7-zr-ace.zip" 2>/dev/null | cut -d' ' -f1)
+PANEL_SHA=$(sha256sum "${PANEL_ZIP:-$SCRIPT_DIR/fluidd/fluidd-v1.37.7-zr-ace.zip}" 2>/dev/null | cut -d' ' -f1)
 E
 }
 load_answers() {
@@ -749,8 +775,10 @@ do_update() {
         "$HOME_DIR/moonraker-env/bin/pip" install -q -r "$SCRIPT_DIR/config/moonraker-requirements.txt" || warn_later "moonraker-env packages did not update."
     fi
     step_services_files; step_nginx; step_can
-    local sha; sha="$(sha256sum "$SCRIPT_DIR/fluidd/fluidd-v1.37.7-zr-ace.zip" | cut -d' ' -f1)"
-    if [ "$WANT_PANEL" = 1 ] && [ "$sha" != "${OLD_PANEL_SHA:-}" ]; then step_panel; fi
+    if [ "$WANT_PANEL" = 1 ]; then
+        local sha=""; panel_get && sha="$(sha256sum "$PANEL_ZIP" | cut -d' ' -f1)"
+        if [ -n "$sha" ] && [ "$sha" != "${OLD_PANEL_SHA:-}" ]; then step_panel; else print_success "Fluidd panel is already the latest"; fi
+    fi
     if [ "$WANT_TIMELAPSE" = 1 ]; then step_timelapse; fi
     if [ "$WANT_CROWSNEST" = 1 ] && [ "$(addon_pin crowsnest | cut -d'|' -f2)" != "${OLD_CN_PIN:-}" ]; then step_crowsnest; fi
     save_answers
@@ -955,6 +983,7 @@ guard_not_printing
 save_answers
 step_packages; step_groups; step_python; step_unpack; step_model; step_venvs; step_modules
 step_services; step_nginx; step_can; step_panel; step_zrtools; step_timelapse; step_crowsnest; step_start
+save_answers
 self_test
 if [ "$AUTOSTART" = 1 ] && [ "$DRY" != 1 ]; then do_first_start auto || true; fi
 

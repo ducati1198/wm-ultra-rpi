@@ -115,7 +115,7 @@ The installer first asks **which printer you have** (ZR Ultra or ZR Ultra-S; or 
 | Services | `moonraker.service` enabled; `klipper.service` installed but **disabled and stopped** |
 | nginx | Fluidd on port 80 with the websocket, API and webcam routes |
 | CAN rule | brings `can0` up at 1 Mbit when the main board appears |
-| Fluidd panel / ZR Tools | optional, see 5 |
+| Fluidd panel / ZR Tools | optional, see 5. The panel is **downloaded from [wm-ultra-fluidd-acepro-panel](https://github.com/ducati1198/wm-ultra-fluidd-acepro-panel) every time** (so you always get its latest), checked against the checksum published next to it. Without internet, or if the check fails, the copy in `fluidd/` is used. `--update` installs a newer panel when there is one |
 | Timelapse | `ffmpeg` and `moonraker-timelapse` (latest release; it is the same version WonderMaker ships), downloaded from mainsail-crew on GitHub |
 | Webcams | `crowsnest` v5.0.12 (latest release; WonderMaker ships a 2023 version), installed unattended (builds `ustreamer`); your camera goes in `~/printer_data/config/crowsnest.conf` |
 
@@ -169,7 +169,7 @@ After the install, open `http://<pi address>/`. Fluidd shows "Klippy disconnecte
 
 ![Fluidd without an ACE Pro](docs/img/fluidd-without-acepro.png)
 
-**With an ACE Pro** (the same Fluidd build, taken from [wm-ultra-fluidd-acepro-panel](https://github.com/ducati1198/wm-ultra-fluidd-acepro-panel): the zip and patch here are byte-for-byte identical to that repo's, version 0.2.0; install that repo's `installer.sh` to add the ACE Pro driver, and the ACE section appears in the Toolheads card):
+**With an ACE Pro** (the same Fluidd build: the installer downloads the newest panel straight from [wm-ultra-fluidd-acepro-panel](https://github.com/ducati1198/wm-ultra-fluidd-acepro-panel); run that repo's `installer.sh` to add the ACE Pro driver, and the ACE section appears in the Toolheads card):
 
 ![Fluidd with an ACE Pro](docs/img/fluidd-with-acepro.png)
 
