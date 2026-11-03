@@ -170,10 +170,12 @@ add_swap() {   # the board has 487 MB RAM and no swap: the PyGObject/pycairo bui
     local mem; mem="$(awk '/MemTotal/{printf "%d",$2/1024}' /proc/meminfo 2>/dev/null)"
     [ "$TESTING" = 1 ] && mem="${WM_TEST_MEM_MB:-487}"
     [ "${mem:-9999}" -lt 900 ] || return 0
+    # This board's kernel has no swap support (no /proc/swaps): do not promise or try it
+    if [ "$TESTING" != 1 ] && [ ! -e /proc/swaps ]; then print_info "Only ${mem} MB RAM and this kernel has no swap: the Python build is slow but works."; return 0; fi
     if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would add a temporary 768 MB swap file ($SWAPFILE)${NC}"; return 0; fi
     if [ "$TESTING" = 1 ]; then echo "[test] swapfile $SWAPFILE" >> "$HOME_DIR/.sudo.log"; return 0; fi
     sudo fallocate -l 768M "$SWAPFILE" && sudo chmod 600 "$SWAPFILE" && sudo mkswap "$SWAPFILE" >/dev/null && sudo swapon "$SWAPFILE" && { print_info "Temporary swap added (removed at the end)"; trap drop_swap EXIT; } \
-        || warn_later "Could not add swap: the Python build may run out of memory."
+        || { sudo rm -f "$SWAPFILE"; warn_later "Could not add swap: the Python build may run out of memory."; }
 }
 drop_swap() {
     [ "$DRY" = 1 ] && return 0
