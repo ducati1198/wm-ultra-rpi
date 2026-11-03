@@ -308,15 +308,19 @@ step_venvs() {
     print_success "Environments ready"
 }
 
+# Klipper loads these as "extras.<name>" with the klippy folder on the path (they use "from . import ..." and "import pins").
+# Importing them from inside the extras folder fails for a good module too, so test them the way Klipper does.
+module_imports() { (cd "$HOME_DIR/klipper/klippy" && "$HOME_DIR/klippy-env/bin/python" -c "import sys; sys.path.insert(0, '.'); import extras.$1" 2>/dev/null); }
+
 step_modules() {
     print_header "Step 6: WonderMaker's compiled modules"
     why "These binary modules decide whether the heaters, load cells and tool calibration work. They must import on this Pi."
     [ "$TESTING" = 1 ] || [ "$DRY" = 1 ] && { echo "[skipped in test/dry-run]"; return; }
     local m bad=0
     for m in "${COMPILED_MODULES[@]}"; do
-        if (cd "$HOME_DIR/klipper/klippy/extras" && "$HOME_DIR/klippy-env/bin/python" -c "import $m" 2>/dev/null); then print_success "$m"; else print_warning "$m does not import"; bad=1; fi
+        if module_imports "$m"; then print_success "$m"; else print_warning "$m does not import"; bad=1; fi
     done
-    [ "$bad" = 0 ] || warn_later "Some WonderMaker modules did not import. Klipper may stop with an error about them. Check: cd ~/klipper/klippy/extras && ~/klippy-env/bin/python -c 'import <module>'"
+    [ "$bad" = 0 ] || warn_later "Some WonderMaker modules did not import. Klipper may stop with an error about them. Check: cd ~/klipper/klippy && ~/klippy-env/bin/python -c 'import sys; sys.path.insert(0, \".\"); import extras.<module>'"
 }
 
 step_services_files() {
@@ -785,7 +789,7 @@ hw_checks() {  # $1 = quiet header flag
     local miss; miss="$(modules_present | tr '\n' ' ')"
     [ -z "$miss" ] && chk_ok "WonderMaker's compiled modules are present" || chk_fail "missing WonderMaker modules: $miss" "Run ./installer.sh --doctor to restore them from the repository."
     if [ "$TESTING" != 1 ] && [ -x "$HOME_DIR/klippy-env/bin/python" ]; then
-        local m bad=""; for m in "${COMPILED_MODULES[@]}"; do (cd "$HOME_DIR/klipper/klippy/extras" && "$HOME_DIR/klippy-env/bin/python" -c "import $m" 2>/dev/null) || bad="$bad $m"; done
+        local m bad=""; for m in "${COMPILED_MODULES[@]}"; do module_imports "$m" || bad="$bad $m"; done
         [ -z "$bad" ] && chk_ok "the modules import with Python 3.9" || chk_fail "modules that do not import:$bad" "They must be the factory files for aarch64 and Python 3.9."
     fi
     local nerr; validate_config >/tmp/.wm_val.$$ 2>&1; nerr=$?; cat /tmp/.wm_val.$$ | sed 's/^/  /'; rm -f /tmp/.wm_val.$$

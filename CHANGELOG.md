@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.13.4
+
+- Fix: the installer reported 7 WonderMaker modules as "do not import" on a good install (a false alarm: they were tested from the wrong folder, not the way Klipper loads them). They are now imported as `extras.<name>`, like Klipper does.
+
 ## 0.13.3
 
 - Fix (found on the first real Pi install): on Debian 12 the home folder is private, so nginx answered "403 Forbidden" and Fluidd did not open. The installer now runs `chmod o+x ~` (pass-through only), `--repair` does the same, and `--doctor` checks that the Fluidd page opens.
