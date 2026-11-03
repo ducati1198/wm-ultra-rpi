@@ -21,12 +21,26 @@ The four pins are printed on the board, top to bottom in the photo:
 
 The red wire of a USB cable (5 V, pin 1) is **not used** either: the Pi has its own power supply, and the main board gets its power from the printer.
 
-## Making the cable
+## You need a USB-A to JST-XH 2.54 mm cable
 
-1. Take a USB-A **male** cable (a cut USB cable works) and a **matching 4-pin plug** for the red connector (it looks like a JST-XH type, 2.5 mm pitch: compare with the connector, or ask WonderMaker for the exact part).
-2. Wire **DM to white, DP to green, G to black**. Cut off and insulate red (5 V) at the USB side and VIN at the board side.
-3. Put the plug in the right way round: the plug is keyed; the pin order must match the table above (DM at the top in the photo).
-4. Keep the cable short and away from the heater and motor wires.
+The Pi has a normal USB-A port and the main board has a small 4-pin **JST-XH, 2.54 mm pitch** connector, so you must **buy or make a cable** that joins them. Compare the plug with the connector on your board before you order.
+
+![USB-A to JST-XH 4-pin cable](img/cable-usb-a-to-jst-xh.jpg)
+
+**Option A: buy a ready-made "USB-A to JST-XH 2.54 4-pin" cable** (like the one above). The wire order of these cables is made for other uses, **so you must re-pin it** to match the main board:
+
+1. Do not trust the colours or the pin order of the plug. Use a multimeter to find which wire of the plug goes to which USB contact.
+2. Pull each pin out of the plug (lift the small latch on the pin with a needle and pull it from the back) and push it into the right position, so the plug matches the table above: **DM, DP, G, VIN** from the top in the photo.
+3. **VIN is 24 V: that position must stay empty.** The USB cable's red wire (5 V) goes nowhere: **cut it off at the plug and insulate the end, or just do not put it in the plug.** Never connect the red 5 V wire to the board's VIN pin, and never let 24 V reach the USB side.
+4. Check the finished cable with the multimeter (continuity: USB D- to DM, D+ to DP, GND to G, nothing to VIN) before plugging in.
+
+**Option B: make it yourself** from a cut USB-A cable and a JST-XH 4-pin housing with crimp pins (a small crimp tool is needed). Wire **DM to white, DP to green, G to black**. Leave the VIN position empty. Cut off and insulate the red wire.
+
+Either way:
+
+- The plug is keyed. Put it in the right way round; DM is at the top in the photo.
+- Keep the cable short and away from heater and motor wires.
+- **Cut the red wire or leave it unconnected. Nothing from the Pi's 5 V should reach the board, and the board's 24 V VIN must never reach the Pi.**
 
 ![Wiring overview](img/wiring.svg)
 

@@ -48,7 +48,7 @@ The installer never flashes any board and never starts Klipper unless you ask fo
 - A Raspberry Pi 400 or another 64-bit Pi (4 or 5), its power supply, an SD card of 16 GB or more.
 - Raspberry Pi OS **Bookworm 64-bit**, written with Raspberry Pi Imager. In the imager's settings set the **username to `t13dp`** (WonderMaker's software has `/home/t13dp` built in), enable SSH, and set your Wi-Fi or use a cable.
 - The **replacement main board** (WM-ZR-D V1.2): it carries the Klipper USB-CAN bridge (USB id `1d50:606f`), and the toolheads and filament hub stay on its CAN bus.
-- A **custom cable** from the Pi's USB-A port to the red 4-pin connector of the main board (DM, DP, G only; its VIN pin is 24 V). See [docs/WIRING.md](docs/WIRING.md).
+- A **USB-A to JST-XH 2.54 mm 4-pin cable**, bought or made, from the Pi's USB-A port to the red 4-pin connector of the main board. A ready-made one must be **re-pinned** to the board's order (DM, DP, G; leave VIN empty). **VIN is 24 V: cut or do not connect the red wire, never feed it to the Pi.** See [docs/WIRING.md](docs/WIRING.md).
 - The WonderMaker software: from **your own printer** (reachable old board, a disk image, or a folder made earlier) or the factory files in this repo (see 3.1). 
 
 ### 2.2 How it is connected
@@ -152,6 +152,8 @@ After the install, open `http://<pi address>/`. Fluidd shows "Klippy disconnecte
 5. Do not run heaters or moves unattended on the first start.
 
 ## 5. Fluidd panel and ZR Tools
+
+![Fluidd dashboard without an ACE Pro](docs/img/fluidd-dashboard-no-ace.png)
 
 ![Toolheads card](docs/img/fluidd-toolheads-card.png)
 
