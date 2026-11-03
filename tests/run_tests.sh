@@ -330,7 +330,11 @@ check "precheck needs a board address" "! bash $PC"
 echo "== Mac preflight script"
 PF="$ROOT/scripts/screen_board_preflight_mac.sh"
 check "preflight syntax" "bash -n $PF"
-check "preflight needs --pi" "! bash $PF 1.2.3.4"
+check "preflight needs the board address" "! bash $PF"
+WM_REPORT="$T/pf2.txt" bash "$PF" --local-test > "$T/pf2.out" 2>&1
+check "preflight works without --pi (Pi off): Pi checks skipped, not failed" "grep -q 'no Pi address given' $T/pf2.out && ! grep -q 'FAIL.*Pi' $T/pf2.out"
+WM_REPORT="$T/pf3.txt" bash "$PF" --local-test --pi 127.0.0.1 > "$T/pf3.out" 2>&1
+check "preflight: unreachable Pi is only a warning" "grep -q 'WARN.*Pi not reachable' $T/pf3.out && ! grep -q 'FAIL.*Pi' $T/pf3.out"
 WM_REPORT="$T/pf.txt" bash "$PF" --local-test --pi 127.0.0.1 > "$T/pf.out" 2>&1; PFRC=$?
 check "preflight runs all sections and gives a verdict" "grep -q 'On the screen board' $T/pf.out && grep -q 'Connection to the Pi' $T/pf.out && grep -q 'Verdict' $T/pf.out && [ -s $T/pf.txt ]"
 check "preflight says NOT READY on a machine that is not the board" "[ $PFRC = 1 ] && grep -q 'NOT READY' $T/pf.out"
