@@ -169,7 +169,7 @@ After the install, open `http://<pi address>/`. Fluidd shows "Klippy disconnecte
 
 ![Fluidd without an ACE Pro](docs/img/fluidd-without-acepro.png)
 
-**With an ACE Pro** (add the [ACE Pro panel](https://github.com/ducati1198/wm-ultra-fluidd-acepro-panel) and an ACE card appears under Toolheads):
+**With an ACE Pro** (the same Fluidd build, taken from [wm-ultra-fluidd-acepro-panel](https://github.com/ducati1198/wm-ultra-fluidd-acepro-panel): the zip and patch here are byte-for-byte identical to that repo's, version 0.2.0; install that repo's `installer.sh` to add the ACE Pro driver, and the ACE section appears in the Toolheads card):
 
 ![Fluidd with an ACE Pro](docs/img/fluidd-with-acepro.png)
 
