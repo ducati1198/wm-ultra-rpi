@@ -1,6 +1,6 @@
 # ZR Tools – KlipperScreen panel for the WonderMaker ZR Ultra-S
 
-Normally `./installer.sh` does all of this for you (see README 5.1). This script is for adding the panel by hand to an existing KlipperScreen.
+Normally `./installer.sh` does all of this for you (see README section 6). This script is for adding the panel by hand to an existing KlipperScreen.
 
 ## Files
 | File | Goes to | What it does |

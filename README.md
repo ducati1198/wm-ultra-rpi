@@ -14,11 +14,13 @@
 2. [Hardware](#2-hardware)
 3. [Install](#3-install)
 4. [When the main board is connected](#4-when-the-main-board-is-connected)
-5. [Fluidd panel and touchscreen](#5-fluidd-panel-and-zr-tools)
-6. [Go back / uninstall](#6-go-back--uninstall)
-7. [Troubleshooting](#7-troubleshooting)
-8. [Repository layout](#8-repository-layout)
-9. [Credits and license](#9-credits-and-license)
+5. [Fluidd (web panel and ZR Tools)](#5-fluidd-web-panel-and-zr-tools)
+6. [KlipperScreen on the Raspberry Pi (touchscreen)](#6-klipperscreen-on-the-raspberry-pi-touchscreen)
+7. [KlipperScreen on the WonderMaker screen board (optional)](#7-klipperscreen-on-the-wondermaker-screen-board-optional)
+8. [Go back / uninstall](#8-go-back--uninstall)
+9. [Troubleshooting](#9-troubleshooting)
+10. [Repository layout](#10-repository-layout)
+11. [Credits and license](#11-credits-and-license)
 
 ## Disclaimer (use at your own risk)
 
@@ -63,7 +65,7 @@ The old board's job (screen, Wi-Fi, running Klipper) moves to the Pi. Step by st
 
 ### 2.3 What is not covered
 
-The original touchscreen of the Ultra-S is not replaced one-to-one. Use Fluidd in a browser, or connect a screen to the Pi (see 5.1 Touchscreen).
+The original touchscreen of the Ultra-S is not replaced one-to-one. Use Fluidd in a browser, or connect a screen to the Pi (see 6, KlipperScreen on the Raspberry Pi).
 
 ## 3. Install
 
@@ -164,7 +166,9 @@ After the install, open `http://<pi address>/`. Fluidd shows "Klippy disconnecte
 4. If every check passes it enables and starts Klipper, Moonraker, nginx and crowsnest. If not, the failing checks are listed and nothing is started.
 5. Do not run heaters or moves unattended on the first start.
 
-## 5. Fluidd panel and ZR Tools
+## 5. Fluidd (web panel and ZR Tools)
+
+Fluidd is the web page you use to control the printer from a phone or computer: open `http://<pi address>/` (see 3.5). The installer puts WonderMaker's Fluidd on the Pi, and adds the **Toolheads** panel (and the ACE Pro parts, if you add one). Update it later with `./installer.sh --update`.
 
 **Without an ACE Pro** (the default):
 
@@ -187,7 +191,9 @@ The Fluidd build from [wm-ultra-fluidd-acepro-panel](https://github.com/ducati11
 
 Without an Anycubic ACE Pro the ACE parts stay hidden. If you add one later, use [wm-ultra-fluidd-acepro-panel](https://github.com/ducati1198/wm-ultra-fluidd-acepro-panel).
 
-### 5.1 Touchscreen (KlipperScreen + ZR Tools)
+## 6. KlipperScreen on the Raspberry Pi (touchscreen)
+
+Use this if you connect a touchscreen directly to the Raspberry Pi. KlipperScreen runs on the Pi next to Klipper and Moonraker, with the ZR Tools panel. For the original WonderMaker screen board as the screen, see section 7 instead.
 
 > **Not yet tested on hardware.** It was built against the KlipperScreen documentation and checked with automated tests, but nobody has run it on a Pi with a screen yet. Please report what you see.
 
@@ -229,9 +235,9 @@ Settings page, and the Calibrate page on a 5 inch 800x480 screen (compact):
 
 **Rotation** is an operating-system setting, not a ZR Tools one. On X11 use `xrandr --output <name> --rotate left` (and a matching touch matrix); for Weston, `transform=90` in `weston.ini`. See the KlipperScreen documentation.
 
-`--update`, `--repair` and `--doctor` copy the panel files back if a KlipperScreen update removed them. Using the original WonderMaker screen board as the KlipperScreen is section 5.2.
+`--update`, `--repair` and `--doctor` copy the panel files back if a KlipperScreen update removed them. Using the original WonderMaker screen board as the KlipperScreen is section 7.
 
-### 5.2 Use the original WonderMaker screen as the KlipperScreen (optional)
+## 7. KlipperScreen on the WonderMaker screen board (optional)
 
 > **Tested on one screen board (Nov 2026):** the install from GitHub, the display and touch work. The Wi-Fi page, the Pi address page and the full printing workflow still need more testing. The board's kernel has no virtual console (`/dev/tty0`), so the installer runs X on its own seat (display, framebuffer and touch assigned to `seat1`) with a custom service.
 
@@ -316,13 +322,13 @@ To read the board first (nothing is changed): `scripts/screen_board_inspect.sh`.
 
 On the Pi, `./installer.sh --screen-remove` removes KlipperScreen again (Klipper, Moonraker and Fluidd stay).
 
-## 6. Go back / uninstall
+## 8. Go back / uninstall
 
 - `./installer.sh --uninstall` removes the services, nginx files and can0 rule the installer added. Your folders in `~` stay.
 - Moved folders are in `~/wm-rpi-backup/`.
 - Nothing was changed on the old board or on any firmware, so there is nothing to restore there.
 
-## 7. Troubleshooting
+## 9. Troubleshooting
 
 | Problem | What to try |
 |---|---|
@@ -334,11 +340,11 @@ On the Pi, `./installer.sh --screen-remove` removes KlipperScreen again (Klipper
 | Moonraker does not answer | `journalctl -u moonraker -n 50` |
 | No `can0` | Main board not powered or not on USB. `lsusb` should show `1d50:606f`. |
 | Klipper "mcu ... uuid" error | New board, new `canbus_uuid` (see 4). |
-| Screen board: `apt-get update` fails | Fix the clock and apt first (the block at the start of 5.2). |
+| Screen board: `apt-get update` fails | Fix the clock and apt first (the block at the start of section 7). |
 | Screen board: KlipperScreen says it cannot connect | Open **Pi address** on the screen and enter the Pi's IP; check the Pi is on and trusts the board in `moonraker.conf`. |
 | Screen board: black or wrong screen | `bash ~/wm-screen-backup/screen_board.sh --factory-restore` from SSH, or `--screen-driver fbdev` when installing. |
 
-## 8. Repository layout
+## 10. Repository layout
 
 ```
 installer.sh            the Pi installer
@@ -353,6 +359,6 @@ tests/run_tests.sh      tests (fake home, synthetic disk image)
 
 `factory/` holds WonderMaker's Klipper and Moonraker (GPL), the factory settings, helper scripts, and their compiled modules and MCU firmware (WonderMaker's binaries, see [factory/README.md](factory/README.md)). Your own calibration is not in the repository.
 
-## 9. Credits and license
+## 11. Credits and license
 
 Klipper, Moonraker and Fluidd are their own projects and licenses. The Anycubic ACE Pro and WonderMaker are trademarks of their owners; this project is unaffiliated. Layout inspired by [acepro-any-klipper](https://github.com/ducati1198/acepro-any-klipper). This repository is under the GPL v3, see [LICENSE](LICENSE).
