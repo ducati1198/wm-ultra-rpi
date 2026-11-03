@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.0
+
+- The `fluidd/` folder (zip, checksum, patch) is removed. The panel only comes from `wm-ultra-fluidd-acepro-panel`. If it cannot be downloaded the install goes on without the web page and says to run `--update` when online.
+
 ## 0.8.1
 
 - Option 1 (copy from the old board over SSH) is now marked as the recommended source, in the README and in the installer menu.

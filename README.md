@@ -115,7 +115,7 @@ The installer first asks **which printer you have** (ZR Ultra or ZR Ultra-S; or 
 | Services | `moonraker.service` enabled; `klipper.service` installed but **disabled and stopped** |
 | nginx | Fluidd on port 80 with the websocket, API and webcam routes |
 | CAN rule | brings `can0` up at 1 Mbit when the main board appears |
-| Fluidd panel / ZR Tools | optional, see 5. The panel is **downloaded from [wm-ultra-fluidd-acepro-panel](https://github.com/ducati1198/wm-ultra-fluidd-acepro-panel) every time** (so you always get its latest), checked against the checksum published next to it. Without internet, or if the check fails, the copy in `fluidd/` is used. `--update` installs a newer panel when there is one |
+| Fluidd panel / ZR Tools | optional, see 5. The panel is **downloaded from [wm-ultra-fluidd-acepro-panel](https://github.com/ducati1198/wm-ultra-fluidd-acepro-panel) every time** (so you always get its latest), checked against the checksum published next to it. It needs internet (no copy is kept in this repo); if the download fails the web page is skipped with a warning and `--update` retries. `--update` installs a newer panel when there is one |
 | Timelapse | `ffmpeg` and `moonraker-timelapse` (latest release; it is the same version WonderMaker ships), downloaded from mainsail-crew on GitHub |
 | Webcams | `crowsnest` v5.0.12 (latest release; WonderMaker ships a 2023 version), installed unattended (builds `ustreamer`); your camera goes in `~/printer_data/config/crowsnest.conf` |
 
@@ -179,7 +179,7 @@ Full dashboard without an ACE Pro:
 
 ![Toolheads card](docs/img/fluidd-toolheads-card.png)
 
-The Fluidd build in [fluidd/](fluidd/) adds the Toolheads card (toolhead status, colours and materials, chamber, air filter, doors, **Print with colours**) and the **Choose toolheads** window at print start, shown only when a colour or material does not match.
+The Fluidd build from [wm-ultra-fluidd-acepro-panel](https://github.com/ducati1198/wm-ultra-fluidd-acepro-panel) adds the Toolheads card (toolhead status, colours and materials, chamber, air filter, doors, **Print with colours**) and the **Choose toolheads** window at print start, shown only when a colour or material does not match.
 
 ![Toolhead dialog](docs/img/fluidd-toolhead-dialog.png)
 ![Choose toolheads](docs/img/fluidd-choose-toolheads.png)
@@ -215,7 +215,6 @@ factory/ultra/          WonderMaker ZR Ultra: Klipper, Moonraker, settings, scri
 factory/ultra-s/        WonderMaker ZR Ultra-S: same, with the chamber/air-filter/door settings on
 scripts/                pull_from_board.sh, extract_from_image.sh, stage_from_repo.sh, board_check.sh
 config/                 systemd units, nginx files, can0 udev rule, pinned Python requirements, crowsnest template, addon version pins
-fluidd/                 Fluidd v1.37.7 with the Toolheads panel (zip, checksum, patch)
 zr_tools/               optional KlipperScreen panel
 docs/                   HARDWARE.md and images
 tests/run_tests.sh      tests (fake home, synthetic disk image)

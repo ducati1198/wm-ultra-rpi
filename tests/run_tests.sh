@@ -17,7 +17,8 @@ mkstage() {  # make a fake WonderMaker tree and stage folder
     tar czf "$s/klipper.tgz" -C "$h" klipper; tar czf "$s/moonraker.tgz" -C "$h" moonraker
     tar czf "$s/data.tgz" -C "$h" --exclude=printer_data/gcodes printer_data fluidd TM_T1
 }
-inst() { local h="$1"; shift; WM_HOME="$h" WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash "$ROOT/installer.sh" "$@" 2>&1; }
+mkdir -p "$T/stubpanel"; python3 -c "import zipfile;z=zipfile.ZipFile('$T/stubpanel/fluidd-stub.zip','w');z.writestr('index.html','<html>fluidd panel</html>');z.close()"
+inst() { local h="$1"; shift; WM_TEST_PANEL_DIR="${WM_TEST_PANEL_DIR:-$T/stubpanel}" WM_HOME="$h" WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash "$ROOT/installer.sh" "$@" 2>&1; }
 
 echo "== basics"
 check "bash syntax installer" "bash -n $ROOT/installer.sh"
@@ -25,7 +26,7 @@ check "bash syntax scripts" "for f in $ROOT/scripts/*.sh $ROOT/zr_tools/install_
 check "--version prints" "bash $ROOT/installer.sh --version | grep -q wm-ultra-rpi"
 check "--help prints" "bash $ROOT/installer.sh --help | grep -q from-image"
 check "unknown option fails" "! bash $ROOT/installer.sh --nope"
-check "fluidd zip checksum" "cd $ROOT/fluidd && sha256sum -c fluidd-v1.37.7-zr-ace.zip.sha256"
+check "no Fluidd zip kept in the repo" "[ ! -e $ROOT/fluidd ]"
 check "no Claude mention in repo files" "! grep -rIl -i 'claude' $ROOT --exclude-dir=.git --exclude=tests --exclude=run_tests.sh --exclude=*.patch --exclude=*.zip"
 check "no private addresses in repo files" "! grep -rIlE '10\.11\.88\.|192\.168\.1\.' $ROOT --exclude-dir=.git --exclude-dir=klipper --exclude-dir=moonraker --exclude=*.patch"
 check "both service files can be enabled at boot" "grep -q 'WantedBy=multi-user.target' $ROOT/config/klipper.service && grep -q 'WantedBy=multi-user.target' $ROOT/config/moonraker.service"
@@ -249,7 +250,9 @@ PY
 P1="$T/p1"; mkdir -p "$P1"; WM_TEST_PANEL_DIR="$T/pnl" inst "$P1" --from-github --model ultra --no-start > "$T/p1.out"
 check "newest panel from the panel repository is installed" "grep -q NEWEST-PANEL $P1/fluidd/index.html && grep -q 'panel repository' $T/p1.out"
 P2="$T/p2"; mkdir -p "$P2"; inst "$P2" --from-github --model ultra --no-start > "$T/p2.out"
-check "no panel repository: bundled copy is used" "grep -q 'copy in this repository' $T/p2.out && grep -q -i fluidd $P2/fluidd/index.html"
+check "default test panel installed" "grep -q -i fluidd $P2/fluidd/index.html"
+P3="$T/p3"; mkdir -p "$P3"; WM_TEST_PANEL_DIR="$T/nonexistent" WM_HOME="$P3" WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash "$ROOT/installer.sh" --from-github --model ultra --no-start > "$T/p3.out" 2>&1
+check "panel download fails: install goes on, tells how to retry" "[ -d $P3/klipper/klippy ] && [ ! -f $P3/fluidd/index.html ] && grep -q 'installer.sh --update' $T/p3.out"
 inst "$P2" --update > "$T/p2u.out"
 check "update: panel already latest, nothing replaced" "grep -q 'already the latest' $T/p2u.out"
 WM_TEST_PANEL_DIR="$T/pnl" inst "$P2" --update > "$T/p2v.out"

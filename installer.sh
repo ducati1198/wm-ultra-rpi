@@ -365,11 +365,11 @@ except Exception: pass' 2>/dev/null)"
             PANEL_ZIP="$tmp/$name"; PANEL_FROM="github.com/$PANEL_REPO ($name)"
             print_success "Latest Fluidd panel downloaded from $PANEL_REPO (checksum ok)"; return 0
         fi
-        print_warning "Could not get a verified panel from $PANEL_REPO: using the copy that is in this repository."
+        print_warning "Could not get a verified panel from $PANEL_REPO."
     fi
-    local b="$SCRIPT_DIR/fluidd/fluidd-v1.37.7-zr-ace.zip"
-    ( cd "$SCRIPT_DIR/fluidd" && sha256sum -c fluidd-v1.37.7-zr-ace.zip.sha256 >/dev/null 2>&1 ) || { print_warning "Checksum of the bundled Fluidd zip does not match: panel skipped."; return 1; }
-    PANEL_ZIP="$b"; PANEL_FROM="the copy in this repository"
+    print_error "The Fluidd panel could not be downloaded from $PANEL_REPO."
+    echo "  Without internet the web page cannot be installed. Connect the Pi to the network, then run: ./installer.sh --update"
+    return 1
 }
 
 step_panel() {
@@ -377,7 +377,7 @@ step_panel() {
     [ "$WANT_PANEL" = 1 ] || return 0
     print_header "Step 10: Fluidd with the WonderMaker Toolheads panel"
     why "The Fluidd that came with the printer has no toolhead panel for the Ultra-S. This build adds it (toolheads, chamber, air filter, colours, filament mapping)."
-    panel_get || { warn_later "Fluidd panel skipped (no usable zip)."; return; }
+    panel_get || { warn_later "The Fluidd web page was NOT installed (panel download failed). Connect to the internet, then run ./installer.sh --update."; return; }
     local zip="$PANEL_ZIP"
     if [ "$DRY" != 1 ]; then
         python3 -c "import zipfile,sys;zipfile.ZipFile(sys.argv[1])" "$zip" 2>/dev/null || { print_warning "Zip unreadable: panel skipped."; return; }
@@ -579,7 +579,7 @@ WANT_TIMELAPSE=$WANT_TIMELAPSE
 WANT_CROWSNEST=$WANT_CROWSNEST
 CROWSNEST_PIN=$(addon_pin crowsnest | cut -d'|' -f2)
 TIMELAPSE_PIN=$(addon_pin moonraker-timelapse | cut -d'|' -f2)
-PANEL_SHA=$(sha256sum "${PANEL_ZIP:-$SCRIPT_DIR/fluidd/fluidd-v1.37.7-zr-ace.zip}" 2>/dev/null | cut -d' ' -f1)
+PANEL_SHA=$([ -n "$PANEL_ZIP" ] && sha256sum "$PANEL_ZIP" 2>/dev/null | cut -d' ' -f1)
 E
 }
 load_answers() {
