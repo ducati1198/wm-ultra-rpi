@@ -157,7 +157,7 @@ try() {   # name config flags
         mode="$(grep -E 'Modeline|Output .* using|Virtual screen size|Setting screen' /tmp/xt.log | head -n1)"; r PASS "X starts: $1" "${mode:-running after 7 s}"
         ok=1; kill $pid 2>/dev/null; sleep 1; kill -9 $pid 2>/dev/null
     else
-        r FAIL "X does not start: $1" "$(grep -E '\(EE\)|Fatal|Cannot|no screens' /tmp/xt.log /tmp/xt.out 2>/dev/null | grep -v 'Please consult' | head -n3 | tr '\n' ' ' | cut -c1-300)"
+        r FAIL "X does not start: $1" "$(grep -E 'Fatal|Cannot open|no screens|parse_vt' /tmp/xt.log 2>/dev/null | head -n2 | sed 's/^\[[ 0-9.]*\] //' | tr '\n' ' ' | cut -c1-300)"
     fi
 }
 try "modesetting, plain" /tmp/xt-ms.conf ""
@@ -197,7 +197,7 @@ if [ "$LOCAL" = 1 ]; then
 else
     SSHO="-o ControlMaster=auto -o ControlPath=/tmp/wmpf-%r@%h -o ControlPersist=300 -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new"
     echo "Type the board's SSH password once (default for the WonderMaker image: TM88888)."
-    if ! ssh $SSHO "$BUSER@$BOARD" true; then show FAIL "SSH to the board failed" "$BUSER@$BOARD (check IP, that SSH is on, user and password)"; OUT=""
+    if ! ssh -n $SSHO "$BUSER@$BOARD" true; then show FAIL "SSH to the board failed" "$BUSER@$BOARD (check IP, that SSH is on, user and password)"; OUT=""
     else
         if [ "$APTUP" = 1 ]; then echo "Refreshing the package lists on the board (sudo apt-get update; nothing is installed)..."; ssh -t $SSHO "$BUSER@$BOARD" 'sudo apt-get update' || show WARN "apt-get update failed" "see above"; fi
         OUT="$(ssh $SSHO "$BUSER@$BOARD" "PI='$PI' KS_SHA='$KS_SHA' MAC_EPOCH='$(date +%s)' bash -s" <<<"$REMOTE" 2>&1)"
@@ -208,7 +208,9 @@ if [ "$XTEST" = 1 ] && [ "$LOCAL" != 1 ] && [ -n "$OUT" ]; then
     printf 'Board sudo password for %s: ' "$BUSER"; read -r -s SPW; echo
     ssh $SSHO "$BUSER@$BOARD" 'cat > /tmp/wm_xtest.sh' <<<"$XREMOTE"
     XOUT="$(printf '%s\n' "$SPW" | ssh $SSHO "$BUSER@$BOARD" "sudo -S -p '' bash /tmp/wm_xtest.sh" 2>&1)"
-    ssh $SSHO "$BUSER@$BOARD" 'rm -f /tmp/wm_xtest.sh' 2>/dev/null; SPW=""
+    ssh -n $SSHO "$BUSER@$BOARD" 'rm -f /tmp/wm_xtest.sh' 2>/dev/null; SPW=""
+    echo "$XOUT" | grep -q '^@@|DONE' || XOUT="@@|FAIL|X test did not run|$(echo "$XOUT" | head -n2 | tr '\n' ' ')
+@@|DONE||"
     OUT="$OUT
 $XOUT"
 fi

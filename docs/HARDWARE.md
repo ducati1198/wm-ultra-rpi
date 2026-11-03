@@ -47,3 +47,9 @@ Touchscreen replacement, webcams (the nginx routes for four mjpg-streamer camera
 | apt | `/etc/apt/sources.list` points to archive.debian.org (bullseye is archived); `Check-Valid-Until`/`Check-Date` are off |
 
 Not verified (needs the live board): whether apt reaches the archive from it, whether X11 starts on this kernel, free disk and RAM.
+
+### Result of the live check on the screen board (Nov 3, 2026)
+
+- The board (Debian 11, kernel 5.10.160) has **no virtual console**: no `/dev/tty0`, no `/sys/class/vtconsole`, the only console is the serial `ttyFIQ0`.
+- WonderMaker's X server (1.20.11) starts, loads the `modesetting`/`fbdev` drivers, then stops with `Fatal server error: parse_vt_settings: Cannot open /dev/tty0`. The flags `-novtswitch -sharevts -keeptty` do not help. So stock KlipperScreen (GTK on X11) cannot run on this board without a workaround.
+- Everything else checked fine: 800x480 framebuffer, Goodix touch, apt (archive.debian.org), GitHub/PyPI access. RAM is 487 MB with no swap (the installer adds a temporary swap file).

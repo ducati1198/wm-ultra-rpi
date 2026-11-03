@@ -233,7 +233,7 @@ Settings page, and the Calibrate page on a 5 inch 800x480 screen (compact):
 
 ### 5.2 Use the original WonderMaker screen as the KlipperScreen (optional)
 
-> **Not yet tested on hardware.** Written from the factory image (Debian 11, Rockchip kernel with the Goodix GT911 touch and the 800x480 panel already supported). Please test with the printer idle.
+> **Blocked for now.** A live check on the board found that its kernel has no virtual console (`/dev/tty0`), and the X server stops with "Cannot open /dev/tty0", so KlipperScreen cannot start on it as it is. The scripts below are written but must not be used until this is solved (see docs/HARDWARE.md). The Pi touchscreen option (5.1) is not affected.
 
 Instead of buying a screen for the Pi, the original screen board can run KlipperScreen and talk to the Pi's Klipper/Moonraker over the network. The Pi must already be installed and running (section 3), with the touchscreen option on (`./installer.sh --screen on`) so the ZR Tools macros are in `printer.cfg`.
 
