@@ -26,15 +26,15 @@
 # ./installer.sh --enable-klipper      same as --first-start
 # ./installer.sh --disable-klipper     stop Klipper and stop it from starting at boot
 # ./installer.sh --uninstall           remove what the installer added to the system (your files in ~ stay)
-# ./installer.sh --no-start            at the end of an install do not start Klipper, even if every check passes
+# ./installer.sh --no-start            at the end of an install do not enable or start Klipper
 # ./installer.sh --force               continue even if a print is active (not recommended)
 # ./installer.sh --dry-run             go through the questions, show what would change, change nothing
 # ./installer.sh --help | --version
 #
 # What this installer never does:
 #   - It never flashes any board (main board, toolheads, hub, screen). No firmware is touched.
-#   - It starts Klipper only at the very end, and only if the main board is connected and every check passes
-#     (or when you run --first-start). With --no-start it never starts it.
+#   - At the very end it enables and starts Klipper, Moonraker, nginx and crowsnest. With --no-start it starts nothing
+#     (--first-start does it later, and then stops if a check fails).
 #   - It never writes to the old board.
 #
 # Needs bash, sudo and internet access (apt, and the Python 3.9 download from astral.sh/GitHub).
@@ -572,7 +572,7 @@ show_plan() {
     [ -n "$moved" ] && echo "  Moved to backup (~/wm-rpi-backup/old-*):$moved"
     echo "  Installs:        system packages, Python 3.9, Klipper/Moonraker environments, Moonraker + nginx services, can0 rule"
     echo "  Optional:        panel=$([ "$WANT_PANEL" = 1 ] && echo yes || echo no)  webcam=$([ "$WANT_CROWSNEST" = 1 ] && echo yes || echo no)  timelapse=$([ "$WANT_TIMELAPSE" = 1 ] && echo yes || echo no)  ZR Tools=$([ "$WANT_ZRTOOLS" = 1 ] && echo yes || echo no)"
-    [ "$AUTOSTART" = 1 ] && echo "  At the end:      if the main board is connected and every check passes, Klipper and the other services are enabled and started" \
+    [ "$AUTOSTART" = 1 ] && echo "  At the end:      Klipper, Moonraker, nginx and crowsnest are enabled and started (checks are shown; failures are reported)" \
                          || echo "  At the end:      Klipper stays off (--no-start)"
 }
 update_notice() {  # show what changed since the version that was installed
@@ -675,6 +675,10 @@ do_first_start() {
     if hw_checks; then
         print_success "All checks passed."
         if [ "${1:-ask}" = auto ] || ask_yn "Enable Klipper and the other services and start them now?" y; then start_all_services; fi
+    elif [ "${1:-ask}" = auto ]; then
+        print_warning "$CHK_FAIL check(s) failed (listed above). The services are enabled anyway, as you asked; Klipper will report the problem until it is fixed."
+        warn_later "$CHK_FAIL check(s) failed at the end of the install. Fix them, then run ./installer.sh --first-start or ./installer.sh --doctor."
+        start_all_services
     else
         print_error "$CHK_FAIL check(s) failed, so Klipper was NOT started."
         echo "Fix the points above, then run: ./installer.sh --first-start    (./installer.sh --doctor explains and fixes common problems)"

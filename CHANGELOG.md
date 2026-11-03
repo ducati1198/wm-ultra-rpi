@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.7.1
+
+- The installer now enables and starts Klipper, Moonraker, nginx and crowsnest at the end of every install (failed checks are reported, not blocking). `--no-start` starts nothing.
+- Fix: `klipper.service` had no `[Install]` section, so enabling it did nothing at boot. Added.
+
 ## 0.7.0
 
 - New: `--first-start` (hardware checks, `canbus_uuid` fix, then enables and starts Klipper and the other services when everything passes; the installer does this automatically at the end), `--hw-test`, `--doctor`, `--repair`, `--update`, `--undo`, `--backup`, `--restore`, `--support-bundle`, `--no-start`, `--force`.

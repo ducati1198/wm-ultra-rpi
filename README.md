@@ -122,7 +122,7 @@ The installer first asks **which printer you have** (ZR Ultra or ZR Ultra-S; or 
 ### 3.3 Safety checks
 
 - It never flashes any firmware and never writes to the old board.
-- Klipper is started only at the very end, and only if the main board is connected and every check passes (USB bridge, can0, CAN devices answer, config consistent, modules present, Moonraker and nginx up). Otherwise it stays off and the installer tells you which check failed. `--no-start` never starts it.
+- At the very end the installer **enables and starts Klipper, Moonraker, nginx and crowsnest**, so everything comes back after a reboot. It first runs the checks (USB bridge, can0, CAN devices, config, modules); a failed check is reported, and Klipper then shows the problem until you fix it. `--no-start` starts nothing; `--first-start` later does the checks and stops without starting if one fails.
 - Nothing runs on a schedule and nothing is backed up unless you ask (`--backup`).
 - A running print stops `--update`, `--repair`, `--restore`, `--undo` and `--first-start` (override with `--force`).
 - It replaces the Fluidd folder only after the zip's checksum matches, keeps your `config.json`, and saves the old Fluidd.
@@ -160,7 +160,7 @@ After the install, open `http://<pi address>/`. Fluidd shows "Klippy disconnecte
 1. Power the printer, connect the USB cable between Pi and main board (see [docs/WIRING.md](docs/WIRING.md)).
 2. Run `./installer.sh --first-start`. It checks the USB bridge (`1d50:606f`), brings `can0` up, asks the CAN bus which devices answer, and compares them with `canbus_uuid` in your config.
 3. A **new main board may have a new `canbus_uuid`**. If the bus shows one device the config does not know, the installer offers to put it into `wm_zru_mcu.cfg` (a copy of the old file is kept in `~/wm-rpi-backup/uuid-*`). Toolhead and hub uuids are only reported, never changed.
-4. If every check passes it enables and starts Klipper, Moonraker, nginx and crowsnest. If not, Klipper stays off and the failing checks are listed.
+4. If every check passes it enables and starts Klipper, Moonraker, nginx and crowsnest. If not, the failing checks are listed and nothing is started.
 5. Do not run heaters or moves unattended on the first start.
 
 ## 5. Fluidd panel and ZR Tools
