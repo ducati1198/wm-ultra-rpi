@@ -14,7 +14,7 @@
 2. [Hardware](#2-hardware)
 3. [Install](#3-install)
 4. [When the main board is connected](#4-when-the-main-board-is-connected)
-5. [Fluidd (web panel and ZR Tools)](#5-fluidd-web-panel-and-zr-tools)
+5. [Fluidd (web panel and ZR Tools)](#5-fluidd-web-panel-and-zr-tools) (including the [OrcaSlicer plugin](#install-the-orcaslicer-plugin-optional-works-without-an-ace-pro))
 6. [KlipperScreen on the Raspberry Pi (touchscreen)](#6-klipperscreen-on-the-raspberry-pi-touchscreen)
 7. [KlipperScreen on the WonderMaker screen board (optional)](#7-klipperscreen-on-the-wondermaker-screen-board-optional)
 8. [Go back / uninstall](#8-go-back--uninstall)
@@ -191,7 +191,34 @@ The Fluidd build from [wm-ultra-fluidd-acepro-panel](https://github.com/ducati11
 
 Without an Anycubic ACE Pro the ACE parts stay hidden. If you add one later, use [wm-ultra-fluidd-acepro-panel](https://github.com/ducati1198/wm-ultra-fluidd-acepro-panel).
 
-**OrcaSlicer plugin (no ACE Pro needed).** The panel repo also has an OrcaSlicer 2.5 plugin, [WM Toolhead Mapper](https://github.com/ducati1198/wm-ultra-fluidd-acepro-panel/tree/main/orca_plugin). It lets you pick which toolhead prints each filament inside Orca, and writes the choice into the G-code. It reads your four toolheads (colour, material, loaded or empty) from the printer, so it works with or without an ACE Pro. It needs the panel repo's `wm_stats.cfg` on the printer (that repo's `./installer.sh` adds it). **Not yet tested in OrcaSlicer or on a printer.**
+### Install the OrcaSlicer plugin (optional, works without an ACE Pro)
+
+> **Not yet tested in OrcaSlicer or on a printer.** You need OrcaSlicer **2.5 or newer** (it has the plugin system).
+
+The plugin ([WM Toolhead Mapper](https://github.com/ducati1198/wm-ultra-fluidd-acepro-panel/tree/main/orca_plugin), from the panel repository) lets you pick, inside Orca, which toolhead prints each filament. When you send or export, it writes the choice at the top of the G-code, so the print needs no popup at start. It reads your four toolheads (colour, material, loaded or empty) from the printer, so an ACE Pro is not needed.
+
+**On the Pi (once):** the plugin calls a macro (`WM_SET_TOOL_MAP`) that lives in the panel repository's `wm_stats.cfg`. Install it with that repository's installer, then restart Klipper:
+
+```bash
+cd ~
+git clone https://github.com/ducati1198/wm-ultra-fluidd-acepro-panel
+cd wm-ultra-fluidd-acepro-panel
+./installer.sh
+```
+
+(Already cloned? `cd ~/wm-ultra-fluidd-acepro-panel && git pull && ./installer.sh --update`.) Say **no** to the ACE Pro question if you have none.
+
+**In OrcaSlicer (once):**
+
+1. Download the plugin file: [`wm_toolhead_mapper.py`](https://raw.githubusercontent.com/ducati1198/wm-ultra-fluidd-acepro-panel/main/orca_plugin/wm_toolhead_mapper.py) (right-click, save as; keep the `.py` name).
+2. Open Orca's **Printer settings → Connection** and make sure the host is your Pi's address, for example `192.168.0.50:7125`. The plugin uses it to read the toolheads.
+3. Open **File → Plugins**, use the split button **Browse plugins → Install local plugin**, and pick `wm_toolhead_mapper.py`.
+4. When Orca asks whether the plugin may connect to your printer, click **Yes**.
+5. The plugin brings two parts, **WM Toolheads** (the panel) and **WM Tool Map** (the G-code step). If the Plugins window shows them disabled, enable both.
+6. Switch Orca to **Advanced** mode. Open your **Process** settings → **Others** → **Slicing Pipeline Plugin**, add **WM Tool Map**, and save the process preset. Do this for each process preset you print with.
+7. Restart Orca. The **WM Toolheads** panel docks on the right of the 3D view.
+
+**Use it:** in the panel, each filament shows its best toolhead (**Auto**: same material, closest colour, each toolhead used once). Change a row to a specific toolhead or **As sliced**, then slice and use **Upload and Print**. If you choose toolheads in Fluidd's **Choose toolheads** window for the same file, the Fluidd choice wins. Full details: [`orca_plugin/INSTALL.md`](https://github.com/ducati1198/wm-ultra-fluidd-acepro-panel/blob/main/orca_plugin/INSTALL.md).
 
 ## 6. KlipperScreen on the Raspberry Pi (touchscreen)
 

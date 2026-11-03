@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.13.8
+
+- README: step-by-step install of the OrcaSlicer plugin (section 5), including the panel repository install it needs on the Pi.
+
 ## 0.13.7
 
 - README: section 5 now mentions the OrcaSlicer plugin of the panel repo (works without an ACE Pro; not yet tested).
