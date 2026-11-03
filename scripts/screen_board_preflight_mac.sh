@@ -8,20 +8,22 @@
 #
 # BOARD_IP  the screen board's IP (the original WonderMaker screen board, login t13dp / TM88888 by default)
 # --pi      optional: the Raspberry Pi (wmpi.local or its IP). If it is not running yet, leave it out: the Pi checks are skipped or only warn
+# --xtest   ALSO try to start an X server on the board (NOT read-only: stops the factory screen app for about a minute, then starts it again; asks for the sudo password)
 # --with-apt-update  also run "sudo apt-get update" on the board (only refreshes the package lists; asks for the sudo password)
 # You type the SSH password once (the connection is reused).
 # Result: PASS / WARN / FAIL for every check and a READY / NOT READY verdict. Send me the report file if anything is not PASS.
 # =============================================================================
 set -u
-BOARD=""; PI=""; BUSER="t13dp"; APTUP=0; LOCAL=0
+BOARD=""; PI=""; BUSER="t13dp"; APTUP=0; LOCAL=0; XTEST=0
 KS_SHA="34610ceae31e12a10cc980e20a1dec9976f97dd4"
 while [ $# -gt 0 ]; do
     case "$1" in
         --pi) PI="${2:-}"; shift ;;
         --user) BUSER="${2:-}"; shift ;;
         --with-apt-update) APTUP=1 ;;
+        --xtest) XTEST=1 ;;
         --local-test) LOCAL=1 ;;                     # tests only: run the board checks on this computer instead of over SSH
-        -h|--help) sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        -h|--help) sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         -*) echo "Unknown option: $1"; exit 1 ;;
         *) BOARD="$1" ;;
     esac
@@ -62,12 +64,16 @@ python3 -c 'import venv,ensurepip' 2>/dev/null && r PASS "python3 venv + ensurep
 free_mb="$(df -Pm /home 2>/dev/null | awk 'NR==2{print $4}')"
 [ "${free_mb:-0}" -gt 1500 ] && r PASS "disk space" "${free_mb} MB free" || r FAIL "disk space low" "${free_mb:-?} MB free, need > 1500 MB"
 mem="$(awk '/MemTotal/{printf "%d",$2/1024}' /proc/meminfo)"; swap="$(awk '/SwapTotal/{printf "%d",$2/1024}' /proc/meminfo)"
-[ "${mem:-0}" -ge 900 ] && r PASS "RAM" "${mem} MB (swap ${swap} MB)" || { [ "${swap:-0}" -ge 512 ] && r WARN "RAM is low" "${mem} MB + swap ${swap} MB: the Python build will be slow" || r FAIL "RAM low and no swap" "${mem} MB, swap ${swap} MB: pip builds can run out of memory"; }
+if [ "${mem:-0}" -ge 900 ]; then r PASS "RAM" "${mem} MB (swap ${swap} MB)"
+elif [ "${swap:-0}" -ge 512 ]; then r WARN "RAM is low" "${mem} MB + swap ${swap} MB: the Python build will be slow"
+else
+    { [ -x /sbin/mkswap ] && [ -x /sbin/swapon ] && [ "${free_mb:-0}" -gt 1800 ]; } && r WARN "RAM is low and there is no swap" "${mem} MB: the installer adds a temporary 768 MB swap file for the Python build and removes it afterwards" || r FAIL "RAM low, no swap and no room/tools to add one" "${mem} MB, ${free_mb} MB free disk"
+fi
 temp="$(cat /sys/class/thermal/thermal_zone0/temp 2>/dev/null)"; [ -n "$temp" ] && r INFO "CPU temperature" "$((temp/1000)) C"
 r SECTION "Display and touch" ""
 [ -e /dev/fb0 ] && r PASS "/dev/fb0 (framebuffer)" "$(cat /sys/class/graphics/fb0/virtual_size 2>/dev/null)" || r FAIL "no /dev/fb0" "the screen is not initialised"
 [ -e /dev/dri/card0 ] && r PASS "/dev/dri/card0 (needed for modesetting)" "" || r WARN "no /dev/dri/card0" "X will have to use the fbdev driver"
-[ -e /dev/tty0 ] && r PASS "/dev/tty0 (KlipperScreen service needs it)" "" || r FAIL "no /dev/tty0" "KlipperScreen's service has ConditionPathExists=/dev/tty0 and will not start"
+[ -e /dev/tty0 ] && r PASS "/dev/tty0 (virtual console)" "" || r WARN "no /dev/tty0: the kernel has no virtual console" "stock KlipperScreen service and X need a VT; run with --xtest to see whether X starts without one"
 vs="$(cat /sys/class/graphics/fb0/virtual_size 2>/dev/null)"; case "$vs" in 800,480) r PASS "screen size 800x480" "" ;; "") : ;; *) r WARN "screen size is $vs" "expected 800,480; ZR Tools will adapt" ;; esac
 ls /sys/class/backlight/* >/dev/null 2>&1 && r PASS "backlight device" "$(ls /sys/class/backlight | tr '\n' ' ')" || r WARN "no /sys/class/backlight" "screen dimming from KlipperScreen would not work"
 if grep -qi goodix /proc/bus/input/devices 2>/dev/null; then r PASS "touch: Goodix GT911 found" "$(grep -i -A3 'goodix' /proc/bus/input/devices | grep -o 'event[0-9]*' | head -n1)"
@@ -93,17 +99,18 @@ ps=$(curl -fsS -m 4 "http://127.0.0.1:7125/printer/objects/query?print_stats" 2>
 if echo "$ps" | grep -Eq '"state": ?"(printing|paused)"'; then r FAIL "a print is running on the board" "wait until it is done"
 elif [ -n "$ps" ]; then r PASS "board: no print running" ""; else r INFO "board's Moonraker did not answer" "fine if the printer runs from the Pi"; fi
 r SECTION "Permissions" ""
-id -nG | tr ' ' '\n' | grep -qx sudo && r PASS "user is in the sudo group" "" || r FAIL "user cannot use sudo" "the installer needs sudo"
-sudo -n true 2>/dev/null && r INFO "sudo needs no password" "" || r INFO "sudo asks for a password" "normal: you type it when you run the installer"
-have visudo && r PASS "visudo present" "" || r WARN "no visudo" "the Factory mode button would be skipped"
+[ -u /usr/bin/sudo ] && r PASS "sudo is installed" "(you type the password when you run the installer; --xtest checks it works)" || r FAIL "sudo missing" "the installer needs sudo"
+[ -x /usr/sbin/visudo ] && r PASS "visudo present" "" || r WARN "no visudo" "the Factory mode button would be skipped"
+[ -x /sbin/mkswap ] && [ -x /usr/bin/fallocate ] && r PASS "swap tools present (mkswap, fallocate)" "" || r WARN "no mkswap/fallocate" "cannot add temporary swap"
 have systemd-run && r PASS "systemd-run present" "" || r WARN "no systemd-run" "the Factory mode button would not detach"
 [ -d /etc/sudoers.d ] && r PASS "/etc/sudoers.d exists" "" || r WARN "no /etc/sudoers.d" ""
 r SECTION "Network from the board" ""
 now=$(date +%s); skew=$(( now - ${MAC_EPOCH:-$now} )); [ "$skew" -lt 0 ] && skew=$(( -skew ))
 [ "$skew" -lt 86400 ] && r PASS "board clock matches your Mac" "off by ${skew}s" || r WARN "board clock is off by $((skew/86400)) day(s)" "TLS downloads (GitHub, pip) can fail; fix the date first"
 getent hosts github.com >/dev/null 2>&1 && r PASS "DNS works" "" || r FAIL "DNS does not resolve github.com" "check the board's network / DNS"
-for u in https://github.com https://pypi.org https://files.pythonhosted.org; do
-    curl -fsS -m 10 -o /dev/null -I "$u" 2>/dev/null && r PASS "reach $u" "" || r FAIL "cannot reach $u" "needed to download KlipperScreen / Python packages"
+for u in https://github.com https://pypi.org/simple/pip/ https://files.pythonhosted.org/; do
+    c=$(curl -s -m 10 -o /dev/null -w '%{http_code}' "$u" 2>/dev/null)   # files.pythonhosted.org answers 404 on its front page: only "no answer at all" is a failure
+    case "$c" in 000|"") r FAIL "cannot reach $u" "needed to download KlipperScreen / Python packages" ;; *) r PASS "reach $u" "HTTP $c" ;; esac
 done
 code=$(curl -s -m 10 -o /dev/null -w '%{http_code}' "https://github.com/KlipperScreen/KlipperScreen/commit/${KS_SHA}" 2>/dev/null)
 [ "$code" = 200 ] && r PASS "pinned KlipperScreen commit exists on GitHub" "${KS_SHA:0:7}" || r FAIL "pinned commit not reachable (HTTP $code)" "${KS_SHA:0:7}"
@@ -123,7 +130,7 @@ else
     else r WARN "Pi not reachable from the board (HTTP ${icode:-none})" "OK for now. Before the real install: Pi on, port 7125, name resolves from the board (try its IP)"; fi
 fi
 r SECTION "Can the packages be installed without damage? (simulation, changes nothing)" ""
-PK="xinit xinput x11-xserver-utils xserver-xorg-input-evdev xserver-xorg-input-libinput xserver-xorg-video-fbdev libgirepository1.0-dev gcc libcairo2-dev pkg-config python3-dev gir1.2-gtk-3.0 librsvg2-common libopenjp2-7 libdbus-glib-1-dev autoconf python3-venv build-essential cmake libsystemd-dev git curl"
+PK="xinit xinput x11-xserver-utils xserver-xorg-input-evdev xserver-xorg-input-libinput xserver-xorg-video-fbdev libgirepository1.0-dev gcc libcairo2-dev pkg-config python3-dev gir1.2-gtk-3.0 librsvg2-common libopenjp2-7 libdbus-glib-1-dev autoconf python3-venv libsystemd-dev git curl"
 if [ -n "$(ls /var/lib/apt/lists/*Packages* 2>/dev/null | head -n1)" ]; then
     sim="$(apt-get -s install --no-upgrade $PK 2>&1)"
     echo "$sim" | grep -q "^E:" && r FAIL "apt simulation reports errors" "$(echo "$sim" | grep '^E:' | head -n2 | tr '\n' ' ')" || r PASS "apt simulation: packages resolve" "$(echo "$sim" | grep -E '^[0-9]+ upgraded' | head -n1)"
@@ -133,6 +140,37 @@ if [ -n "$(ls /var/lib/apt/lists/*Packages* 2>/dev/null | head -n1)" ]; then
 else r WARN "apt package lists are empty" "re-run with --with-apt-update (refreshes the lists only) so the simulation can run"; fi
 r DONE "" ""
 RSH
+
+read -r -d '' XREMOTE <<'XSH'
+r() { printf '@@|%s|%s|%s\n' "$1" "$2" "$3"; }
+trap 'systemctl start makerbase-client 2>/dev/null' EXIT
+r SECTION "X server test on the board (the factory screen app is stopped for this and started again)" ""
+r PASS "sudo works with the password you typed" "$(id -un)"
+[ -x /usr/lib/xorg/Xorg ] || { r FAIL "no /usr/lib/xorg/Xorg" ""; r DONE "" ""; exit 0; }
+systemctl stop makerbase-client; sleep 2
+printf 'Section "Device"\n  Identifier "d"\n  Driver "modesetting"\nEndSection\n' > /tmp/xt-ms.conf
+printf 'Section "Device"\n  Identifier "d"\n  Driver "fbdev"\n  Option "fbdev" "/dev/fb0"\nEndSection\n' > /tmp/xt-fb.conf
+try() {   # name config flags
+    rm -f /tmp/xt.log; /usr/lib/xorg/Xorg :9 -config "$2" -logfile /tmp/xt.log -nolisten tcp -noreset $3 >/tmp/xt.out 2>&1 &
+    pid=$!; sleep 7
+    if kill -0 $pid 2>/dev/null; then
+        mode="$(grep -E 'Modeline|Output .* using|Virtual screen size|Setting screen' /tmp/xt.log | head -n1)"; r PASS "X starts: $1" "${mode:-running after 7 s}"
+        ok=1; kill $pid 2>/dev/null; sleep 1; kill -9 $pid 2>/dev/null
+    else
+        r FAIL "X does not start: $1" "$(grep -E '\(EE\)|Fatal|Cannot|no screens' /tmp/xt.log /tmp/xt.out 2>/dev/null | grep -v 'Please consult' | head -n3 | tr '\n' ' ' | cut -c1-300)"
+    fi
+}
+try "modesetting, plain" /tmp/xt-ms.conf ""
+try "modesetting, no VT switch" /tmp/xt-ms.conf "-novtswitch -sharevts -keeptty"
+try "fbdev, plain" /tmp/xt-fb.conf ""
+try "fbdev, no VT switch" /tmp/xt-fb.conf "-novtswitch -sharevts -keeptty"
+r INFO "Xorg log of the last try (tail)" "$(tail -n 4 /tmp/xt.log 2>/dev/null | tr '\n' ' ' | cut -c1-300)"
+rm -f /tmp/xt-ms.conf /tmp/xt-fb.conf /tmp/xt.log /tmp/xt.out
+systemctl start makerbase-client; sleep 2
+systemctl is-active --quiet makerbase-client && r PASS "factory screen app started again" "" || r WARN "factory screen app is not running" "run: sudo systemctl start makerbase-client (or reboot the board)"
+trap - EXIT
+r DONE "" ""
+XSH
 
 head_ "On your Mac"
 [ "$LOCAL" = 1 ] || { command -v ssh >/dev/null && show PASS "ssh available" "" || { show FAIL "ssh missing" ""; }; }
@@ -165,17 +203,27 @@ else
         OUT="$(ssh $SSHO "$BUSER@$BOARD" "PI='$PI' KS_SHA='$KS_SHA' MAC_EPOCH='$(date +%s)' bash -s" <<<"$REMOTE" 2>&1)"
     fi
 fi
+if [ "$XTEST" = 1 ] && [ "$LOCAL" != 1 ] && [ -n "$OUT" ]; then
+    echo; echo "X server test: this stops the factory screen app for about a minute and starts it again."
+    printf 'Board sudo password for %s: ' "$BUSER"; read -r -s SPW; echo
+    ssh $SSHO "$BUSER@$BOARD" 'cat > /tmp/wm_xtest.sh' <<<"$XREMOTE"
+    XOUT="$(printf '%s\n' "$SPW" | ssh $SSHO "$BUSER@$BOARD" "sudo -S -p '' bash /tmp/wm_xtest.sh" 2>&1)"
+    ssh $SSHO "$BUSER@$BOARD" 'rm -f /tmp/wm_xtest.sh' 2>/dev/null; SPW=""
+    OUT="$OUT
+$XOUT"
+fi
+
 GOT=0
 while IFS='|' read -r tag st key detail; do
     [ "$tag" = "@@" ] || continue
-    case "$st" in SECTION) head_ "$key" ;; DONE) GOT=1 ;; *) show "$st" "$key" "$detail" ;; esac
+    case "$st" in SECTION) head_ "$key" ;; DONE) GOT=$((GOT+1)) ;; *) show "$st" "$key" "$detail" ;; esac
 done <<EOF2
 $OUT
 EOF2
-[ "$GOT" = 1 ] || { [ -n "$OUT" ] && show FAIL "the checks on the board did not finish" "$(echo "$OUT" | tail -n 2 | tr '\n' ' ')"; }
+[ "$GOT" -ge 1 ] || { [ -n "$OUT" ] && show FAIL "the checks on the board did not finish" "$(echo "$OUT" | tail -n 2 | tr '\n' ' ')"; }
 
 head_ "Verdict"
-if [ "$NFAIL" = 0 ] && [ "$GOT" = 1 ]; then V="READY (with $NWARN warning(s))"; RC=0; else V="NOT READY ($NFAIL problem(s), $NWARN warning(s))"; RC=1; fi
+if [ "$NFAIL" = 0 ] && [ "$GOT" -ge 1 ]; then V="READY (with $NWARN warning(s))"; RC=0; else V="NOT READY ($NFAIL problem(s), $NWARN warning(s))"; RC=1; fi
 echo "$V   -  pass: $NPASS  warn: $NWARN  fail: $NFAIL"
 { echo "wm-ultra-rpi screen board preflight $(date)"; sed -E 's/((password|passwd|token|secret|psk)[[:space:]]*[:=][[:space:]]*).*/\1<removed>/I; s/\b(10\.[0-9]+\.[0-9]+\.[0-9]+|192\.168\.[0-9]+\.[0-9]+|172\.(1[6-9]|2[0-9]|3[01])\.[0-9]+\.[0-9]+)\b/<private-ip>/g' "$TMP"; echo; echo "$V"; } > "$REPORT"
 echo "Report saved: $REPORT"

@@ -158,8 +158,24 @@ step_disable_factory() {
 }
 
 # ---------------------------------------------------------------- KlipperScreen
-APT_PKGS="git curl xinit xinput x11-xserver-utils xserver-xorg-input-evdev xserver-xorg-input-libinput xserver-xorg-video-fbdev libgirepository1.0-dev gcc libcairo2-dev pkg-config python3-dev gir1.2-gtk-3.0 librsvg2-common libopenjp2-7 libdbus-glib-1-dev autoconf python3-venv build-essential cmake libsystemd-dev"
+APT_PKGS="git curl xinit xinput x11-xserver-utils xserver-xorg-input-evdev xserver-xorg-input-libinput xserver-xorg-video-fbdev libgirepository1.0-dev gcc libcairo2-dev pkg-config python3-dev gir1.2-gtk-3.0 librsvg2-common libopenjp2-7 libdbus-glib-1-dev autoconf python3-venv libsystemd-dev"
 addon_pin() { grep "^$1|" "$REPO_DIR/config/pins/addons.txt" | cut -d'|' -f2,3; }
+
+SWAPFILE=/wm-tmp-swap
+add_swap() {   # the board has 487 MB RAM and no swap: the PyGObject/pycairo build needs more. Temporary, removed afterwards.
+    local mem; mem="$(awk '/MemTotal/{printf "%d",$2/1024}' /proc/meminfo 2>/dev/null)"
+    [ "$TESTING" = 1 ] && mem="${WM_TEST_MEM_MB:-487}"
+    [ "${mem:-9999}" -lt 900 ] || return 0
+    if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would add a temporary 768 MB swap file ($SWAPFILE)${NC}"; return 0; fi
+    if [ "$TESTING" = 1 ]; then echo "[test] swapfile $SWAPFILE" >> "$HOME_DIR/.sudo.log"; return 0; fi
+    sudo fallocate -l 768M "$SWAPFILE" && sudo chmod 600 "$SWAPFILE" && sudo mkswap "$SWAPFILE" >/dev/null && sudo swapon "$SWAPFILE" && { print_info "Temporary swap added (removed at the end)"; trap drop_swap EXIT; } \
+        || warn_later "Could not add swap: the Python build may run out of memory."
+}
+drop_swap() {
+    [ "$DRY" = 1 ] && return 0
+    [ "$TESTING" = 1 ] && return 0
+    [ -f "$SWAPFILE" ] && { sudo swapoff "$SWAPFILE" 2>/dev/null; sudo rm -f "$SWAPFILE"; }
+}
 
 step_packages() {
     print_header "Installing packages (apt install only, never apt upgrade)"
@@ -285,8 +301,10 @@ do_install() {
     echo "  Go back any time: bash $BK/screen_board.sh --factory-restore"
     [ "$DRY" = 1 ] || ask_yn "Go ahead?" y || { echo "Nothing changed."; exit 0; }
     save_state
+    add_swap
     step_packages
     step_klipperscreen          # everything that can fail comes BEFORE the factory app is stopped
+    drop_swap
     step_disable_factory
     step_restore_button
     step_start

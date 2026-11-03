@@ -309,6 +309,7 @@ B2="$T/b2"; mkdir -p "$B2"
 check "board: refuses when the Pi does not answer, changes nothing" "! WM_TEST_PI_OK=0 WM_TEST_SERVICES='klipper' WM_HOME=$B2 WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash $SB --pi wmpi.local && [ ! -f $B2/wm-screen-backup/disabled.list ] && ! grep -q 'systemctl stop' $B2/.sudo.log"
 check "board: refuses while printing" "! WM_TEST_PRINTING=1 WM_TEST_SERVICES='klipper' WM_HOME=$B2 WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash $SB --pi wmpi.local"
 check "board: refuses when apt is broken" "! WM_TEST_APT_OK=0 WM_TEST_SERVICES='klipper' WM_HOME=$B2 WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash $SB --pi wmpi.local"
+check "board: temporary swap added when RAM is small, none when RAM is big" "grep -q wm-tmp-swap $B1/.sudo.log && WM_TEST_MEM_MB=2000 WM_TEST_SERVICES=klipper WM_HOME=$T/b7 WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash $SB --pi x >/dev/null 2>&1; ! grep -q wm-tmp-swap $T/b7/.sudo.log"
 check "board: needs --pi" "! WM_HOME=$B2 WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash $SB"
 B3="$T/b3"; mkdir -p "$B3/printer_data/config"
 WM_TEST_KS_OK=fbdev sb "$B3" --pi 10.0.0.5 > "$T/b3.out"
@@ -338,6 +339,8 @@ check "preflight: unreachable Pi is only a warning" "grep -q 'WARN.*Pi not reach
 WM_REPORT="$T/pf.txt" bash "$PF" --local-test --pi 127.0.0.1 > "$T/pf.out" 2>&1; PFRC=$?
 check "preflight runs all sections and gives a verdict" "grep -q 'On the screen board' $T/pf.out && grep -q 'Connection to the Pi' $T/pf.out && grep -q 'Verdict' $T/pf.out && [ -s $T/pf.txt ]"
 check "preflight says NOT READY on a machine that is not the board" "[ $PFRC = 1 ] && grep -q 'NOT READY' $T/pf.out"
-check "preflight is read-only (no write/install commands)" "! grep -E 'apt-get (install|upgrade)[^-]|rm -rf|systemctl (stop|disable|start|enable)|dpkg -i' <(sed -n '/^read -r -d/,/^RSH/p' $PF | grep -v 'apt-get -s')"
+remote_part() { awk '/read -r -d .. REMOTE/{f=1} f{print} /^RSH/{f=0}' "$PF" | grep -v 'apt-get -s'; }
+check "preflight read-only part has no write/install commands" "! remote_part | grep -E 'apt-get (install|upgrade)|rm -rf|systemctl (stop|disable|start|enable)|dpkg -i'"
+check "preflight read-only part is not empty" "[ \$(remote_part | wc -l) -gt 50 ]"
 
 echo; echo "passed: $PASS  failed: $FAIL"; [ "$FAIL" = 0 ]
