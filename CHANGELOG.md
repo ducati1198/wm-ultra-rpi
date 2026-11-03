@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.7.0
+
+- New: `--first-start` (hardware checks, `canbus_uuid` fix, then enables and starts Klipper and the other services when everything passes; the installer does this automatically at the end), `--hw-test`, `--doctor`, `--repair`, `--update`, `--undo`, `--backup`, `--restore`, `--support-bundle`, `--no-start`, `--force`.
+- Pre-flight checks (internet, power, clock), a plan screen before any change, saved answers (`~/wm-rpi-backup/install.conf`), a print guard, a config validator and a self-test after install.
+- `--enable-klipper` is now the same as `--first-start`.
+
 ## 0.6.0
 
 - Separate folders `factory/ultra/` and `factory/ultra-s/`.

@@ -110,7 +110,9 @@ The installer first asks **which printer you have** (ZR Ultra or ZR Ultra-S; or 
 ### 3.3 Safety checks
 
 - It never flashes any firmware and never writes to the old board.
-- It never starts Klipper. Only `./installer.sh --enable-klipper` does, after asking.
+- Klipper is started only at the very end, and only if the main board is connected and every check passes (USB bridge, can0, CAN devices answer, config consistent, modules present, Moonraker and nginx up). Otherwise it stays off and the installer tells you which check failed. `--no-start` never starts it.
+- Nothing runs on a schedule and nothing is backed up unless you ask (`--backup`).
+- A running print stops `--update`, `--repair`, `--restore`, `--undo` and `--first-start` (override with `--force`).
 - It replaces the Fluidd folder only after the zip's checksum matches, keeps your `config.json`, and saves the old Fluidd.
 - `--dry-run` goes through everything and changes nothing.
 
@@ -122,8 +124,17 @@ The installer first asks **which printer you have** (ZR Ultra or ZR Ultra-S; or 
 | `./installer.sh --from-board IP` / `--from-image FILE` / `--from-stage DIR` | choose the source without being asked |
 | `./installer.sh --from-github --model ultra --modules DIR` | use the factory files in this repo; modules from your printer |
 | `./installer.sh --check` | report problems, change nothing |
-| `./installer.sh --dry-run` | show what would change |
-| `./installer.sh --enable-klipper` | start Klipper and enable it at boot (asks first) |
+| `./installer.sh --dry-run` | show the plan and what would change |
+| `./installer.sh --first-start` | checks with the main board connected, fixes `canbus_uuid` (asks, keeps a copy), then enables and starts Klipper and the other services |
+| `./installer.sh --hw-test` | read-only live test: USB bridge, can0, CAN devices, camera picture, services |
+| `./installer.sh --doctor` | finds problems, explains them, offers a fix for each (asks first) |
+| `./installer.sh --repair` | puts back services, nginx files, can0 rule, groups; your data is untouched |
+| `./installer.sh --update` | after `git pull`: refreshes services, packages, panel, add-ons; shows what changed; keeps `printer_data` |
+| `./installer.sh --undo [DIR]` | puts back the folders the installer moved aside (latest by default) |
+| `./installer.sh --backup [DIR]` | saves config, calibration and database to a private `.tgz` (only when you run it) |
+| `./installer.sh --restore FILE` | restores such a backup after making a safety copy |
+| `./installer.sh --support-bundle` | scrubbed logs and config in one `.tgz` for asking for help (passwords, tokens, Wi-Fi, private IPs removed) |
+| `./installer.sh --no-start` / `--force` | do not start Klipper at the end / ignore an active print |
 | `./installer.sh --disable-klipper` | stop Klipper and disable it |
 | `./installer.sh --uninstall` | remove what the installer added to the system |
 | `scripts/board_check.sh` | read-only: main board on USB, can0, CAN devices, services, Moonraker |
@@ -134,10 +145,10 @@ After the install, open `http://<pi address>/`. Fluidd shows "Klippy disconnecte
 
 ## 4. When the main board is connected
 
-1. Power the printer, connect the USB cable between Pi and main board.
-2. Run `scripts/board_check.sh`. You want `1d50:606f` on USB and `can0` up.
-3. With Klipper still stopped the script lists devices on the CAN bus. A **new main board has a new `canbus_uuid`**: put it in the `[mcu]` section of your config (`~/printer_data/config/`, look for `canbus_uuid`). Save a copy of the file first.
-4. `./installer.sh --enable-klipper`. Watch `journalctl -u klipper -f`.
+1. Power the printer, connect the USB cable between Pi and main board (see [docs/WIRING.md](docs/WIRING.md)).
+2. Run `./installer.sh --first-start`. It checks the USB bridge (`1d50:606f`), brings `can0` up, asks the CAN bus which devices answer, and compares them with `canbus_uuid` in your config.
+3. A **new main board may have a new `canbus_uuid`**. If the bus shows one device the config does not know, the installer offers to put it into `wm_zru_mcu.cfg` (a copy of the old file is kept in `~/wm-rpi-backup/uuid-*`). Toolhead and hub uuids are only reported, never changed.
+4. If every check passes it enables and starts Klipper, Moonraker, nginx and crowsnest. If not, Klipper stays off and the failing checks are listed.
 5. Do not run heaters or moves unattended on the first start.
 
 ## 5. Fluidd panel and ZR Tools

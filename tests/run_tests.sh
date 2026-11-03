@@ -161,4 +161,83 @@ check "ultra-s chosen: zru-s on" "grep -q '^\\[include zru-s.cfg\\]' $H9/printer
 H10="$T/h10"; mkdir -p "$H10"; printf '1\ny\ny\ny\nn\ny\n' | WM_HOME="$H10" WM_INSTALLER_TEST=1 bash "$ROOT/installer.sh" --from-github > "$T/ask.out" 2>&1
 check "installer asks for the model when not given" "grep -q 'Which printer do you have' $T/ask.out && [ \"\$(cat $H10/printer_data/wm-model)\" = ultra ]"
 
+echo "== first start, checks, canbus_uuid"
+printf 'Found canbus_uuid=aa0000000000, Application: Klipper\nFound canbus_uuid=ae0000000000, Application: Klipper\n' > "$T/can_ok.txt"
+printf 'Found canbus_uuid=bb1122334455, Application: Klipper\nFound canbus_uuid=ae0000000000, Application: Klipper\n' > "$T/can_new.txt"
+G1="$T/g1"; mkdir -p "$G1"; inst "$G1" --from-github --model ultra-s > "$T/g1.out"
+check "install with no CAN answer: klipper not started" "! grep -Eq 'systemctl (start|restart) klipper' $G1/.sudo.log"
+check "install says how to continue" "grep -q 'first-start' $T/g1.out"
+check "answers saved" "grep -q '^MODEL=ultra-s' $G1/wm-rpi-backup/install.conf && grep -q '^WANT_CROWSNEST=1' $G1/wm-rpi-backup/install.conf"
+check "plan shown before changes" "grep -q 'Plan (nothing has been changed yet)' $T/g1.out"
+check "pre-flight ran" "grep -q 'Pre-flight checks' $T/g1.out"
+G2="$T/g2"; mkdir -p "$G2"; WM_TEST_CANQUERY="$T/can_ok.txt" inst "$G2" --from-github --model ultra-s > "$T/g2.out"
+check "everything passes: klipper enabled and started" "grep -q 'systemctl enable klipper' $G2/.sudo.log && grep -q 'systemctl restart klipper' $G2/.sudo.log"
+check "moonraker and nginx enabled at the end" "grep -q 'systemctl enable nginx' $G2/.sudo.log"
+G3="$T/g3"; mkdir -p "$G3"; WM_TEST_CANQUERY="$T/can_ok.txt" inst "$G3" --from-github --model ultra-s --no-start > /dev/null
+check "--no-start keeps klipper off" "! grep -Eq 'systemctl (start|restart|enable) klipper' $G3/.sudo.log"
+G4="$T/g4"; mkdir -p "$G4"; WM_TEST_BRIDGE=0 WM_TEST_CANQUERY="$T/can_ok.txt" inst "$G4" --from-github --model ultra-s > "$T/g4.out"
+check "no USB bridge: klipper not started, reason shown" "! grep -Eq 'systemctl restart klipper' $G4/.sudo.log && grep -q 'no main board on USB' $T/g4.out"
+G5="$T/g5"; mkdir -p "$G5"; WM_TEST_CANQUERY="$T/can_new.txt" inst "$G5" --from-github --model ultra-s > "$T/g5.out"
+check "new main board: canbus_uuid changed" "grep -q 'canbus_uuid: bb1122334455' $G5/printer_data/config/wm_zru_mcu.cfg"
+check "old file kept before the change" "grep -q 'aa0000000000' $G5/wm-rpi-backup/uuid-*/wm_zru_mcu.cfg"
+check "hub uuid left alone" "grep -q 'ae0000000000' $G5/printer_data/config/wm_zru_hub.cfg"
+check "klipper started after the uuid fix" "grep -q 'systemctl restart klipper' $G5/.sudo.log"
+G6="$T/g6"; mkdir -p "$G6"; WM_TEST_CANQUERY="$T/can_ok.txt" inst "$G6" --from-github --model ultra-s --no-start >/dev/null
+sed -i 's/^\[include zru-s.cfg\]/# [include zru-s.cfg]/' "$G6/printer_data/config/printer.cfg"
+check "validator: ultra-s with zru-s off is an error" "! WM_TEST_CANQUERY=$T/can_ok.txt WM_HOME=$G6 WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash $ROOT/installer.sh --first-start"
+rm "$G6/printer_data/config/macros.cfg" 2>/dev/null; sed -i 's/^# \[include zru-s.cfg\]/[include zru-s.cfg]/' "$G6/printer_data/config/printer.cfg"
+check "validator: missing include is an error" "! WM_TEST_CANQUERY=$T/can_ok.txt WM_HOME=$G6 WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash $ROOT/installer.sh --first-start"
+check "--hw-test changes nothing and lists the checks" "WM_TEST_CANQUERY=$T/can_ok.txt WM_HOME=$G2 WM_INSTALLER_TEST=1 bash $ROOT/installer.sh --hw-test | grep -q 'main board found on USB'"
+
+echo "== print guard"
+check "update refused while printing" "! WM_TEST_PRINT_STATE=printing WM_HOME=$G2 WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash $ROOT/installer.sh --repair"
+check "--force goes on" "WM_TEST_PRINT_STATE=printing WM_HOME=$G2 WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash $ROOT/installer.sh --repair --force"
+
+echo "== backup, restore"
+WM_HOME="$G2" WM_INSTALLER_TEST=1 bash "$ROOT/installer.sh" --backup "$T/bk" >/dev/null 2>&1
+BK="$(ls $T/bk/wm-backup-*.tgz | head -1)"
+check "backup file made, private" "[ -f $BK ] && [ \"\$(stat -c %a $BK)\" = 600 ]"
+check "backup holds config" "tar tzf $BK | grep -q printer_data/config/printer.cfg"
+check "backup holds no gcodes or logs" "! tar tzf $BK | grep -Eq 'gcodes|logs/'"
+echo "# changed" >> "$G2/printer_data/config/printer.cfg"
+printf 'y\n' | WM_HOME="$G2" WM_INSTALLER_TEST=1 bash "$ROOT/installer.sh" --restore "$BK" >/dev/null 2>&1
+check "restore brings the config back" "! grep -q '^# changed' $G2/printer_data/config/printer.cfg"
+check "restore made a safety copy" "ls $G2/wm-backups/wm-backup-*.tgz"
+check "restore refuses a wrong file" "! WM_HOME=$G2 WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash $ROOT/installer.sh --restore $T/ans"
+
+echo "== repair, update, undo"
+rm -f "$G2/.sudo.log"
+inst "$G2" --repair >/dev/null
+check "repair reinstalls service, nginx and can0 files" "grep -q 'moonraker.service' $G2/.sudo.log && grep -q 'nginx' $G2/.sudo.log && grep -q '99-wm-can0.rules' $G2/.sudo.log"
+check "repair does not touch klipper state" "! grep -Eq 'systemctl (disable|stop) klipper' $G2/.sudo.log"
+sed -i 's/^VERSION=.*/VERSION=0.0.1/' "$G2/wm-rpi-backup/install.conf"
+echo "mine" > "$G2/printer_data/config/mine.cfg"
+inst "$G2" --update > "$T/up.out"
+check "update keeps user config" "[ -f $G2/printer_data/config/mine.cfg ]"
+check "update shows what changed" "grep -q 'What changed since 0.0.1' $T/up.out"
+check "update records the new version" "grep -q \"^VERSION=$(cat $ROOT/VERSION)\" $G2/wm-rpi-backup/install.conf"
+check "update without earlier install fails" "! inst $T/empty --update"
+UH="$T/uh"; mkdir -p "$UH"; inst "$UH" --from-stage "$T/stage" >/dev/null; echo mine > "$UH/printer_data/config/mine.cfg"
+inst "$UH" --from-stage "$T/stage" >/dev/null
+check "second install moved mine.cfg away" "[ ! -f $UH/printer_data/config/mine.cfg ]"
+printf 'y\ny\n' | WM_HOME="$UH" WM_INSTALLER_TEST=1 bash "$ROOT/installer.sh" --undo >/dev/null 2>&1
+check "undo puts mine.cfg back" "[ -f $UH/printer_data/config/mine.cfg ]"
+check "undo keeps what it replaced" "ls -d $UH/wm-rpi-backup/undone-*"
+
+echo "== doctor and support bundle"
+check "doctor passes on a good install" "WM_TEST_CANQUERY=$T/can_ok.txt WM_HOME=$G2 WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash $ROOT/installer.sh --doctor"
+rm -f "$G2"/klipper/klippy/extras/cs1237.*.so
+check "doctor finds a missing module and restores it from the repo" "WM_HOME=$G2 WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash $ROOT/installer.sh --doctor; ls $G2/klipper/klippy/extras/cs1237.*.so"
+check "doctor reports bad network clock/power as problems" "! WM_TEST_THROTTLED=0x50005 WM_HOME=$G2 WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash $ROOT/installer.sh --doctor"
+printf '[update_manager]\npassword: hunter2\nhost: 192.168.7.44\n' >> "$G2/printer_data/config/moonraker.conf"
+WM_HOME="$G2" WM_INSTALLER_TEST=1 bash "$ROOT/installer.sh" --support-bundle >/dev/null 2>&1
+SB="$(ls $G2/wm-support-*.tgz | head -1)"
+check "support bundle made" "[ -f $SB ]"
+check "support bundle has no password or private IP" "! tar xzOf $SB | grep -Eq 'hunter2|192\\.168\\.7\\.44'"
+check "support bundle has no calibration database or gcodes" "! tar tzf $SB | grep -Eq 'database|gcodes|\\.gcode'"
+
+echo "== pre-flight"
+check "no internet: install refused before changing anything" "! WM_TEST_NO_NET=1 WM_HOME=$T/pf WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash $ROOT/installer.sh --from-github --model ultra && [ ! -d $T/pf/klipper ]"
+check "under-voltage is reported" "WM_TEST_THROTTLED=0x50005 WM_TEST_CANQUERY=$T/can_ok.txt inst $T/pf2 --from-github --model ultra | grep -q 'under-voltage'"
+
 echo; echo "passed: $PASS  failed: $FAIL"; [ "$FAIL" = 0 ]
