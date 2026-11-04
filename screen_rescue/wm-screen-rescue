@@ -64,7 +64,9 @@ pi_host() { grep -E '^moonraker_host:' "$CFG_DIR/KlipperScreen.conf" 2>/dev/null
 snapshot_config() {   # keep the Pi address and the ZR Tools settings, so a later reinstall can reuse them
     local d="$SNAP/$STAMP"; mkdir -p "$d" || return 0
     cp -p "$CFG_DIR/KlipperScreen.conf" "$CFG_DIR/zr_screen.conf" "$d/" 2>/dev/null
-    echo "Pi address: $(pi_host)" > "$d/README.txt"; log "config snapshot in $d (Pi $(pi_host))"
+    echo "Pi address: $(pi_host)" > "$d/README.txt"
+    chown -R "$WM_USER:" "$SNAP" 2>/dev/null     # this runs as root: hand the snapshots to the board user so they can be deleted without sudo
+    log "config snapshot in $d (Pi $(pi_host))"
     echo "Saved your KlipperScreen settings in $d (Pi address: $(pi_host))"
 }
 restart_ks() {

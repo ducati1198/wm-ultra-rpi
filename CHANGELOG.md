@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.13.20
+
+- Rescue tool: the settings snapshots in `~/wm-screen-backup/rescue-snapshots` now belong to the board user (they were root-owned, so deleting them asked about write-protected files).
+
 ## 0.13.19
 
 - `scripts/screen_board.sh`: the board reboots at the end of the install (10 second warning, `--no-reboot` skips it).
