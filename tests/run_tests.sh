@@ -337,6 +337,10 @@ check "rescue window: every action asks first, and the long ones show a progress
 check "rescue act: reason texts" "rs act reason manual | grep -q 'by hand' && rs act reason usb | grep -q WM-RESCUE && rs act reason failed | grep -q '3 times'"
 check "rescue: manual open writes the reason and starts the window" "rs open >/dev/null; grep -q manual $RB/reason && grep -q 'wm-screen-rescue.service' $RB/log"
 BR="$T/br"; mkdir -p "$BR/printer_data/config"; sb "$BR" --pi wmpi.local > "$T/br.out"
+F="$ROOT/usb_flags"
+check "usb_flags folder: both flag files empty, each zip holds exactly one file, README links it" "[ -e $F/WM-FACTORY ] && [ ! -s $F/WM-FACTORY ] && [ -e $F/WM-RESCUE ] && [ ! -s $F/WM-RESCUE ] && [ \"\$(unzip -Z1 $F/wm-factory-flag.zip)\" = WM-FACTORY ] && [ \"\$(unzip -Z1 $F/wm-rescue-flag.zip)\" = WM-RESCUE ] && grep -q '(usb_flags/)' $ROOT/README.md"
+BX="$T/bx"; mkdir -p "$BX/printer_data/config"; sb "$BX" --pi wmpi.local --no-reboot > "$T/bx.out"
+check "board install: reboots at the end, unless --no-reboot" "grep -q 'systemctl reboot' $BR/.sudo.log && ! grep -q 'systemctl reboot' $BX/.sudo.log"
 check "board install: rescue tool installed (defaults saved, program copy, units)" "grep -q 'rescue tool' $BR/.sudo.log && [ -f $BR/wm-screen-backup/known-good/KlipperScreen.conf ] && [ -s $BR/wm-screen-backup/ks-program.tar.gz ]"
 check "board --status shows the rescue tool" "WM_HOME=$BR WM_INSTALLER_TEST=1 bash $SB --status | grep -q 'Rescue tool: installed'"
 sb "$BR" --factory-restore >/dev/null

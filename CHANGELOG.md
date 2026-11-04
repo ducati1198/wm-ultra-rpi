@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.13.19
+
+- `scripts/screen_board.sh`: the board reboots at the end of the install (10 second warning, `--no-reboot` skips it).
+- Factory restore: the rescue window's confirmation, its progress page, the Factory mode button on the System page and the README now say that the screen turns black for about 5 minutes before the WonderMaker app appears.
+- Tested on one board: the factory restore from the rescue window brought the WonderMaker app back and Klipper started by itself (`klipper`, `makerbase-client`, `moonraker`, `nginx` all active).
+- New folder `usb_flags/` with the empty `WM-RESCUE` and `WM-FACTORY` flag files and a zip for each (one file per zip), linked from the README. Still not tested on hardware.
+
 ## 0.13.18
 
 - README: the USB flag (`WM-FACTORY` / `WM-RESCUE`) is marked as not tested on hardware. On the one board tested, the USB-A port detected no stick at all (several sticks, kernel error -32 while reading the device descriptor; the board's internal USB hub showed the same error on another port at boot), so only the automated tests cover it. The rescue window (manual, after 3 failed starts, with confirmations and progress bars) was tested on the board.

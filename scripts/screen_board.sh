@@ -11,7 +11,7 @@
 # bash scripts/screen_board.sh --uninstall-klipperscreen     same as --factory-restore (KlipperScreen is never removed without turning the factory services back on)
 # bash scripts/screen_board.sh --factory-restore             remove KlipperScreen, turn the factory services back on, reboot
 #                                                            (also the "Factory mode" button on the screen: ZR Tools > More > System)
-# Options: --no-reboot, --force (ignore a running print), --yes, --no-rescue (skip the rescue window and the USB flag, see screen_rescue/)
+# Options: --no-reboot (install and restore reboot the board at the end), --force (ignore a running print), --yes, --no-rescue (skip the rescue window and the USB flag, see screen_rescue/)
 #
 # What it does: stops and DISABLES the factory screen app and the services that now run on the Pi (nothing is deleted, the list
 # is saved in ~/wm-screen-backup), installs KlipperScreen (the pinned commit) + ZR Tools, and points it at the Pi's Moonraker.
@@ -464,6 +464,11 @@ do_install() {
     print_header "Done"
     if [ ${#WARNINGS[@]} -gt 0 ]; then local w; for w in "${WARNINGS[@]}"; do print_warning "$w"; done; fi
     print_success "KlipperScreen is set up. Go back: ZR Tools > More > System > Factory mode, or bash $BK/screen_board.sh --factory-restore"
+    if [ "$DRY" != 1 ] && [ "$REBOOT" = 1 ]; then      # a clean start: every service, the screen server and the touch rules come up together
+        print_info "Rebooting the board in 10 seconds so everything starts clean (skip this with --no-reboot)."
+        [ "$TESTING" = 1 ] || sleep 10
+        SUDO systemctl reboot
+    fi
 }
 
 # ---------------------------------------------------------------- uninstall / restore

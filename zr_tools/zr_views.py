@@ -451,7 +451,8 @@ class ViewsMixin:
             return
         self._confirm_call("Factory mode",
                            "Switch this screen back to the WonderMaker factory software?\n"
-                           "KlipperScreen is removed, the factory services are turned back on and the board reboots.",
+                           "KlipperScreen is removed, the factory services are turned back on and the board reboots.\n"
+                           "The screen turns black: wait about 5 minutes for the WonderMaker app to appear.",
                            self._run_factory_restore)
 
     def _sys_rescue(self):

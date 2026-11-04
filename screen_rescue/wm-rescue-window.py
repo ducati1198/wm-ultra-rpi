@@ -100,7 +100,8 @@ class Rescue(Gtk.Window):
             "Go back to the WonderMaker software?",
             "KlipperScreen is removed, the factory screen app and its services are turned back on, and the board "
             "reboots. Your KlipperScreen settings and the Pi address are saved first, so you can install KlipperScreen "
-            "again later with the same command.",
+            "again later with the same command.\n\nWhen the progress bar is finished the screen turns black. Wait about 5 minutes: "
+            "the WonderMaker app then appears by itself.",
             "Yes, restore factory mode", lambda: self.run_with_progress("factory", "Factory restore", True), "stop"), "warn"), 1, 0, 1, 1)
         grid.attach(self.button("Reboot board", lambda: self.ask(
             "Reboot the board?", "The board restarts. KlipperScreen starts again by itself if it can.",
@@ -189,7 +190,8 @@ class Rescue(Gtk.Window):
         """Runs the action in a thread so the bar keeps moving. `reboots`: the board restarts at the end (the window is
         closed by the restore itself), so after the last real step the bar fills slowly as an estimate."""
         self.prog_title.set_text(title)
-        self.prog_note.set_text("Please wait. Do not switch the board off.")
+        self.prog_note.set_text("Please wait. The screen turns black at the end: wait about 5 minutes for the WonderMaker app."
+                                if reboots else "Please wait. Do not switch the board off.")
         self.set_progress(0.0, "Starting...")
         self.stack.set_visible_child_name("progress")
         out = []
@@ -218,7 +220,7 @@ class Rescue(Gtk.Window):
             self.show_text(title + " failed", text or "The action failed. Details: /var/log/wm-screen-rescue.log")
             return False
         if reboots:
-            self.prog_note.set_text("Done on this side. The board restarts by itself; the bar is an estimate.")
+            self.prog_note.set_text("Done. The screen turns black now. Wait about 5 minutes: the WonderMaker app appears by itself. The bar is an estimate.")
             self.set_progress(0.75, "Restoring the factory software...")
             self.prog_timer = GLib.timeout_add(1000, self.estimate_tick)
         else:
