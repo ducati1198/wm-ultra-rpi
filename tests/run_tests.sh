@@ -298,6 +298,43 @@ B4="$T/b4"; mkdir -p "$B4/printer_data/config"; sb "$B4" --pi wmpi.local --dry-r
 check "board: dry run changes nothing" "[ ! -d $B4/KlipperScreen ] && [ ! -s $B4/.sudo.log ] && grep -q 'would run' $T/b4.out"
 B5="$T/b5"; mkdir -p "$B5/printer_data/config"; sb "$B5" --pi wmpi.local >/dev/null; printf 'y\n' | WM_HOME="$B5" WM_INSTALLER_TEST=1 bash "$SB" --uninstall-klipperscreen > "$T/b5u.out" 2>&1
 check "board uninstall-klipperscreen: removes it AND re-enables the factory services" "[ ! -d $B5/KlipperScreen ] && [ -e $B5/.svc/makerbase-client.enabled ] && [ -e $B5/.svc/klipper.enabled ] && [ -e $B5/.svc/moonraker.enabled ]"
+
+echo "== screen rescue tool (window after 3 failed starts, USB flag)"
+RS="$ROOT/screen_rescue/wm-screen-rescue"
+check "rescue: scripts have valid syntax" "bash -n $RS && python3 -m py_compile $ROOT/screen_rescue/wm-rescue-window.py; rm -rf $ROOT/screen_rescue/__pycache__"
+check "rescue: KlipperScreen unit stops retrying after 3 starts in 2 minutes and opens the rescue window" "grep -q 'StartLimitIntervalSec=120' $SB && grep -q 'StartLimitBurst=3' $SB && grep -q 'OnFailure=wm-screen-rescue.service' $SB"
+check "rescue: the rescue unit replaces KlipperScreen (Conflicts)" "grep -q 'Conflicts=KlipperScreen.service' $SB"
+RB="$T/rb"; mkdir -p "$RB/home/wm-screen-backup" "$RB/home/printer_data/config" "$RB/usb"
+rs() { WM_HOME="$RB/home" WM_RESCUE_LOG="$RB/log" WM_RESCUE_DRY=1 WM_RESCUE_TEST=1 WM_RESCUE_REASON_FILE="$RB/reason" WM_RESCUE_MEDIA_DIR="$RB/usb" bash "$RS" "$@" 2>&1; }
+printf '[printer wmpi]\nmoonraker_host: 192.0.2.50\n' > "$RB/home/printer_data/config/KlipperScreen.conf"
+touch "$RB/usb/WM-FACTORY"; rs usb-check >/dev/null
+check "rescue usb: in factory mode (KlipperScreen not installed) the stick is ignored" "[ -f $RB/usb/WM-FACTORY ] && ! grep -q 'USB: WM' $RB/log"
+echo "KlipperScreen on screen board" > "$RB/home/wm-screen-backup/board_mode"
+rs usb-check >/dev/null
+check "rescue usb: WM-FACTORY without a saved service list is refused, flag renamed, reason written to the stick" "[ -f $RB/usb/WM-FACTORY.done ] && [ ! -f $RB/usb/WM-FACTORY ] && grep -q 'NOT started' $RB/usb/WM-RESCUE-LOG.txt && ! grep -q 'starting the factory restore' $RB/log"
+rm -f "$RB/usb/"*; echo "makerbase-client enabled active" > "$RB/home/wm-screen-backup/disabled.list"; touch "$RB/usb/wm-factory"
+rs usb-check >/dev/null
+check "rescue usb: WM-FACTORY (any letter case) with a saved list starts the restore, renames the flag, writes a log, saves the settings" "[ -f $RB/usb/wm-factory.done ] && grep -q 'factory restore starts now' $RB/usb/WM-RESCUE-LOG.txt && grep -q 'starting the factory restore' $RB/log && grep -q 'factory-restore --yes --detach' $RB/log && ls $RB/home/wm-screen-backup/rescue-snapshots/*/KlipperScreen.conf >/dev/null"
+rm -f "$RB/usb/"*; touch "$RB/usb/WM-RESCUE"; rs usb-check >/dev/null
+check "rescue usb: WM-RESCUE opens the window (reason usb) and is renamed" "[ -f $RB/usb/WM-RESCUE.done ] && grep -q 'systemctl start --no-block wm-screen-rescue.service' $RB/log && [ \"\$(cat $RB/reason)\" = usb ]"
+rm -f "$RB/usb/"* "$RB/log"; touch "$RB/usb/readme.txt"; rs usb-check >/dev/null
+check "rescue usb: a stick without a flag does nothing" "[ ! -s $RB/log ] || ! grep -q 'USB: starting\|USB: opening' $RB/log"
+check "rescue act: factory restore is refused without a saved list" "rm -f $RB/home/wm-screen-backup/disabled.list; ! rs act factory | grep -q 'Restoring'; rs act factory | grep -q refused"
+echo "makerbase-client enabled active" > "$RB/home/wm-screen-backup/disabled.list"
+check "rescue act: factory restore keeps the Pi address first and runs the detached restore" "rs act factory | grep -q 'Pi address: 192.0.2.50' && grep -q 'wm-factory-restore --factory-restore --yes --detach' $RB/log"
+check "rescue act: restart clears the failed state and starts KlipperScreen" "rs act restart-ks >/dev/null; grep -q 'systemctl reset-failed KlipperScreen' $RB/log && grep -q 'systemctl start KlipperScreen' $RB/log"
+check "rescue act: reset settings needs the saved defaults, keeps the Pi address" "rs act reset-settings | grep -q 'No saved default'; mkdir -p $RB/home/wm-screen-backup/known-good && cp $RB/home/printer_data/config/KlipperScreen.conf $RB/home/wm-screen-backup/known-good/ && rs act reset-settings | grep -q 'Pi address'"
+check "rescue act: reinstall needs the saved copy" "rs act reinstall-files | grep -q 'No saved copy'"
+check "rescue act: reason texts" "rs act reason manual | grep -q 'by hand' && rs act reason usb | grep -q WM-RESCUE && rs act reason failed | grep -q '3 times'"
+check "rescue: manual open writes the reason and starts the window" "rs open >/dev/null; grep -q manual $RB/reason && grep -q 'wm-screen-rescue.service' $RB/log"
+BR="$T/br"; mkdir -p "$BR/printer_data/config"; sb "$BR" --pi wmpi.local > "$T/br.out"
+check "board install: rescue tool installed (defaults saved, program copy, units)" "grep -q 'rescue tool' $BR/.sudo.log && [ -f $BR/wm-screen-backup/known-good/KlipperScreen.conf ] && [ -s $BR/wm-screen-backup/ks-program.tar.gz ]"
+check "board --status shows the rescue tool" "WM_HOME=$BR WM_INSTALLER_TEST=1 bash $SB --status | grep -q 'Rescue tool: installed'"
+sb "$BR" --factory-restore >/dev/null
+check "board restore removes the rescue tool and its copies (only the backup list stays archived)" "grep -q 'remove rescue tool' $BR/.sudo.log && [ ! -d $BR/wm-screen-backup/known-good ] && [ ! -e $BR/wm-screen-backup/ks-program.tar.gz ]"
+BN="$T/bn"; mkdir -p "$BN/printer_data/config"; sb "$BN" --pi wmpi.local --no-rescue > "$T/bn.out"
+check "board install --no-rescue: no rescue tool" "! grep -q 'rescue tool' $BN/.sudo.log && [ ! -d $BN/wm-screen-backup/known-good ]"
+check "rescue: the ZR Tools System page has a Rescue tile on the board" "grep -q '_sys_rescue' $ROOT/zr_tools/zr_views.py && grep -q 'sudoers' $SB"
 B6="$T/b6"; mkdir -p "$B6/printer_data/config"; sb "$B6" --pi wmpi.local >/dev/null; sb "$B6" --pi wmpi.local >/dev/null
 check "board: running twice keeps the ORIGINAL saved state" "grep -q 'makerbase-client enabled active' $B6/wm-screen-backup/disabled.list"
 

@@ -11,7 +11,7 @@
 # bash scripts/screen_board.sh --uninstall-klipperscreen     same as --factory-restore (KlipperScreen is never removed without turning the factory services back on)
 # bash scripts/screen_board.sh --factory-restore             remove KlipperScreen, turn the factory services back on, reboot
 #                                                            (also the "Factory mode" button on the screen: ZR Tools > More > System)
-# Options: --no-reboot, --force (ignore a running print), --yes
+# Options: --no-reboot, --force (ignore a running print), --yes, --no-rescue (skip the rescue window and the USB flag, see screen_rescue/)
 #
 # What it does: stops and DISABLES the factory screen app and the services that now run on the Pi (nothing is deleted, the list
 # is saved in ~/wm-screen-backup), installs KlipperScreen (the pinned commit) + ZR Tools, and points it at the Pi's Moonraker.
@@ -28,7 +28,7 @@ if [ -n "${WM_HOME:-}" ]; then HOME_DIR="$WM_HOME"; elif [ "$(id -u)" = 0 ]; the
 BK="$HOME_DIR/wm-screen-backup"
 KS_DIR="$HOME_DIR/KlipperScreen"; KS_ENV="$HOME_DIR/.KlipperScreen-env"
 CFG_DIR="$HOME_DIR/printer_data/config"
-MODE=install; DRY=0; PI_HOST=""; DRIVER=modesetting; REBOOT=1; FORCE=0; DETACH=0
+MODE=install; RESCUE=1; DRY=0; PI_HOST=""; DRIVER=modesetting; REBOOT=1; FORCE=0; DETACH=0
 STAMP="$(date +%Y%m%d-%H%M%S)"
 # Services stopped and disabled, in this order (restore starts them in reverse order). Only those that exist are touched.
 SERVICES=(makerbase-client klipper moonraker nginx crowsnest makerbase-webcam janus klipper-mcu hostapd moonraker-obico octoapp)
@@ -59,6 +59,7 @@ while [ $# -gt 0 ]; do
         --status) MODE=status ;;
         --uninstall-klipperscreen) MODE=uninstall ;;
         --factory-restore) MODE=restore ;;
+        --no-rescue) RESCUE=0 ;;
         --no-reboot) REBOOT=0 ;;
         --force) FORCE=1 ;;
         --detach) DETACH=1 ;;
@@ -270,6 +271,8 @@ E
 KS_START=/usr/local/sbin/wm-ks-start; KS_CLIENT=/usr/local/sbin/wm-ks-client; XINPUT=/etc/X11/wm-ks-input.conf; TOUCH_RULE=/etc/udev/rules.d/72-wm-touch-seat1.rules
 write_service() {
     local svc=/etc/systemd/system/KlipperScreen.service
+    # 3 failed starts within 2 minutes: stop retrying and open the rescue window (wm-screen-rescue.service)
+    local RESCUE_UNIT_LINES=""; [ "$RESCUE" = 1 ] && RESCUE_UNIT_LINES=$'StartLimitIntervalSec=120\nStartLimitBurst=3\nOnFailure=wm-screen-rescue.service'
     if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would write $svc, $KS_START, $KS_CLIENT, $XINPUT (X on its own seat, no tty0 needed)${NC}"
     elif [ "$TESTING" = 1 ]; then echo "[test] write service (seat1, no tty0)" >> "$HOME_DIR/.sudo.log"
     else
@@ -295,6 +298,7 @@ E
 [Unit]
 Description=KlipperScreen on the WonderMaker screen board (own X seat, no virtual console)
 After=systemd-udevd.service systemd-logind.service network-online.target
+$RESCUE_UNIT_LINES
 
 [Service]
 Type=simple
@@ -365,13 +369,76 @@ step_restore_button() {   # root-owned copy + sudoers line for the one command t
     print_success "Open ZR Tools > More > System > Factory mode to go back to the factory software."
 }
 
+# ---------------------------------------------------------------- rescue tool (window after 3 failed starts, USB flag at boot)
+RESCUE_BIN=/usr/local/sbin/wm-screen-rescue; RESCUE_WIN=/usr/local/sbin/wm-rescue-window.py
+step_rescue() {
+    [ "$RESCUE" = 1 ] || { print_info "Rescue tool skipped (--no-rescue)."; return 0; }
+    print_header "Rescue tool (window if KlipperScreen fails, USB stick flag)"
+    if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would install $RESCUE_BIN, $RESCUE_WIN, two systemd units and a saved copy of KlipperScreen in $BK${NC}"; return 0; fi
+    mkdir -p "$BK/known-good"
+    cp -p "$CFG_DIR/KlipperScreen.conf" "$CFG_DIR/zr_screen.conf" "$BK/known-good/" 2>/dev/null
+    tar czf "$BK/ks-program.tar.gz" -C "$HOME_DIR" KlipperScreen 2>/dev/null || warn_later "Could not save a copy of KlipperScreen: the rescue window's 'Reinstall files' will not be available."
+    if [ "$TESTING" = 1 ]; then echo "[test] rescue tool: scripts, units, sudoers, usb check" >> "$HOME_DIR/.sudo.log"; return 0; fi
+    sudo install -o root -g root -m 755 "$REPO_DIR/screen_rescue/wm-screen-rescue" "$RESCUE_BIN"
+    sudo install -o root -g root -m 755 "$REPO_DIR/screen_rescue/wm-rescue-window.py" "$RESCUE_WIN"
+    sudo tee /etc/X11/wm-rescue-fbdev.conf >/dev/null <<'E'
+Section "Device"
+    Identifier "wm-rescue-fb"
+    Driver "fbdev"
+    Option "fbdev" "/dev/fb0"
+EndSection
+Section "InputClass"
+    Identifier "wm touchscreen"
+    MatchIsTouchscreen "on"
+    MatchDevicePath "/dev/input/event*"
+    Driver "libinput"
+EndSection
+E
+    sudo tee /etc/systemd/system/wm-screen-rescue.service >/dev/null <<E
+[Unit]
+Description=WonderMaker screen rescue window (own X server)
+Conflicts=KlipperScreen.service
+After=systemd-udevd.service systemd-logind.service
+
+[Service]
+Type=simple
+ExecStart=$RESCUE_BIN window
+E
+    sudo tee /etc/systemd/system/wm-screen-usb.service >/dev/null <<E
+[Unit]
+Description=Look for WM-FACTORY or WM-RESCUE on a USB stick (boot only)
+After=local-fs.target systemd-udevd.service
+
+[Service]
+Type=oneshot
+ExecStart=$RESCUE_BIN usb-check
+
+[Install]
+WantedBy=multi-user.target
+E
+    printf '%s ALL=(root) NOPASSWD: %s open\n' "$WM_USER" "$RESCUE_BIN" | sudo tee /etc/sudoers.d/wm-screen-rescue >/dev/null
+    sudo chmod 440 /etc/sudoers.d/wm-screen-rescue; sudo visudo -cf /etc/sudoers.d/wm-screen-rescue >/dev/null || { sudo rm -f /etc/sudoers.d/wm-screen-rescue; warn_later "The Rescue entry in ZR Tools was not enabled (sudoers check failed)."; }
+    sudo systemctl daemon-reload; sudo systemctl enable wm-screen-usb.service >/dev/null 2>&1
+    print_success "Rescue tool installed. USB stick: an empty file WM-FACTORY (restore) or WM-RESCUE (window), checked at boot."
+}
+remove_rescue() {
+    SUDO systemctl stop wm-screen-rescue.service; SUDO systemctl disable wm-screen-usb.service
+    if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would remove the rescue tool${NC}"; return 0; fi
+    if [ "$TESTING" = 1 ]; then echo "[test] remove rescue tool" >> "$HOME_DIR/.sudo.log"
+    else
+        sudo rm -f /etc/systemd/system/wm-screen-rescue.service /etc/systemd/system/wm-screen-usb.service /etc/sudoers.d/wm-screen-rescue \
+                   "$RESCUE_BIN" "$RESCUE_WIN" /etc/X11/wm-rescue-fbdev.conf /run/wm-rescue.reason; sudo systemctl daemon-reload
+    fi
+    rm -rf "$BK/known-good" "$BK/ks-program.tar.gz"      # the rescue snapshots of your settings stay in $BK/rescue-snapshots
+}
+
 do_install() {
     echo -e "${BLUE}KlipperScreen on the WonderMaker screen board (not yet tested on hardware)${NC}"
     [ "$DRY" = 1 ] && print_info "DRY RUN: nothing will be changed."
     preflight
     print_header "Plan (nothing has been changed yet)"
     echo "  Stops and disables (restored later): $(for u in "${SERVICES[@]}"; do svc_exists "$u" && printf '%s ' "$u"; done)"
-    echo "  Installs: X11 + KlipperScreen packages, KlipperScreen (pinned) in ~/KlipperScreen, ZR Tools, a Factory-mode button"
+    echo "  Installs: X11 + KlipperScreen packages, KlipperScreen (pinned) in ~/KlipperScreen, ZR Tools, a Factory-mode button$([ "$RESCUE" = 1 ] && echo ', a rescue window and USB-stick flag')"
     echo "  Connects to: $(pi_url)   Graphics driver: $DRIVER (falls back to fbdev if X does not start)"
     echo "  Go back any time: bash $BK/screen_board.sh --factory-restore"
     [ "$DRY" = 1 ] || ask_yn "Go ahead?" y || { echo "Nothing changed."; exit 0; }
@@ -382,6 +449,7 @@ do_install() {
     drop_swap
     step_disable_factory
     step_restore_button
+    step_rescue
     step_start
     print_header "Done"
     if [ ${#WARNINGS[@]} -gt 0 ]; then local w; for w in "${WARNINGS[@]}"; do print_warning "$w"; done; fi
@@ -391,6 +459,7 @@ do_install() {
 # ---------------------------------------------------------------- uninstall / restore
 remove_klipperscreen() {
     print_header "Removing KlipperScreen"
+    remove_rescue
     SUDO systemctl stop KlipperScreen; SUDO systemctl disable KlipperScreen
     SUDO rm -f /etc/systemd/system/KlipperScreen.service; SUDO systemctl daemon-reload
     if [ "$DRY" != 1 ]; then
@@ -453,6 +522,7 @@ do_status() {
     print_header "Screen board status (read-only)"
     local u; for u in "${SERVICES[@]}" KlipperScreen; do svc_exists "$u" || continue
         echo "  $u: $(svc_enabled "$u" && echo enabled || echo disabled), $(svc_active "$u" && echo running || echo stopped)"; done
+    if [ "$TESTING" = 1 ]; then [ -f "$BK/known-good/KlipperScreen.conf" ] && echo "  Rescue tool: installed"; else [ -x "$RESCUE_BIN" ] && echo "  Rescue tool: installed (window after 3 failed starts; USB stick: WM-FACTORY / WM-RESCUE)" || echo "  Rescue tool: not installed"; fi
     [ -d "$KS_DIR" ] && echo "  KlipperScreen: installed ($KS_DIR)" || echo "  KlipperScreen: not installed"
     [ -f "$BK/board_mode" ] && echo "  Mode: KlipperScreen ($(cat "$BK/board_mode"))" || echo "  Mode: factory"
     [ -f "$BK/disabled.list" ] && echo "  Saved list for restore: $BK/disabled.list ($(wc -l < "$BK/disabled.list") services)"

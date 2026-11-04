@@ -231,6 +231,20 @@ def board_mode(marker=None):
     return os.path.exists(marker or BOARD_MARKER)
 
 
+RESCUE_SCRIPT = "/usr/local/sbin/wm-screen-rescue"             # root-owned; sudoers allows only "wm-screen-rescue open"
+RESCUE_UNITS = ("/etc/systemd/system/wm-screen-rescue.service",)
+
+
+def rescue_available(unit_files=None):
+    """True when the rescue tool is installed on this board (the Rescue tile is shown then)."""
+    return all(os.path.exists(f) for f in (unit_files or RESCUE_UNITS))
+
+
+def rescue_command(script=None):
+    """Opens the rescue window. KlipperScreen is stopped while it is open (the window has its own screen server)."""
+    return ["sudo", "-n", script or RESCUE_SCRIPT, "open"]
+
+
 def factory_restore_command(script=None):
     """The script re-starts itself under systemd (--detach), because stopping KlipperScreen would otherwise kill it."""
     return ["sudo", "-n", script or BOARD_SCRIPT, "--factory-restore", "--yes", "--detach"]

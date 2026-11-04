@@ -365,6 +365,8 @@ class ViewsMixin:
             tiles = [("home", "Factory mode", self._sys_factory),
                      ("refresh", "Reboot the Pi", self._sys_reboot),
                      ("shutdown", "Shut down the Pi", self._sys_shutdown)]
+            if L.rescue_available():
+                tiles.insert(1, ("settings", "Rescue", self._sys_rescue))
         else:
             tiles = [("sd", "Backup settings", self._sys_backup),
                      ("refresh", "Reboot", self._sys_reboot),
@@ -451,6 +453,17 @@ class ViewsMixin:
                            "Switch this screen back to the WonderMaker factory software?\n"
                            "KlipperScreen is removed, the factory services are turned back on and the board reboots.",
                            self._run_factory_restore)
+
+    def _sys_rescue(self):
+        self._confirm_call("Rescue window",
+                           "Open the rescue window? KlipperScreen stops while it is open. In the window, 'Restart KlipperScreen' brings it back.",
+                           self._run_rescue)
+
+    def _run_rescue(self):
+        try:
+            subprocess.Popen(L.rescue_command(), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+        except OSError as e:
+            self._screen.show_popup_message("Could not open the rescue window: %s" % e)
 
     def _run_factory_restore(self):
         try:

@@ -131,6 +131,8 @@ class Logic(unittest.TestCase):
         self.assertTrue(L.board_mode(m))
         self.assertEqual(L.factory_restore_command("/x/wm")[:3], ["sudo", "-n", "/x/wm"])
         self.assertIn("--detach", L.factory_restore_command())
+        self.assertEqual(L.rescue_command("/x/r"), ["sudo", "-n", "/x/r", "open"])
+        self.assertFalse(L.rescue_available(["/nonexistent/wm-screen-rescue.service"]))
         shutil.rmtree(d)
 
     def test_throttled_text(self):

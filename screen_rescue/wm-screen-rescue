@@ -1,0 +1,199 @@
+#!/bin/bash
+# =============================================================================
+# wm-screen-rescue  -  rescue tool for KlipperScreen on the WonderMaker screen board     NOT YET TESTED ON HARDWARE
+# =============================================================================
+# Installed by scripts/screen_board.sh as /usr/local/sbin/wm-screen-rescue (root). It is used by:
+#   wm-screen-rescue.service       shows the rescue window (own X server) when KlipperScreen failed 3 times in 2 minutes,
+#                                  or when opened by hand
+#   wm-screen-usb.service          at boot: looks for WM-FACTORY / WM-RESCUE on a USB stick
+#   the rescue window itself       runs "wm-screen-rescue act <name>"
+#
+#   wm-screen-rescue usb-check     boot check of USB sticks  (WM-FACTORY = factory restore, WM-RESCUE = open the window)
+#   wm-screen-rescue open          open the rescue window by hand (stops KlipperScreen while it is open)
+#   wm-screen-rescue window        what the service runs (own X, fallbacks)
+#   wm-screen-rescue act NAME      restart-ks | factory | reboot | reset-settings | reinstall-files | details | net | reason
+# Environment (tests): WM_HOME, WM_RESCUE_LOG, WM_RESCUE_DRY=1 (only log what would happen), WM_RESCUE_MEDIA_DIR (a folder that
+# stands in for a mounted stick), WM_RESCUE_USB_WAIT (seconds to wait for a stick).
+# =============================================================================
+set -u
+WM_USER="${WM_USER:-t13dp}"
+HOME_DIR="${WM_HOME:-/home/$WM_USER}"
+BK="$HOME_DIR/wm-screen-backup"
+CFG_DIR="$HOME_DIR/printer_data/config"
+KS_DIR="$HOME_DIR/KlipperScreen"
+LOG="${WM_RESCUE_LOG:-/var/log/wm-screen-rescue.log}"
+DRY="${WM_RESCUE_DRY:-0}"
+FACTORY_BIN="${WM_FACTORY_BIN:-/usr/local/sbin/wm-factory-restore}"
+SNAP="$BK/rescue-snapshots"
+STAMP="$(date +%Y%m%d-%H%M%S)"
+REASON_FILE="${WM_RESCUE_REASON_FILE:-/run/wm-rescue.reason}"
+
+log() { echo "$(date '+%F %T') $*" >> "$LOG" 2>/dev/null; }
+doit() { if [ "$DRY" = 1 ]; then log "[dry] would run: $*"; echo "[test mode] would run: $*"; else "$@"; fi; }
+
+# ------------------------------------------------------------------ helpers
+backup_ok() {   # a factory restore needs the saved service list and the restore script
+    [ -s "$BK/disabled.list" ] || { echo "No saved service list ($BK/disabled.list): factory restore refused."; return 1; }
+    [ -x "$FACTORY_BIN" ] || [ "${WM_RESCUE_TEST:-0}" = 1 ] || { echo "$FACTORY_BIN is missing: factory restore refused."; return 1; }
+    return 0
+}
+pi_host() { grep -E '^moonraker_host:' "$CFG_DIR/KlipperScreen.conf" 2>/dev/null | head -1 | sed 's/^moonraker_host:[[:space:]]*//'; }
+snapshot_config() {   # keep the Pi address and the ZR Tools settings, so a later reinstall can reuse them
+    local d="$SNAP/$STAMP"; mkdir -p "$d" || return 0
+    cp -p "$CFG_DIR/KlipperScreen.conf" "$CFG_DIR/zr_screen.conf" "$d/" 2>/dev/null
+    echo "Pi address: $(pi_host)" > "$d/README.txt"; log "config snapshot in $d (Pi $(pi_host))"
+    echo "Saved your KlipperScreen settings in $d (Pi address: $(pi_host))"
+}
+restart_ks() {
+    doit systemctl reset-failed KlipperScreen
+    doit systemctl start KlipperScreen    # starting it stops the rescue window (Conflicts=)
+}
+
+# ------------------------------------------------------------------ the window's actions
+act() {
+    case "${1:-}" in
+        restart-ks) log "action: restart KlipperScreen"; restart_ks ;;
+        reboot) log "action: reboot"; doit systemctl reboot ;;
+        factory)
+            log "action: factory restore"
+            backup_ok || { log "factory restore refused"; exit 3; }
+            snapshot_config
+            doit "$FACTORY_BIN" --factory-restore --yes --detach
+            echo "Restoring the factory software. The board reboots by itself." ;;
+        reset-settings)
+            log "action: reset KlipperScreen settings"
+            local host good="$BK/known-good"; host="$(pi_host)"
+            [ -f "$good/KlipperScreen.conf" ] || { echo "No saved default settings ($good). Use 'Reinstall KlipperScreen files' or factory restore."; exit 4; }
+            snapshot_config
+            if [ "$DRY" = 1 ]; then echo "[test mode] would restore default settings with Pi $host"; log "[dry] reset settings"
+            else
+                cp -p "$good/KlipperScreen.conf" "$CFG_DIR/KlipperScreen.conf"; cp -p "$good/zr_screen.conf" "$CFG_DIR/zr_screen.conf" 2>/dev/null
+                [ -n "$host" ] && sed -i -E "s/^moonraker_host:.*/moonraker_host: $host/" "$CFG_DIR/KlipperScreen.conf"
+                chown "$WM_USER" "$CFG_DIR/KlipperScreen.conf" "$CFG_DIR/zr_screen.conf" 2>/dev/null
+                echo "Default settings restored (Pi address kept: $host). Your old files are in $SNAP/$STAMP."
+            fi
+            restart_ks ;;
+        reinstall-files)
+            log "action: reinstall KlipperScreen files"
+            [ -s "$BK/ks-program.tar.gz" ] || { echo "No saved copy of KlipperScreen ($BK/ks-program.tar.gz). Use factory restore."; exit 5; }
+            if [ "$DRY" = 1 ]; then echo "[test mode] would unpack $BK/ks-program.tar.gz into $HOME_DIR"; log "[dry] reinstall files"
+            else
+                rm -rf "$KS_DIR.broken"; [ -d "$KS_DIR" ] && mv "$KS_DIR" "$KS_DIR.broken"
+                tar xzf "$BK/ks-program.tar.gz" -C "$HOME_DIR" && chown -R "$WM_USER" "$KS_DIR" \
+                    || { echo "Unpacking failed; the old folder is in $KS_DIR.broken"; exit 5; }
+                rm -rf "$KS_DIR.broken"; echo "KlipperScreen files restored."
+            fi
+            restart_ks ;;
+        details)
+            echo "== KlipperScreen service"; SYSTEMD_COLORS=0 journalctl -u KlipperScreen -n 12 --no-pager 2>&1 | sed 's/\x1b\[[0-9;]*m//g' | cut -c1-110
+            echo; echo "== Screen server (X)"; tail -n 8 "$HOME_DIR/.local/share/xorg/Xorg.0.log" /var/log/Xorg.0.log 2>/dev/null | grep -E '\((EE|WW)\)|Fatal|error' | tail -n 6 | cut -c1-110
+            echo; echo "== Rescue log"; tail -n 8 "$LOG" 2>/dev/null | cut -c1-110 ;;
+        net)
+            echo "== Network"; ip -4 -o addr show 2>/dev/null | awk '{print $2, $4}' | grep -v '^lo '
+            echo "Wi-Fi: $(iwgetid -r 2>/dev/null || wpa_cli -i wlan0 status 2>/dev/null | sed -n 's/^ssid=//p' | head -1)"
+            local h; h="$(pi_host)"; echo "Pi: ${h:-not set}"
+            if [ -n "$h" ]; then
+                ping -c1 -W2 "$h" >/dev/null 2>&1 && echo "Pi answers to ping: yes" || echo "Pi answers to ping: NO"
+                curl -s -m 3 "http://$h:7125/server/info" >/dev/null 2>&1 && echo "Moonraker on the Pi: answers" || echo "Moonraker on the Pi: NO answer"
+            fi ;;
+        reason)
+            case "${2:-failed}" in
+                manual) echo "Opened by hand." ;;
+                usb) echo "Opened from a USB stick (WM-RESCUE)." ;;
+                *) echo "KlipperScreen did not start 3 times in a row."
+                   SYSTEMD_COLORS=0 journalctl -u KlipperScreen -n 3 --no-pager -o cat 2>/dev/null | tail -n 1 | cut -c1-110 ;;
+            esac ;;
+        *) echo "unknown action: ${1:-}"; exit 2 ;;
+    esac
+}
+
+# ------------------------------------------------------------------ USB stick, checked once at boot
+usb_flag() {   # $1 = folder of the stick; prints the real file name of flag $2 (any letter case), if present
+    local f; for f in "$1"/*; do [ -f "$f" ] || continue; [ "$(basename "$f" | tr a-z A-Z)" = "$2" ] && { echo "$f"; return 0; }; done; return 1
+}
+usb_handle() {   # $1 = folder of the mounted stick
+    local d="$1" flag rep="$1/WM-RESCUE-LOG.txt"
+    if flag="$(usb_flag "$d" WM-FACTORY)"; then
+        log "USB: WM-FACTORY found"
+        {   echo "WM-FACTORY on the stick, $(date '+%F %T')"
+            if backup_ok >> "$rep" 2>&1; then echo "Saved service list found: factory restore starts now."; else echo "Restore NOT started (see above)."; fi
+        } >> "$rep"
+        grep -q "NOT started" "$rep" && local refused=1 || local refused=0
+        mv -f "$flag" "$flag.done" 2>/dev/null; sync    # renamed first: a failed restore must never loop
+        [ "$refused" = 1 ] && { log "USB: restore refused"; return 0; }
+        snapshot_config >> "$rep" 2>&1
+        return 10      # the caller unmounts the stick, then runs the restore
+    fi
+    if flag="$(usb_flag "$d" WM-RESCUE)"; then
+        log "USB: WM-RESCUE found"; echo "WM-RESCUE on the stick, $(date '+%F %T'): rescue window opened." >> "$rep"
+        mv -f "$flag" "$flag.done" 2>/dev/null; sync; return 11
+    fi
+    return 0
+}
+usb_check() {
+    [ -f "$BK/board_mode" ] || { log "USB check: board is in factory mode, nothing to do"; return 0; }   # only while KlipperScreen is installed
+    local result=0
+    if [ -n "${WM_RESCUE_MEDIA_DIR:-}" ]; then usb_handle "$WM_RESCUE_MEDIA_DIR"; result=$?
+    else
+        local wait="${WM_RESCUE_USB_WAIT:-20}" t=0 devs=() dev mnt="/run/wm-rescue-usb"
+        while [ $t -le "$wait" ]; do      # a stick can take a few seconds to show up
+            devs=(); for dev in /sys/block/sd*; do [ -e "$dev" ] && [ "$(cat "$dev/removable" 2>/dev/null)" = 1 ] || continue
+                local b; b="$(basename "$dev")"; for p in /dev/${b}[0-9]* /dev/$b; do [ -b "$p" ] && { devs+=("$p"); [ "$p" != "/dev/$b" ] && break; }; done; done
+            [ ${#devs[@]} -gt 0 ] && break; sleep 2; t=$((t+2))
+        done
+        [ ${#devs[@]} -eq 0 ] && { log "USB check: no stick"; return 0; }
+        mkdir -p "$mnt"
+        for dev in "${devs[@]}"; do
+            mount -o rw,nosuid,nodev,noexec "$dev" "$mnt" 2>>"$LOG" || { log "USB check: $dev did not mount"; continue; }
+            usb_handle "$mnt"; result=$?; sync; umount "$mnt"; [ $result -ne 0 ] && break
+        done
+    fi
+    case $result in
+        10) log "USB: starting the factory restore"; doit "$FACTORY_BIN" --factory-restore --yes --detach ;;
+        11) log "USB: opening the rescue window"; echo usb > "$REASON_FILE"; doit systemctl start --no-block wm-screen-rescue.service ;;
+    esac
+    return 0
+}
+
+# ------------------------------------------------------------------ the rescue window (own X server, with fallbacks)
+window() {
+    local reason py="" p; reason="$(cat "$REASON_FILE" 2>/dev/null || echo failed)"; rm -f "$REASON_FILE"
+    for p in /usr/bin/python3 "$HOME_DIR/.KlipperScreen-env/bin/python"; do "$p" -c 'import gi; gi.require_version("Gtk","3.0")' 2>/dev/null && { py="$p"; break; }; done
+    local xin=/etc/X11/wm-ks-input.conf win=/usr/local/sbin/wm-rescue-window.py attempt
+    log "window: reason=$reason python=${py:-none}"
+    if [ -n "$py" ]; then
+        for attempt in modesetting fbdev; do
+            local conf="$xin"; [ "$attempt" = fbdev ] && conf=/etc/X11/wm-rescue-fbdev.conf
+            [ -f "$conf" ] || continue
+            log "window: trying X with $attempt"
+            /usr/bin/xinit /bin/bash -c "exec $py $win --reason $reason" -- /usr/lib/xorg/Xorg :0 -seat seat1 -novtswitch -sharevts -nolisten tcp -noreset -config "$conf" && return 0
+            log "window: X with $attempt failed"
+        done
+    fi
+    log "window: no screen server; text fallback"; text_fallback "$reason"
+}
+text_fallback() {   # best effort: write a message straight into the framebuffer, then keep the USB flag route alive
+    local msg="KlipperScreen and the screen server did not start. Put a USB stick with an empty file named WM-FACTORY in the board and reboot to go back to the WonderMaker software."
+    if python3 - "$msg" <<'PY' 2>>"$LOG"
+import sys
+from PIL import Image, ImageDraw
+w, h = 800, 480
+im = Image.new("RGB", (w, h), (20, 24, 28)); d = ImageDraw.Draw(im)
+words, line, y = sys.argv[1].split(), "", 120
+for wd in words:
+    if len(line + wd) > 48: d.text((40, y), line, fill=(255, 255, 255)); y += 22; line = ""
+    line += wd + " "
+d.text((40, y), line, fill=(255, 255, 255))
+open("/dev/fb0", "wb").write(im.convert("RGBX").tobytes("raw", "BGRX"))
+PY
+    then log "text fallback drawn on /dev/fb0"; else log "text fallback could not draw (no PIL or no /dev/fb0)"; fi
+    sleep 3600
+}
+
+case "${1:-}" in
+    usb-check) usb_check ;;
+    act) shift; act "$@" ;;
+    window) window ;;
+    open) echo manual > "$REASON_FILE"; doit systemctl start --no-block wm-screen-rescue.service ;;
+    *) echo "usage: wm-screen-rescue usb-check | open | window | act NAME"; exit 1 ;;
+esac
