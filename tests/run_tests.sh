@@ -1,5 +1,5 @@
 #!/bin/bash
-# Tests for the installer and scripts. Uses fake homes and a synthetic disk image. No sudo, no network, no services.
+# Tests for the installer and scripts. Uses fake homes. No sudo, no network, no services.
 #   bash tests/run_tests.sh
 set -u
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -24,7 +24,7 @@ echo "== basics"
 check "bash syntax installer" "bash -n $ROOT/installer.sh"
 check "bash syntax scripts" "for f in $ROOT/scripts/*.sh $ROOT/zr_tools/install_zr_tools.sh; do bash -n \$f || exit 1; done"
 check "--version prints" "bash $ROOT/installer.sh --version | grep -q wm-ultra-rpi"
-check "--help prints" "bash $ROOT/installer.sh --help | grep -q from-image"
+check "--help prints" "bash $ROOT/installer.sh --help | grep -q from-board"
 check "unknown option fails" "! bash $ROOT/installer.sh --nope"
 check "no Fluidd zip kept in the repo" "[ ! -e $ROOT/fluidd ]"
 check "no Claude mention in repo files" "! grep -rIl -i 'claude' $ROOT --exclude-dir=.git --exclude=tests --exclude=run_tests.sh --exclude=*.patch --exclude=*.zip"
@@ -106,35 +106,6 @@ check "uninstall keeps user folders" "[ -d $H/klipper/klippy ] && [ -f $H/printe
 echo "== missing / broken stage"
 mkdir -p "$T/bad"; check "incomplete stage refused" "! inst $T/h5 --from-stage $T/bad"
 check "wrong user refused outside test mode" "! WM_HOME=$T/h6 bash $ROOT/installer.sh --from-stage $T/stage </dev/null"
-
-echo "== extract from a disk image"
-if command -v mke2fs >/dev/null && command -v python3 >/dev/null && command -v debugfs >/dev/null; then
-    R="$T/rootfs/home/t13dp"; mkdir -p "$R/klipper/klippy" "$R/moonraker/moonraker" "$R/printer_data/config" "$R/printer_data/systemd" "$R/printer_data/gcodes" "$R/fluidd" "$R/TM_T1/factory_settings" "$R/TM_T1/scripts"
-    echo "[mcu]" > "$R/printer_data/config/printer.cfg"; echo hi > "$R/fluidd/index.html"; echo "x" > "$R/printer_data/gcodes/big.gcode"
-    mke2fs -q -t ext4 -d "$T/rootfs" "$T/part.img" 20M
-    truncate -s 30M "$T/disk.img"
-    python3 - "$T/disk.img" <<'PY'
-import sys, struct
-f = open(sys.argv[1], "r+b")
-mbr = bytearray(512); mbr[450] = 0xEE; mbr[510:512] = b"\x55\xaa"; f.seek(0); f.write(mbr)
-hdr = bytearray(92); hdr[0:8] = b"EFI PART"; struct.pack_into("<QII", hdr, 72, 2, 128, 128)
-f.seek(512); f.write(hdr)
-def ent(first, last):
-    e = bytearray(128); e[0:16] = b"\x01" * 16; struct.pack_into("<QQ", e, 32, first, last); return e
-f.seek(1024); f.write(ent(2048, 6143)); f.write(ent(8192, 8192 + 40960 - 1))
-PY
-    dd if="$T/part.img" of="$T/disk.img" bs=512 seek=8192 conv=notrunc status=none
-    gzip -k "$T/disk.img"
-    bash "$ROOT/scripts/extract_from_image.sh" "$T/disk.img" "$T/st_img" >/dev/null 2>&1
-    check "image: klipper.tgz made" "tar tzf $T/st_img/klipper.tgz | grep -q klippy"
-    check "image: printer.cfg in data.tgz" "tar tzf $T/st_img/data.tgz | grep -q printer_data/config/printer.cfg"
-    check "image: gcodes not in data.tgz" "! tar tzf $T/st_img/data.tgz | grep -q big.gcode"
-    bash "$ROOT/scripts/extract_from_image.sh" "$T/disk.img.gz" "$T/st_gz" >/dev/null 2>&1
-    check "image .gz works" "[ -s $T/st_gz/moonraker.tgz ]"
-    H7="$T/h7"; mkdir -p "$H7"; inst "$H7" --from-image "$T/disk.img" >/dev/null
-    check "install straight from image" "[ -f $H7/printer_data/config/printer.cfg ]"
-    echo junk > "$T/notimg.img"; check "non-image refused" "! bash $ROOT/scripts/extract_from_image.sh $T/notimg.img $T/st_bad"
-else echo "  (skipped: mke2fs/debugfs missing)"; fi
 
 echo "== factory files from the repository (no printer)"
 (cd "$ROOT/factory/ultra-s" && sha256sum -c SHA256SUMS >/dev/null) && echo "  ok   factory checksums" && PASS=$((PASS+1))

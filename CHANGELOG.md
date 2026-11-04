@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.13.11
+
+- Removed the "disk image" and "stage folder" sources from the installer (`--from-image`, `--from-stage`, menu options 2 and 3) and the script `scripts/extract_from_image.sh`. The two sources left are the old board over SSH and the factory files in this repository. (`--from-stage` still exists, undocumented, for the tests.)
+
 ## 0.13.10
 
 - README: the OrcaSlicer plugin step says the file can also be downloaded from the orca_plugin folder of the panel repository.

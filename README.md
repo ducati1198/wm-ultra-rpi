@@ -26,7 +26,7 @@
 
 ## Disclaimer (use at your own risk)
 
-This is a community project, not made or supported by WonderMaker. It is provided "as is", without warranty. **It has been tested only with a fake home folder and a synthetic disk image, not yet on a real printer**: the author is waiting for a replacement main board. Please report what works and what does not.
+This is a community project, not made or supported by WonderMaker. It is provided "as is", without warranty. **It has been tested only with a fake home folder, not yet on a real printer**: the author is waiting for a replacement main board. Please report what works and what does not.
 
 The installer never flashes any board and never starts Klipper unless you ask for it. You still work on a printer with mains power and heaters: you are responsible for what you connect and run.
 
@@ -53,7 +53,7 @@ The installer never flashes any board and never starts Klipper unless you ask fo
 - **Raspberry Pi OS Lite (64-bit), Debian 12 "Bookworm"**, written with Raspberry Pi Imager. Newer Raspberry Pi OS releases are based on Debian 13 "Trixie" and are **not tested**: in the Imager choose **Raspberry Pi OS (other) → Raspberry Pi OS (Legacy, 64-bit) Lite**, which is the Bookworm release. Not the 32-bit image and not the Trixie one. (The Desktop version also works, but Lite is all you need: you use Fluidd in a browser.) In the imager's settings set the **username to `t13dp`** (WonderMaker's software has `/home/t13dp` built in), enable SSH, and set your Wi-Fi or use a cable.
 - The **replacement main board** (WM-ZR-D V1.2): it carries the Klipper USB-CAN bridge (USB id `1d50:606f`), and the toolheads and filament hub stay on its CAN bus.
 - A **USB-A to JST-XH 2.54 mm 4-pin cable**, bought or made, from the Pi's USB-A port to the red 4-pin connector of the main board. A ready-made one must be **re-pinned** to the board's order (DM, DP, G; leave VIN empty). **VIN is 24 V: cut or do not connect the red wire, never feed it to the Pi.** See [docs/WIRING.md](docs/WIRING.md).
-- The WonderMaker software: from **your own printer** (reachable old board, a disk image, or a folder made earlier) or the factory files in this repo (see 3.1). 
+- The WonderMaker software: from **your own printer** (the reachable old board) or the factory files in this repo (see 3.1). 
 
 ### 2.2 How it is connected
 
@@ -98,9 +98,7 @@ chmod +x installer.sh
 The installer first asks **which printer you have** (ZR Ultra or ZR Ultra-S; or give `--model ultra|ultra-s`) and then **where the WonderMaker software is**:
 
 1. **The old board is still reachable (SSH). Recommended.** If your WonderMaker screen board still boots and is on your network, use this one: the installer fetches `printer_data` (config, calibration, saved variables), `klipper`, `moonraker`, `fluidd` and the factory settings from it, so the Pi gets exactly what your printer ran, with your own settings and the original compiled modules. Find its IP in your router, then `./installer.sh --from-board <IP>`. The default WonderMaker login is user `t13dp`, password `TM88888`. Only `tar` is run there, nothing is written.
-2. **A disk image of its card or eMMC** (`.img` or `.img.gz`). Needs `e2fsprogs` and free space about the unpacked image (about 8 GB for the Ultra-S image). No printer needed.
-3. **A stage folder** (`klipper.tgz`, `moonraker.tgz`, `data.tgz`) made by `scripts/pull_from_board.sh` or `scripts/extract_from_image.sh`.
-4. **Nothing at all: the factory files inside this repository** (`--from-github`). The repo carries the original Klipper and Moonraker (both GPL v3, license included) and the factory settings, with SHA256 checksums that are verified first. There is a folder for each model: [`factory/ultra/`](factory/ultra) and [`factory/ultra-s/`](factory/ultra-s). See [factory/README.md](factory/README.md).
+2. **Nothing at all: the factory files inside this repository** (`--from-github`). The repo carries the original Klipper and Moonraker (both GPL v3, license included) and the factory settings, with SHA256 checksums that are verified first. There is a folder for each model: [`factory/ultra/`](factory/ultra) and [`factory/ultra-s/`](factory/ultra-s). See [factory/README.md](factory/README.md).
 
    WonderMaker's **5 compiled modules** (`cs1237`, `hx711`, `heater_air_core`, `heater_feng`, `xy_offset_calibrator_core`: heaters, load cells, calibration) are bundled in the repo too, copied unchanged from an Ultra-S and checked against their factory checksums. They are WonderMaker's binaries (no published license): see the takedown note in [factory/README.md](factory/README.md). `--modules DIR` uses your own copies instead.
 
@@ -137,7 +135,7 @@ The installer first asks **which printer you have** (ZR Ultra or ZR Ultra-S; or 
 | Command | What it does |
 |---|---|
 | `./installer.sh` | install (asks first) |
-| `./installer.sh --from-board IP` / `--from-image FILE` / `--from-stage DIR` | choose the source without being asked |
+| `./installer.sh --from-board IP` / `--from-github` | choose the source without being asked |
 | `./installer.sh --from-github --model ultra --modules DIR` | use the factory files in this repo; modules from your printer |
 | `./installer.sh --check` | report problems, change nothing |
 | `./installer.sh --dry-run` | show the plan and what would change |
@@ -369,7 +367,7 @@ On the Pi, `./installer.sh --screen-remove` removes KlipperScreen again (Klipper
 | Problem | What to try |
 |---|---|
 | "you are user ..., expected t13dp" | Create the card again with username `t13dp`. WonderMaker's paths are fixed to `/home/t13dp`. |
-| Can't read the old board | Check IP, power and the password. Or use an image (`--from-image`). |
+| Can't read the old board | Check IP, power and the password. Or use the factory files (`--from-github`). |
 | A compiled module "does not import" | Python must be 3.9 and the CPU 64-bit ARM. Check: `cd ~/klipper/klippy && ~/klippy-env/bin/python -c "import sys; sys.path.insert(0, '.'); import extras.cs1237"` (no output means it works; importing from inside the `extras` folder gives a false error) |
 | Fluidd blank / old page | Hard-refresh (Ctrl/Cmd+Shift+R). Check `sudo nginx -t` and `systemctl status nginx`. |
 | No picture from the camera | `ls /dev/v4l/by-id/`, put that path on the `device:` line of `~/printer_data/config/crowsnest.conf`, `sudo systemctl restart crowsnest` |
@@ -386,11 +384,11 @@ On the Pi, `./installer.sh --screen-remove` removes KlipperScreen again (Klipper
 installer.sh            the Pi installer
 factory/ultra/          WonderMaker ZR Ultra: Klipper, Moonraker, settings, scripts, checksums
 factory/ultra-s/        WonderMaker ZR Ultra-S: same, with the chamber/air-filter/door settings on
-scripts/                pull_from_board.sh, extract_from_image.sh, stage_from_repo.sh, board_check.sh
+scripts/                pull_from_board.sh, stage_from_repo.sh, board_check.sh
 config/                 systemd units, nginx files, can0 udev rule, pinned Python requirements, crowsnest template, addon version pins
 zr_tools/               ZR Tools KlipperScreen panel (copied by the installer)
 docs/                   HARDWARE.md and images
-tests/run_tests.sh      tests (fake home, synthetic disk image)
+tests/run_tests.sh      tests (fake home)
 ```
 
 `factory/` holds WonderMaker's Klipper and Moonraker (GPL), the factory settings, helper scripts, and their compiled modules and MCU firmware (WonderMaker's binaries, see [factory/README.md](factory/README.md)). Your own calibration is not in the repository.

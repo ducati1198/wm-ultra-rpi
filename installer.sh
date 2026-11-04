@@ -8,8 +8,6 @@
 #
 # ./installer.sh                       install (asks a few plain questions first)
 # ./installer.sh --from-board IP       take the software from the old board over SSH
-# ./installer.sh --from-image FILE     take it from a disk image of the old board (.img / .img.gz)
-# ./installer.sh --from-stage DIR      take it from a folder made by scripts/pull_from_board.sh
 # ./installer.sh --from-github         take the factory files that are inside this repository (no printer needed)
 # ./installer.sh --model ultra|ultra-s your printer (asked if not given; sets up printer.cfg for it)
 # ./installer.sh --modules DIR         optional: your own copies of the 5 compiled modules (replace the bundled ones)
@@ -106,7 +104,6 @@ usage() { sed -n '4,/^# What this/p' "$0" | sed '$d' | sed 's/^# \{0,1\}//'; }
 while [ $# -gt 0 ]; do
     case "$1" in
         --from-board)   SRC_KIND=board; SRC_ARG="${2:-}"; shift ;;
-        --from-image)   SRC_KIND=image; SRC_ARG="${2:-}"; shift ;;
         --from-stage)   SRC_KIND=stage; SRC_ARG="${2:-}"; shift ;;
         --from-github|--from-repo) SRC_KIND=repo; SRC_ARG="repo" ;;
         --model)        MODEL="${2:-}"; MODEL_SET=1; shift ;;
@@ -185,16 +182,12 @@ choose_source() {
     echo "  Use the other options only if the old board will not start."
     if [ -z "$SRC_KIND" ]; then
         echo -e "  1) The old board is still reachable on the network (SSH)  ${GREEN}<- recommended${NC}"
-        echo "  2) I have a disk image of its SD card / eMMC"
-        echo "  3) I already have a stage folder (klipper.tgz, moonraker.tgz, data.tgz)"
-        echo "  4) I have nothing: use the factory files inside this repository (factory defaults, not your own settings)"
-        local c; read -r -p "$(echo -e "${YELLOW}?${NC} Choose 1, 2, 3 or 4: ")" c || c=""
+        echo "  2) I have nothing: use the factory files inside this repository (factory defaults, not your own settings)"
+        local c; read -r -p "$(echo -e "${YELLOW}?${NC} Choose 1 or 2: ")" c || c=""
         case "$c" in
             1) SRC_KIND=board; read -r -p "  Old board IP address: " SRC_ARG ;;
-            2) SRC_KIND=image; read -r -p "  Path of the image file: " SRC_ARG ;;
-            3) SRC_KIND=stage; read -r -p "  Stage folder: " SRC_ARG ;;
-            4) SRC_KIND=repo; SRC_ARG=repo ;;
-            *) die_with_fix "no source chosen." "run again and pick 1 to 4 (or use --from-board / --from-image / --from-stage / --from-github)." ;;
+            2) SRC_KIND=repo; SRC_ARG=repo ;;
+            *) die_with_fix "no source chosen." "run again and pick 1 or 2 (or use --from-board / --from-github)." ;;
         esac
     fi
     [ -n "$SRC_ARG" ] || die_with_fix "no value given for the source." "see ./installer.sh --help"
@@ -203,22 +196,19 @@ choose_source() {
         board)
             print_info "Reading from $SRC_ARG over SSH (read-only). The default WonderMaker login is user t13dp, password TM88888."
             why "the board's Klipper, Moonraker, config and calibration are copied once, then the Pi is on its own."
-            run bash "$SCRIPT_DIR/scripts/pull_from_board.sh" "$SRC_ARG" "$STAGE" || die_with_fix "could not read the old board." "check the IP, that it is on, and the password. Or use --from-image." ;;
-        image)
-            [ -f "$SRC_ARG" ] || die_with_fix "image not found: $SRC_ARG" "give the full path."
-            run bash "$SCRIPT_DIR/scripts/extract_from_image.sh" "$SRC_ARG" "$STAGE" || die_with_fix "could not read the image." "needs e2fsprogs and fdisk, and free space about the image size." ;;
+            run bash "$SCRIPT_DIR/scripts/pull_from_board.sh" "$SRC_ARG" "$STAGE" || die_with_fix "could not read the old board." "check the IP, that it is on, and the password. Or use --from-github." ;;
         repo)
             FROM_FACTORY=1
             case "$MODEL" in ultra|ultra-s) ;; *) die_with_fix "unknown model '$MODEL'." "use --model ultra or --model ultra-s." ;; esac
             print_info "Using the factory files of the $MODEL in this repository (Klipper and Moonraker are GPL; see factory/README.md)."
             echo "  The repository includes WonderMaker's 5 compiled modules (heaters, load cells, calibration), checked against factory checksums."
             run bash "$SCRIPT_DIR/scripts/stage_from_repo.sh" "$MODEL" "$STAGE" $MODULES_DIR || die_with_fix "could not build the factory stage." "see the message above. A modules folder must hold the unmodified factory *.so files." ;;
-        stage)
+        stage)   # not documented: used by the tests
             [ -d "$SRC_ARG" ] || die_with_fix "stage folder not found: $SRC_ARG" "give the full path."
             STAGE="$SRC_ARG" ;;
     esac
     if [ "$FROM_FACTORY" = 1 ] && [ "$DRY" != 1 ] && [ "$(cat "$STAGE/modules_ok" 2>/dev/null)" != 1 ]; then
-        warn_later "WonderMaker's 5 compiled modules were NOT installed. Without them Klipper cannot start the heaters, load cells or calibration. Copy them (from your printer or image) into ~/klipper/klippy/extras/ before ./installer.sh --enable-klipper."
+        warn_later "WonderMaker's 5 compiled modules were NOT installed. Without them Klipper cannot start the heaters, load cells or calibration. Copy them (from your printer) into ~/klipper/klippy/extras/ before ./installer.sh --enable-klipper."
     fi
     if [ "$DRY" != 1 ]; then
         for f in klipper moonraker data; do
