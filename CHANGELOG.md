@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.13.17
+
+- Rescue window: it now fills the whole screen. On the board's own screen server there is no window manager, so the full-screen request was ignored and the window opened smaller than the screen. It now sets its size to the screen size.
+
 ## 0.13.16
 
 - Rescue window (screen board): every button now asks for a confirmation first (Restart KlipperScreen, Reboot board, Factory restore, Reset KlipperScreen settings, Reinstall KlipperScreen files). Factory restore, Reset settings and Reinstall show a progress bar with the current step (`STEP n/4` lines from `wm-screen-rescue act`); the end of a factory restore, while the board reboots, is an estimated bar. **Not yet tested on hardware**; the first rescue window test (manual open, 3 failed starts) worked.

@@ -14,7 +14,7 @@ import threading
 import gi
 
 gi.require_version("Gtk", "3.0")
-from gi.repository import GLib, Gtk  # noqa: E402
+from gi.repository import Gdk, GLib, Gtk  # noqa: E402
 
 CSS = b"""
 window, .page { background: #141a1f; }
@@ -43,7 +43,12 @@ class Rescue(Gtk.Window):
         self.env = dict(os.environ)
         if args.test:
             self.env["WM_RESCUE_DRY"] = "1"
-        self.fullscreen() if not args.test else self.set_default_size(800, 480)
+        if args.test:
+            self.set_default_size(800, 480)
+        else:       # the rescue screen server has no window manager, so fullscreen() is ignored: fill the screen by hand
+            scr = Gdk.Screen.get_default()
+            w, h = (scr.get_width(), scr.get_height()) if scr else (800, 480)
+            self.set_decorated(False); self.set_default_size(w, h); self.set_size_request(w, h); self.move(0, 0); self.resize(w, h)
         prov = Gtk.CssProvider(); prov.load_from_data(CSS)
         Gtk.StyleContext.add_provider_for_screen(self.get_screen(), prov, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
         self.stack = Gtk.Stack()
