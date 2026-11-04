@@ -10,7 +10,76 @@
 
 </div>
 
+> **Status:** tested with a fake home folder, on a fresh Raspberry Pi (install, doctor, Fluidd, Moonraker, Klipper loading the config) and on one WonderMaker screen board. **Not tested with the replacement main board or a printer yet.** Use at your own risk, see the [full disclaimer](#disclaimer-use-at-your-own-risk).
+
+## Quick start
+
+The idea: the Pi takes over the job of the dead screen/host board. You copy WonderMaker's own software and your settings to it once; after that the Pi runs everything.
+
+1. **Write the SD card** with Raspberry Pi Imager: *Raspberry Pi OS (Legacy, 64-bit) Lite* (Debian 12 Bookworm), username **`t13dp`**, SSH on, your Wi-Fi or a cable. Details in [2.1](#21-what-you-need).
+2. **Log in as `t13dp` and run the installer.** It asks which printer you have, then where the WonderMaker software comes from (the old board's address, or the factory files in this repository):
+
+   ```bash
+   sudo apt-get update && sudo apt-get install -y git
+   git clone https://github.com/ducati1198/wm-ultra-rpi.git && cd wm-ultra-rpi
+   chmod +x installer.sh && ./installer.sh
+   ```
+
+   *You should see:* a list of steps with a green tick each, then a self-test, then "next steps". It builds software, so let it finish.
+3. **Open `http://<pi address>/` in a browser.** *You should see Fluidd with the Toolheads card.* Until the main board is connected, Fluidd shows `ZRU-B001: Screen–Mainboard communication error`. That is expected.
+
+   ![Fluidd Toolheads card](docs/img/fluidd-toolheads-card.png)
+4. **When the replacement main board arrives:** connect the USB cable ([wiring](docs/WIRING.md)), power the printer and run `./installer.sh --first-start`. It checks the connection first and only then starts Klipper.
+
+Optional later: [use the old screen board as the touchscreen](#7-klipperscreen-on-the-wondermaker-screen-board-optional) or [add the ACE Pro panel and the OrcaSlicer plugin](#5-fluidd-web-panel-and-zr-tools).
+
+## Everyday cheat sheet
+
+Run these in `~/wm-ultra-rpi` on the Pi.
+
+| I want to... | Run | What happens to my data |
+|---|---|---|
+| **Check** that everything is fine | `./installer.sh --doctor` | Nothing changes unless you accept a fix |
+| **Update** to the latest version | `git pull && ./installer.sh --update` | Kept: `printer_data`, calibration, settings |
+| **Repair** a broken service, nginx or can0 rule | `./installer.sh --repair` | Kept |
+| **Back up** my settings | `./installer.sh --backup` | Saved to `~/wm-backups/` as a private `.tgz`. Copy it off the Pi. |
+| **Restore** a backup | `./installer.sh --restore FILE` | A safety copy is made first |
+| **Undo** the last install | `./installer.sh --undo` | Folders the installer moved aside come back (`~/wm-rpi-backup/`) |
+| **Uninstall** | `./installer.sh --uninstall` | Removes the services, nginx files and can0 rule it added. Your folders in `~` stay. |
+| **Preview** any of the above | add `--dry-run` | Nothing changes |
+| **Ask for help** | `./installer.sh --support-bundle` | One `.tgz` with passwords, tokens, Wi-Fi and private IPs removed |
+
+The full command list is in [3.4](#34-command-table). The installer **never flashes any board** and never writes to the old board.
+
+## How it works
+
+![How it works](docs/img/how-it-works.svg)
+
+1. The **main board stays in the printer**. It carries the USB-CAN bridge, and the toolheads and filament hub stay on its CAN bus.
+2. The **Pi replaces the old screen/host board**: it runs WonderMaker's own Klipper and Moonraker, so the printer behaves as before.
+3. **Fluidd** (the web page) is served by nginx on the Pi. Open it from a phone or computer on your network.
+4. The installer **copies the software and your settings once** from the old board (or from the factory files in this repository). After that the Pi does not need the old board.
+5. An **optional screen** (KlipperScreen on the Pi, or on the old screen board) shows the same ZR Tools pages as the old touchscreen.
+
+## If something goes wrong
+
+| What you see | What to do |
+|---|---|
+| Fluidd shows `ZRU-B001: Screen–Mainboard communication error` | Expected without the main board connected (section 4). |
+| Fluidd page shows 403 | `./installer.sh --doctor` and accept the home-folder fix. |
+| Fluidd shows "PolKit warnings detected" | `./installer.sh --repair` |
+| Not sure what is wrong | `./installer.sh --doctor`: it explains each problem and offers a fix. |
+| Asking someone for help | `./installer.sh --support-bundle` and send the `.tgz`. |
+
+More in [Troubleshooting](#9-troubleshooting).
+
+---
+
 ## Contents
+
+- [Quick start](#quick-start) · [Everyday cheat sheet](#everyday-cheat-sheet) · [How it works](#how-it-works) · [If something goes wrong](#if-something-goes-wrong)
+
+Details:
 
 1. [Disclaimer](#disclaimer-use-at-your-own-risk)
 2. [Hardware](#2-hardware)

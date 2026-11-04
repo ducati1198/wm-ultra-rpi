@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.13.13
+
+- README: new top part with a Quick start, an everyday cheat sheet (install, update, check, repair, backup, restore, undo, uninstall), a "How it works" diagram (`docs/img/how-it-works.svg`) and a short "If something goes wrong" table. The detailed sections are unchanged.
+
 ## 0.13.12
 
 - README fixes to match the installer: what was tested, PolicyKit and nginx home-folder steps in the table, pinned crowsnest/timelapse commits, what Fluidd shows without the main board, the screen-board `cd` step, three new troubleshooting rows, complete repository layout.

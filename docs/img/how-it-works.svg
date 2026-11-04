@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 840 400" width="840" height="400" font-family="Helvetica,Arial,sans-serif"><title>How the Raspberry Pi replacement works</title>
+<defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#94a3b8"/></marker></defs>
+<rect width="840" height="400" rx="14" fill="#0f172a"/>
+<text x="30" y="38" fill="#f1f5f9" font-size="20" font-weight="700">How it works</text>
+<!-- main board -->
+<rect x="30" y="80" width="200" height="130" rx="10" fill="#1e293b" stroke="#64748b" stroke-width="2"/>
+<text x="130" y="108" text-anchor="middle" fill="#f1f5f9" font-size="15" font-weight="700">Main board</text>
+<text x="130" y="130" text-anchor="middle" fill="#94a3b8" font-size="12">stays in the printer</text>
+<text x="130" y="158" text-anchor="middle" fill="#cbd5e1" font-size="12">USB-CAN bridge</text>
+<text x="130" y="178" text-anchor="middle" fill="#cbd5e1" font-size="12">heaters, motors, sensors</text>
+<rect x="30" y="250" width="200" height="110" rx="10" fill="#1e293b" stroke="#64748b" stroke-width="2"/>
+<text x="130" y="278" text-anchor="middle" fill="#f1f5f9" font-size="15" font-weight="700">Toolheads + hub</text>
+<text x="130" y="300" text-anchor="middle" fill="#94a3b8" font-size="12">on the CAN bus, untouched</text>
+<line x1="130" y1="210" x2="130" y2="250" stroke="#94a3b8" stroke-width="2" marker-end="url(#a)" marker-start="url(#a)"/>
+<text x="140" y="235" fill="#94a3b8" font-size="11">CAN</text>
+<!-- pi -->
+<rect x="330" y="60" width="250" height="300" rx="10" fill="#14352a" stroke="#22c55e" stroke-width="2"/>
+<text x="455" y="88" text-anchor="middle" fill="#f1f5f9" font-size="15" font-weight="700">Raspberry Pi (new)</text>
+<text x="455" y="107" text-anchor="middle" fill="#86efac" font-size="12">installed by ./installer.sh</text>
+<rect x="350" y="122" width="210" height="44" rx="6" fill="#0f172a"/><text x="455" y="149" text-anchor="middle" fill="#e2e8f0" font-size="13">Klipper: moves the printer</text>
+<rect x="350" y="176" width="210" height="44" rx="6" fill="#0f172a"/><text x="455" y="203" text-anchor="middle" fill="#e2e8f0" font-size="13">Moonraker: the API</text>
+<rect x="350" y="230" width="210" height="44" rx="6" fill="#0f172a"/><text x="455" y="257" text-anchor="middle" fill="#e2e8f0" font-size="13">nginx + Fluidd: the web page</text>
+<rect x="350" y="284" width="210" height="44" rx="6" fill="#0f172a" stroke="#475569" stroke-dasharray="4 3"/><text x="455" y="311" text-anchor="middle" fill="#94a3b8" font-size="13">KlipperScreen (optional)</text>
+<line x1="230" y1="145" x2="330" y2="145" stroke="#94a3b8" stroke-width="2" marker-end="url(#a)" marker-start="url(#a)"/>
+<text x="280" y="137" text-anchor="middle" fill="#94a3b8" font-size="11">USB</text>
+<!-- clients -->
+<rect x="650" y="80" width="170" height="90" rx="10" fill="#1e293b" stroke="#64748b" stroke-width="2"/>
+<text x="735" y="110" text-anchor="middle" fill="#f1f5f9" font-size="15" font-weight="700">Phone / computer</text>
+<text x="735" y="132" text-anchor="middle" fill="#cbd5e1" font-size="12">opens http://&lt;pi address&gt;/</text>
+<text x="735" y="150" text-anchor="middle" fill="#94a3b8" font-size="12">(Fluidd)</text>
+<rect x="650" y="230" width="170" height="90" rx="10" fill="#1e293b" stroke="#64748b" stroke-dasharray="4 3" stroke-width="2"/>
+<text x="735" y="260" text-anchor="middle" fill="#f1f5f9" font-size="15" font-weight="700">Old screen board</text>
+<text x="735" y="282" text-anchor="middle" fill="#cbd5e1" font-size="12">optional screen</text>
+<text x="735" y="300" text-anchor="middle" fill="#94a3b8" font-size="12">(section 7)</text>
+<line x1="580" y1="245" x2="650" y2="125" stroke="#94a3b8" stroke-width="2" marker-end="url(#a)" marker-start="url(#a)"/>
+<line x1="580" y1="300" x2="650" y2="275" stroke="#94a3b8" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#a)" marker-start="url(#a)"/>
+<text x="618" y="200" fill="#94a3b8" font-size="11">Wi-Fi / LAN</text>
+<text x="30" y="388" fill="#64748b" font-size="11">Your calibration and settings are copied from the old board once; after that the Pi is on its own.</text>
+</svg>
