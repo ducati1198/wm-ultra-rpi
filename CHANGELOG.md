@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.13.18
+
+- README: the USB flag (`WM-FACTORY` / `WM-RESCUE`) is marked as not tested on hardware. On the one board tested, the USB-A port detected no stick at all (several sticks, kernel error -32 while reading the device descriptor; the board's internal USB hub showed the same error on another port at boot), so only the automated tests cover it. The rescue window (manual, after 3 failed starts, with confirmations and progress bars) was tested on the board.
+
 ## 0.13.17
 
 - Rescue window: it now fills the whole screen. On the board's own screen server there is no window manager, so the full-screen request was ignored and the window opened smaller than the screen. It now sets its size to the screen size.
