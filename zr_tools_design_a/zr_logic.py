@@ -5,7 +5,7 @@ import configparser
 import os
 
 SETTINGS_FILE = os.path.expanduser("~/printer_data/config/zr_screen.conf")
-DEFAULTS = {"layout": "tabs", "density": "auto", "theme": "dark", "style": "soft"}
+DEFAULTS = {"layout": "tabs", "density": "comfortable", "theme": "dark", "style": "soft"}
 LAYOUTS = ("tabs", "grid")          # C (big touch, tabs) and A (card grid)
 DENSITIES = ("auto", "compact", "comfortable")
 THEMES = ("dark", "light")
@@ -356,7 +356,7 @@ def build_css(theme, style, density="compact"):
     .zr_card { border: 2px solid %(edge)s; border-radius: %(r)dpx; background-image: none; background-color: %(card)s; color: %(text)s; }
     .zr_active { border: 2px solid %(acc)s; background-color: %(card_on)s; }
     .zr_swatch { border: 2px solid %(dot_edge)s; border-radius: %(sr)dpx; }
-    .zr_dot { border: 2px solid %(edge)s; border-radius: 28px; }
+    .zr_dot { border: 2px solid %(edge)s; border-radius: 32px; }
     .zr_dot_on { border: 5px solid %(acc)s; }
     .zr_chip { border-radius: %(r)dpx; background-image: none; background-color: %(card)s; color: %(text)s; border: 2px solid %(edge)s; }
     .zr_chip_on { background-color: %(acc)s; color: #ffffff; border-color: %(acc)s; }

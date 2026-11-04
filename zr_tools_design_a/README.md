@@ -7,6 +7,8 @@ with a spool card on the left and a 3x3 grid of big actions on the right.
 **This is not installed by any script.** `install_zr_tools.sh` and `scripts/screen_board.sh` still use the
 files in `zr_tools/`. This folder only keeps the work for a future update.
 
+The default size is now Comfortable (big touch targets), also on the 800x480 screen. The Edit filament page shows the colour first, then the material; the colour preview and dots are larger.
+
 Tested on the WonderMaker screen board (800x480) with a simulated Klipper (the screenshots below).
 Not yet tested on hardware with a real printer, on a 7 inch (1024x600) screen, or with the other
 Screen settings options (card grid, light theme, flat/bold/classic looks).
@@ -19,9 +21,9 @@ Back up the old files first.
 |---|---|
 | ![Toolheads](img/toolheads.png) | ![Toolhead detail](img/tool-detail.png) |
 | ![Edit filament](img/edit-filament.png) | ![Colour picker](img/colour-picker.png) |
-| ![Custom colour](img/custom-colour.png) | ![Climate](img/climate.png) |
-| ![Calibrate](img/calibrate.png) | ![ACE Pro](img/ace.png) |
-| ![More](img/more.png) | ![Tool mapping](img/mapping.png) |
-| ![Screen settings](img/screen-settings.png) | ![System](img/system.png) |
+| ![Climate](img/climate.png) | ![Calibrate](img/calibrate.png) |
+| ![ACE Pro](img/ace.png) | ![More](img/more.png) |
+| ![Tool mapping](img/mapping.png) | ![Screen settings](img/screen-settings.png) |
+| ![System](img/system.png) | |
 
 The ACE Pro page shows "no data" because the simulated Klipper had no ACE state.

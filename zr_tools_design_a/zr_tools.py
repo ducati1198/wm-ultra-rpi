@@ -691,7 +691,7 @@ class Panel(ViewsMixin, ScreenPanel):
             btn.connect("clicked", lambda _w, f=cb: f(i))
             actions.attach(btn, n % 3, n // 3, 1, 1)
         edit_btn = self._button("fine-tune", "Edit filament", "color3", self.show_tool_edit, i)
-        edit_btn.set_size_request(-1, self.sz["btn_h"])
+        edit_btn.set_size_request(-1, int(self.sz["btn_h"] * 1.7))
         actions.attach(edit_btn, 0, 2, 3, 1)
         page.pack_start(actions, True, True, 0)
 
@@ -712,27 +712,12 @@ class Panel(ViewsMixin, ScreenPanel):
         page.set_margin_end(10)
 
         prev_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
-        self.w["e_swatch"] = self._swatch(56, 56)
+        self.w["e_swatch"] = self._swatch(84, 84)
         prev_row.pack_start(self.w["e_swatch"], False, False, 0)
         self.w["e_desc"] = self._label()
         self.w["e_desc"].set_halign(Gtk.Align.START)
         prev_row.pack_start(self.w["e_desc"], True, True, 0)
         page.pack_start(prev_row, False, False, 0)
-
-        page.pack_start(self._section("Material"), False, False, 0)
-        mats = Gtk.Grid()
-        mats.set_row_spacing(6)
-        mats.set_column_spacing(6)
-        mats.set_column_homogeneous(True)
-        self.w["chips"] = {}
-        for n, (name, _t) in enumerate(MATERIALS):
-            chip = Gtk.Button(label=name)
-            chip.get_style_context().add_class("zr_chip")
-            chip.set_size_request(-1, self.sz["btn_h"] - 4)
-            chip.connect("clicked", lambda _w, idx=n: self._pick_material(idx))
-            mats.attach(chip, n % 4, n // 4, 1, 1)
-            self.w["chips"][n] = chip
-        page.pack_start(mats, False, False, 0)
 
         page.pack_start(self._section("Colour"), False, False, 0)
         dots = Gtk.Grid()
@@ -742,7 +727,7 @@ class Panel(ViewsMixin, ScreenPanel):
         self.w["dots"] = {}
         for n, (name, col) in enumerate(COLOR_PRESETS):
             dot = Gtk.EventBox()
-            dot.set_size_request(56, 56)
+            dot.set_size_request(64, 64)
             dot.set_halign(Gtk.Align.CENTER)
             dot.get_style_context().add_class("zr_dot")
             self._set_swatch(dot, col)
@@ -771,6 +756,21 @@ class Panel(ViewsMixin, ScreenPanel):
             self.w["sliders"].append(sc)
             rgb_box.pack_start(srow, False, False, 0)
         page.pack_start(rgb_box, False, False, 0)
+
+        page.pack_start(self._section("Material"), False, False, 0)
+        mats = Gtk.Grid()
+        mats.set_row_spacing(6)
+        mats.set_column_spacing(6)
+        mats.set_column_homogeneous(True)
+        self.w["chips"] = {}
+        for n, (name, _t) in enumerate(MATERIALS):
+            chip = Gtk.Button(label=name)
+            chip.get_style_context().add_class("zr_chip")
+            chip.set_size_request(-1, self.sz["btn_h"] - 4)
+            chip.connect("clicked", lambda _w, idx=n: self._pick_material(idx))
+            mats.attach(chip, n % 4, n // 4, 1, 1)
+            self.w["chips"][n] = chip
+        page.pack_start(mats, False, False, 0)
 
         page.pack_start(self._section("Nozzle temperature"), False, False, 0)
         page.pack_start(self._stepper_row("temp", "Temp", -5, 5), False, False, 0)
@@ -948,7 +948,7 @@ class Panel(ViewsMixin, ScreenPanel):
             grid.attach(self._label(f"Slicer T{t}  ->"), 0, t, 1, 1)
             for h in range(NTOOLS):
                 b = Gtk.Button(label=f"Head {h + 1}")
-                b.set_size_request(-1, self.sz["btn_h"])
+                b.set_size_request(-1, min(self.sz["btn_h"], 42))
                 b.connect("clicked", lambda _w, tt=t, hh=h: self._map(tt, hh))
                 grid.attach(b, 1 + h, t, 1, 1)
                 self.w["map_btns"][(t, h)] = b
@@ -958,7 +958,7 @@ class Panel(ViewsMixin, ScreenPanel):
             self.w["map_sw"][t] = sw
         self.root.pack_start(grid, False, False, 0)
         reset = self._button("refresh", "Reset 1:1", "color3", self._map_reset)
-        reset.set_size_request(-1, self.sz["btn_h"])
+        reset.set_size_request(-1, min(self.sz["btn_h"], 42))
         self.root.pack_start(reset, False, False, 0)
         self.root.show_all()
         self._refresh_view()
