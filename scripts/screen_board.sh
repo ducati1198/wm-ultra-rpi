@@ -33,6 +33,16 @@ STAMP="$(date +%Y%m%d-%H%M%S)"
 # Services stopped and disabled, in this order (restore starts them in reverse order). Only those that exist are touched.
 SERVICES=(makerbase-client klipper moonraker nginx crowsnest makerbase-webcam janus klipper-mcu hostapd moonraker-obico octoapp)
 XDIR="/etc/X11/xorg.conf.d"
+# The factory board's service state, used when ~/wm-screen-backup/disabled.list is missing (so a restore can never leave the board stuck).
+# Same 8 services as on a factory WM-ZR-M board. Keep identical to FACTORY_DEFAULT in screen_rescue/wm-screen-rescue (a test checks it).
+FACTORY_DEFAULT="makerbase-client enabled active
+klipper disabled active
+moonraker enabled active
+nginx enabled active
+crowsnest enabled inactive
+makerbase-webcam enabled inactive
+klipper-mcu enabled active
+hostapd disabled inactive"
 declare -a WARNINGS=()
 
 print_header()  { echo -e "\n${BLUE}── $1 ──────────────────────────────────────────${NC}"; }
@@ -480,6 +490,7 @@ remove_klipperscreen() {
 
 do_uninstall() {   # removing KlipperScreen must never leave the screen black: the factory services come back too
     if [ -f "$BK/disabled.list" ]; then do_restore; return; fi
+    if [ -d "$KS_DIR" ] || [ -f /etc/systemd/system/KlipperScreen.service ]; then do_restore; return; fi   # no saved list: the built-in factory list is used
     [ -d "$KS_DIR" ] || [ -f /etc/systemd/system/KlipperScreen.service ] || [ "$TESTING" = 1 ] || die_with_fix "KlipperScreen is not installed here." "nothing to remove."
     print_warning "No saved service list found: only KlipperScreen is removed. Enable the factory services by hand if the screen stays black."
     ask_yn "Continue?" n || exit 0
@@ -492,7 +503,10 @@ do_restore() {
         exec systemd-run --no-block --unit=wm-factory-restore-run "$(readlink -f "$0")" $args
     fi
     print_header "Back to the WonderMaker factory software"
-    [ -f "$BK/disabled.list" ] || die_with_fix "no saved service list ($BK/disabled.list)." "enable the factory services by hand: sudo systemctl enable --now makerbase-client moonraker klipper nginx"
+    if [ ! -s "$BK/disabled.list" ]; then
+        print_warning "No saved service list ($BK/disabled.list): using the built-in list of the factory services."
+        if [ "$DRY" != 1 ]; then mkdir -p "$BK"; printf '%s\n' "$FACTORY_DEFAULT" > "$BK/disabled.list"; fi
+    fi
     ask_yn "Remove KlipperScreen, turn the factory services back on and reboot?" y || exit 0
     remove_klipperscreen
     print_header "Turning the factory services back on"

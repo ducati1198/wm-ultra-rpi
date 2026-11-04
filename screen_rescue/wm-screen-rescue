@@ -24,6 +24,15 @@ KS_DIR="$HOME_DIR/KlipperScreen"
 LOG="${WM_RESCUE_LOG:-/var/log/wm-screen-rescue.log}"
 DRY="${WM_RESCUE_DRY:-0}"
 FACTORY_BIN="${WM_FACTORY_BIN:-/usr/local/sbin/wm-factory-restore}"
+# Factory board service state, used when the saved list is missing. Keep identical to FACTORY_DEFAULT in scripts/screen_board.sh.
+FACTORY_DEFAULT="makerbase-client enabled active
+klipper disabled active
+moonraker enabled active
+nginx enabled active
+crowsnest enabled inactive
+makerbase-webcam enabled inactive
+klipper-mcu enabled active
+hostapd disabled inactive"
 SNAP="$BK/rescue-snapshots"
 STAMP="$(date +%Y%m%d-%H%M%S)"
 REASON_FILE="${WM_RESCUE_REASON_FILE:-/run/wm-rescue.reason}"
@@ -32,10 +41,23 @@ log() { echo "$(date '+%F %T') $*" >> "$LOG" 2>/dev/null; }
 doit() { if [ "$DRY" = 1 ]; then log "[dry] would run: $*"; echo "[test mode] would run: $*"; else "$@"; fi; }
 
 # ------------------------------------------------------------------ helpers
-backup_ok() {   # a factory restore needs the saved service list and the restore script
-    [ -s "$BK/disabled.list" ] || { echo "No saved service list ($BK/disabled.list): factory restore refused."; return 1; }
-    [ -x "$FACTORY_BIN" ] || [ "${WM_RESCUE_TEST:-0}" = 1 ] || { echo "$FACTORY_BIN is missing: factory restore refused."; return 1; }
-    return 0
+factory_list() {   # the saved list, or the built-in one when it is missing: a restore must never leave the board stuck
+    if [ -s "$BK/disabled.list" ]; then cat "$BK/disabled.list"; else printf '%s\n' "$FACTORY_DEFAULT"; fi
+}
+backup_note() { [ -s "$BK/disabled.list" ] && echo "Saved service list found." || echo "No saved service list: using the built-in list of the 8 factory services."; }
+factory_restore() {   # normal path: the installed restore script; if it is gone, do the same steps here
+    log "factory restore: $(backup_note)"
+    if [ -x "$FACTORY_BIN" ]; then doit "$FACTORY_BIN" --factory-restore --yes --detach; return; fi
+    log "factory restore: $FACTORY_BIN missing, restoring the services directly"
+    doit systemctl stop KlipperScreen wm-screen-rescue.service; doit systemctl disable KlipperScreen
+    doit rm -f /etc/systemd/system/KlipperScreen.service; doit systemctl daemon-reload
+    local u e a lines=() i
+    while read -r u e a; do [ -n "$u" ] && lines+=("$u $e $a"); done < <(factory_list)
+    for (( i=${#lines[@]}-1; i>=0; i-- )); do
+        read -r u e a <<<"${lines[$i]}"; systemctl cat "$u.service" >/dev/null 2>&1 || [ "$DRY" = 1 ] || continue
+        [ "$e" = enabled ] && doit systemctl enable "$u"
+    done
+    doit systemctl reboot
 }
 pi_host() { grep -E '^moonraker_host:' "$CFG_DIR/KlipperScreen.conf" 2>/dev/null | head -1 | sed 's/^moonraker_host:[[:space:]]*//'; }
 snapshot_config() {   # keep the Pi address and the ZR Tools settings, so a later reinstall can reuse them
@@ -56,9 +78,8 @@ act() {
         reboot) log "action: reboot"; doit systemctl reboot ;;
         factory)
             log "action: factory restore"
-            backup_ok || { log "factory restore refused"; exit 3; }
-            snapshot_config
-            doit "$FACTORY_BIN" --factory-restore --yes --detach
+            backup_note; snapshot_config
+            factory_restore
             echo "Restoring the factory software. The board reboots by itself." ;;
         reset-settings)
             log "action: reset KlipperScreen settings"
@@ -116,11 +137,9 @@ usb_handle() {   # $1 = folder of the mounted stick
     if flag="$(usb_flag "$d" WM-FACTORY)"; then
         log "USB: WM-FACTORY found"
         {   echo "WM-FACTORY on the stick, $(date '+%F %T')"
-            if backup_ok >> "$rep" 2>&1; then echo "Saved service list found: factory restore starts now."; else echo "Restore NOT started (see above)."; fi
+            backup_note; echo "The factory restore starts now."
         } >> "$rep"
-        grep -q "NOT started" "$rep" && local refused=1 || local refused=0
         mv -f "$flag" "$flag.done" 2>/dev/null; sync    # renamed first: a failed restore must never loop
-        [ "$refused" = 1 ] && { log "USB: restore refused"; return 0; }
         snapshot_config >> "$rep" 2>&1
         return 10      # the caller unmounts the stick, then runs the restore
     fi
@@ -149,7 +168,7 @@ usb_check() {
         done
     fi
     case $result in
-        10) log "USB: starting the factory restore"; doit "$FACTORY_BIN" --factory-restore --yes --detach ;;
+        10) log "USB: starting the factory restore"; factory_restore ;;
         11) log "USB: opening the rescue window"; echo usb > "$REASON_FILE"; doit systemctl start --no-block wm-screen-rescue.service ;;
     esac
     return 0
