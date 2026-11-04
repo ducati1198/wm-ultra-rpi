@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.13.12
+
+- README fixes to match the installer: what was tested, PolicyKit and nginx home-folder steps in the table, pinned crowsnest/timelapse commits, what Fluidd shows without the main board, the screen-board `cd` step, three new troubleshooting rows, complete repository layout.
+- `.gitignore` now ignores `__pycache__`; the committed `.pyc` files are removed from git.
+
 ## 0.13.11
 
 - Removed the "disk image" and "stage folder" sources from the installer (`--from-image`, `--from-stage`, menu options 2 and 3) and the script `scripts/extract_from_image.sh`. The two sources left are the old board over SSH and the factory files in this repository. (`--from-stage` still exists, undocumented, for the tests.)

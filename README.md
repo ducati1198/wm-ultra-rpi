@@ -26,7 +26,7 @@
 
 ## Disclaimer (use at your own risk)
 
-This is a community project, not made or supported by WonderMaker. It is provided "as is", without warranty. **It has been tested only with a fake home folder, not yet on a real printer**: the author is waiting for a replacement main board. Please report what works and what does not.
+This is a community project, not made or supported by WonderMaker. It is provided "as is", without warranty. **It has been tested with a fake home folder, on a fresh Raspberry Pi OS Bookworm Pi (install, `--doctor`, Fluidd, Moonraker, Klipper loading the config) and on one WonderMaker screen board (section 7). It has not been tested with the replacement main board or a printer**: the author is waiting for the main board. Please report what works and what does not.
 
 The installer never flashes any board and never starts Klipper unless you ask for it. You still work on a printer with mains power and heaters: you are responsible for what you connect and run.
 
@@ -114,12 +114,13 @@ The installer first asks **which printer you have** (ZR Ultra or ZR Ultra-S; or 
 | Unpack | `klipper`, `moonraker`, `printer_data`, `fluidd`, factory settings into `~`. Anything already there is moved to `~/wm-rpi-backup/old-<time>/` |
 | Environments | `klippy-env` and `moonraker-env` built from `config/klippy-requirements.txt` and `config/moonraker-requirements.txt` (exact versions of WonderMaker's image). The environments themselves are not stored in git: they are machine-built folders, so they are rebuilt on the Pi |
 | Module check | tries to import the 10 compiled WonderMaker modules and tells you if one fails |
-| Services | `moonraker.service` enabled; `klipper.service` installed but **disabled and stopped** |
-| nginx | Fluidd on port 80 with the websocket, API and webcam routes |
+| Services | `moonraker.service` enabled; `klipper.service` installed but **disabled and stopped** while the install runs (the last step enables and starts it, see 3.3) |
+| PolicyKit | installs Moonraker's PolicyKit rule (its own script), so Fluidd can start, stop and restart Klipper, crowsnest and KlipperScreen. Without it Fluidd shows "PolKit warnings detected" |
+| nginx | Fluidd on port 80 with the websocket, API and webcam routes. Also lets nginx pass through your home folder (`chmod o+x ~`, Debian 12 makes it private, which gives a 403) |
 | CAN rule | brings `can0` up at 1 Mbit when the main board appears |
 | Fluidd panel | optional, see 5. The panel is **downloaded from [wm-ultra-fluidd-acepro-panel](https://github.com/ducati1198/wm-ultra-fluidd-acepro-panel) every time** (so you always get its latest), checked against the checksum published next to it. It needs internet (no copy is kept in this repo); if the download fails the web page is skipped with a warning and `--update` retries. `--update` installs a newer panel when there is one |
-| Timelapse | `ffmpeg` and `moonraker-timelapse` (latest release; it is the same version WonderMaker ships), downloaded from mainsail-crew on GitHub |
-| Webcams | `crowsnest` v5.0.12 (latest release; WonderMaker ships a 2023 version), installed unattended (builds `ustreamer`); your camera goes in `~/printer_data/config/crowsnest.conf` |
+| Timelapse | `ffmpeg` and `moonraker-timelapse` at a pinned commit (see `config/pins/addons.txt`), downloaded from mainsail-crew on GitHub and checked |
+| Webcams | `crowsnest` at a pinned commit (see `config/pins/addons.txt`), installed unattended (builds `ustreamer`); your camera goes in `~/printer_data/config/crowsnest.conf` |
 
 ### 3.3 Safety checks
 
@@ -156,7 +157,7 @@ The installer first asks **which printer you have** (ZR Ultra or ZR Ultra-S; or 
 
 ### 3.5 Open Fluidd
 
-After the install, open `http://<pi address>/`. Fluidd shows "Klippy disconnected" until Klipper runs. That is expected.
+After the install, open `http://<pi address>/`. Without the main board, Klipper starts but cannot reach it, so Fluidd shows an error such as `mcu 'mcu': ZRU-B001: Screen–Mainboard communication error`. That is expected until the main board is connected (section 4).
 
 ## 4. When the main board is connected
 
@@ -307,10 +308,9 @@ git clone https://github.com/ducati1198/wm-ultra-rpi && cd wm-ultra-rpi
 
 If you cloned it before, a `git clone` copy does **not** update by itself: run `cd wm-ultra-rpi && git pull` first (or delete the folder and clone again). With Option A, delete the old `wm-ultra-rpi-main` folder before downloading again.
 
-Then, cd wm-ultra-rpi and with either option:
+Then, inside the folder you just downloaded (you are already in it after Option A or B), run:
 
 ```bash
-cd wm-ultra-rpi
 bash scripts/screen_board.sh --dry-run     # shows every change, changes nothing (it asks for the Pi's IP address)
 bash scripts/screen_board.sh               # asks for your Pi's IP address, then installs
 ```
@@ -372,6 +372,9 @@ On the Pi, `./installer.sh --screen-remove` removes KlipperScreen again (Klipper
 | Fluidd blank / old page | Hard-refresh (Ctrl/Cmd+Shift+R). Check `sudo nginx -t` and `systemctl status nginx`. |
 | No picture from the camera | `ls /dev/v4l/by-id/`, put that path on the `device:` line of `~/printer_data/config/crowsnest.conf`, `sudo systemctl restart crowsnest` |
 | Moonraker does not answer | `journalctl -u moonraker -n 50` |
+| Fluidd page shows 403 Forbidden | nginx cannot read your home folder (Debian 12 makes it private). `chmod o+x ~ && sudo systemctl reload nginx`, or `./installer.sh --doctor` and accept the fix. |
+| Fluidd says "PolKit warnings detected" | Moonraker lacks its PolicyKit rule: `./installer.sh --repair` installs it. |
+| Fluidd says `mcu 'mcu': ZRU-B001: Screen–Mainboard communication error` | Expected while the main board is not connected: Klipper cannot reach it over CAN. Connect it (section 4). |
 | No `can0` | Main board not powered or not on USB. `lsusb` should show `1d50:606f`. |
 | Klipper "mcu ... uuid" error | New board, new `canbus_uuid` (see 4). |
 | Screen board: `apt-get update` fails | Fix the clock and apt first (the block at the start of section 7). |
@@ -384,11 +387,11 @@ On the Pi, `./installer.sh --screen-remove` removes KlipperScreen again (Klipper
 installer.sh            the Pi installer
 factory/ultra/          WonderMaker ZR Ultra: Klipper, Moonraker, settings, scripts, checksums
 factory/ultra-s/        WonderMaker ZR Ultra-S: same, with the chamber/air-filter/door settings on
-scripts/                pull_from_board.sh, stage_from_repo.sh, board_check.sh
+scripts/                pull_from_board.sh, stage_from_repo.sh, board_check.sh, screen_board.sh (+ _inspect, _precheck, _preflight_mac) for the screen board
 config/                 systemd units, nginx files, can0 udev rule, pinned Python requirements, crowsnest template, addon version pins
 zr_tools/               ZR Tools KlipperScreen panel (copied by the installer)
-docs/                   HARDWARE.md and images
-tests/run_tests.sh      tests (fake home)
+docs/                   HARDWARE.md, WIRING.md and images
+tests/                  run_tests.sh (installer, fake home) and test_screen.py (ZR Tools panel)
 ```
 
 `factory/` holds WonderMaker's Klipper and Moonraker (GPL), the factory settings, helper scripts, and their compiled modules and MCU firmware (WonderMaker's binaries, see [factory/README.md](factory/README.md)). Your own calibration is not in the repository.
