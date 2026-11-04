@@ -32,7 +32,7 @@ Touchscreen replacement, webcams (the nginx routes for four mjpg-streamer camera
 ## Screen board display and touch (from photos of the panel's back)
 
 - Touch controller: **Goodix GT911** on a 6-pin flex (1 VDD, 2 SCL, 3 SDA, 4 RST, 5 INT, 6 GND), flex marked `YZ-GG500890`. It is an **I2C** touch panel (not USB), driven by the board's own kernel (`goodix` driver).
-- LCD flex marked `INANBO-T50CRCBHi-V12`: a 5.0 inch module, so ZR Tools uses the compact size.
+- LCD flex marked `INANBO-T50CRCBHi-V12`: a 5.0 inch module. ZR Tools uses the Comfortable size by default; Compact is on the Screen settings page.
 - The display and touch are wired to the screen board (WM-ZR-M), so they only work when that board runs KlipperScreen itself. They cannot be plugged into a Raspberry Pi as a USB screen.
 
 ### What the factory screen board runs (read from the factory image, not from a live board)

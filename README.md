@@ -313,24 +313,28 @@ The installer asks **"Add a touchscreen?"** (default yes). Skip it with `--scree
 
 What it does: installs [KlipperScreen](https://github.com/KlipperScreen/KlipperScreen) pinned to one tested commit (`34610ce`, so a later upstream change cannot break it), copies the ZR Tools panel into it, adds the helper macros (`zr_tools.cfg`) to `printer.cfg` and enables the `KlipperScreen` service. KlipperScreen's own home screen and menus stay as they are; ZR Tools is one extra menu entry.
 
-The screen is detected for you: size from the video output (800x480 and smaller screens use compact buttons, 1024x600 and larger use comfortable ones) and the touch device through udev. On a 5 inch and a 7 inch screen both layouts work.
+The screen is detected for you (the video output and the touch device through udev). The default size is **Comfortable** (big touch buttons); on the Settings page you can pick Compact, or Auto (compact below 900 px wide, comfortable above). On a 5 inch and a 7 inch screen both layouts work.
 
-**ZR Tools pages:** Toolheads (select, heat, load, unload, purge, colour, material), Filament, Climate (chamber, air filter), Calibrate (only the macros that exist on your printer: Z and XY offsets, bed mesh, PID, wipe position, input shaper via the accelerometer), **ACE Pro** (only when an ACE Pro is present: slots, load/unload, feed assist, dryer presets, endless spool), More (collision detection settings, **read-only**; timelapse; restart; system page with Pi temperature, power flags, can0, Klipper state and a backup button) and Settings. Fan, Z offset, pressure advance and camera use KlipperScreen's own pages. The emergency stop is KlipperScreen's own button, shown while printing.
+**ZR Tools pages:** Toolheads (select, heat, load, unload, purge, colour, material), Filament, Climate (chamber, air filter), Calibrate (only the macros that exist on your printer: Z and XY offsets, bed mesh, PID, wipe position, input shaper via the accelerometer), **ACE Pro** (only when an ACE Pro is present: slots, load/unload, feed assist, dryer presets, endless spool), More (collision detection settings, **read-only**; timelapse; restart; system page with Pi temperature, power flags, can0, Klipper state, the Fluidd address (the one entered under Pi address) and a backup button) and Settings. Fan, Z offset, pressure advance and camera use KlipperScreen's own pages. The emergency stop is KlipperScreen's own button, shown while printing.
 
-**Settings page:** layout (tabs/grid), density (auto/compact/comfortable) and light/dark theme. They are stored in `~/printer_data/config/zr_screen.conf` (not in KlipperScreen's own settings). You can also change the layout with `./installer.sh --screen-layout grid`.
+**Settings page:** layout (tabs/grid), size (auto/compact/comfortable, default comfortable) and light/dark theme. They are stored in `~/printer_data/config/zr_screen.conf` (not in KlipperScreen's own settings). You can also change the layout with `./installer.sh --screen-layout grid`.
 
-**What it looks like** (real captures from the WonderMaker screen board, 800x480, layout `tabs`, with demo data: temperatures, colours and ACE slots are made up):
+**What it looks like** (real captures from the WonderMaker screen board, 800x480, layout `tabs`, size Comfortable, with demo data: temperatures, colours and ACE slots are made up):
 
 | | |
 |---|---|
 | ![Toolheads](docs/img/screen-toolheads.png) | ![Filament](docs/img/screen-filament.png) |
-| Toolheads: colour, material, temperature and which slicer tool prints on each head | Filament: select, heat, load, unload and purge one head |
-| ![Climate](docs/img/screen-climate.png) | ![Utilities](docs/img/screen-utilities.png) |
-| Climate: chamber, air filter, doors | Utilities: home, offsets, wipe, park, motors off |
+| Toolheads: tall cards with status, spool colour, material and temperature | One toolhead: select, heat, cool, load, unload, purge, edit filament |
+| ![Edit filament](docs/img/screen-edit.png) | ![Colour picker](docs/img/screen-colour.png) |
+| Edit filament: colour first, then material and temperature | The colour dots and a custom colour |
+| ![Climate](docs/img/screen-climate.png) | ![Calibrate](docs/img/screen-utilities.png) |
+| Climate: chamber, air filter, doors | Calibrate: home, offsets, wipe, park, motors off |
 | ![ACE Pro](docs/img/screen-ace.png) | ![More](docs/img/screen-more.png) |
-| ACE Pro page (only shown when an ACE Pro is present) | More: ACE Pro, fans, pressure advance, camera, system, screen settings |
-| ![Screen settings](docs/img/screen-settings.png) | ![Tool mapping](docs/img/screen-mapping.png) |
-| Screen settings: layout, size, colours | Tool mapping: which head prints each slicer tool |
+| ACE Pro page (only shown when an ACE Pro is present) | More: ACE Pro, toolhead choice, fans, pressure advance, camera, system, screen settings |
+| ![Tool mapping](docs/img/screen-mapping.png) | ![System](docs/img/screen-system.png) |
+| Tool mapping: which head prints each slicer tool | System: Pi temperature, Fluidd address from "Pi address", factory mode, reboot |
+| ![Screen settings](docs/img/screen-settings.png) | |
+| Screen settings: layout, size, colours | |
 
 The `grid` layout shows the same pages as cards instead of tabs; it has not been photographed yet.
 

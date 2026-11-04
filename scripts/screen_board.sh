@@ -254,7 +254,7 @@ write_ks_conf() {
     local f="$CFG_DIR/KlipperScreen.conf"; [ -f "$f" ] && [ ! -f "$BK/KlipperScreen.conf.orig" ] && cp "$f" "$BK/KlipperScreen.conf.orig"
     cat > "$f" <<E
 # Written by wm-ultra-rpi scripts/screen_board.sh (the Pi runs Klipper and Moonraker)
-[printer wmpi]
+[printer WonderMaker]
 moonraker_host: $PI_HOST
 moonraker_port: 7125
 
@@ -273,7 +273,7 @@ name: Pi address
 icon: network
 panel: pi_address
 E
-    [ -f "$CFG_DIR/zr_screen.conf" ] || printf '# Written by screen_board.sh and the ZR Tools Settings page\n[screen]\nlayout = tabs\ndensity = compact\ntheme = dark\n' > "$CFG_DIR/zr_screen.conf"
+    [ -f "$CFG_DIR/zr_screen.conf" ] || printf '# Written by screen_board.sh and the ZR Tools Settings page\n[screen]\nlayout = tabs\ndensity = comfortable\ntheme = dark\n' > "$CFG_DIR/zr_screen.conf"
 }
 
 # The board's kernel has no virtual console (/dev/tty0), so stock KlipperScreen cannot start. Verified on the board (Nov 3, 2026):

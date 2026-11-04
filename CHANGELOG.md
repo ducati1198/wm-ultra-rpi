@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.13.15
+
+- ZR Tools touchscreen: new look (design A) on every page: tall toolhead cards with status chips and round spools drawn in the filament colour, a rounded bottom tab bar, a toolhead page with a big action grid, a bigger colour preview and dots on the Edit filament page (colour first, then material). The default size is now **Comfortable** (`zr_screen.conf`, `screen_board.sh`, `installer.sh`); existing settings files are kept as they are.
+- The System page shows the Fluidd address from the Pi address that was entered on the screen board (`moonraker_host` in `KlipperScreen.conf`); on the Pi itself it still shows the Pi's own name.
+- `scripts/screen_board.sh`: the printer in `KlipperScreen.conf` is named `WonderMaker` (it was `wmpi`), so the title bar reads "WonderMaker". Existing boards keep their name until the script is run again. **Looks tested on one screen board with a simulated Klipper; not yet tested with a real printer, on a 7 inch screen, or with the card grid, light theme and other looks.**
+- README: new screenshots of every ZR Tools page.
+
 ## 0.13.14
 
 - README and docs: wording written for any working printer (no mention of a dead or replacement board; "original screen board" instead of "old board"; the main board is "the printer's main board"). The ZRU-B001 note now says it is expected while the main board is not connected or powered.

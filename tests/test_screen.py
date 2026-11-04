@@ -141,6 +141,19 @@ class Logic(unittest.TestCase):
         self.assertEqual(L.throttled_text("0x50000"), "had power or heat problems")
         self.assertEqual(L.throttled_text("zz"), "unknown")
 
+    def test_default_size_is_comfortable(self):
+        self.assertEqual(L.DEFAULTS["density"], "comfortable")
+        self.assertEqual(L.load_settings("/nonexistent/zr_screen.conf")["density"], "comfortable")
+
+    def test_fluidd_url_uses_the_pi_address(self):
+        d = tempfile.mkdtemp()
+        conf = os.path.join(d, "KlipperScreen.conf")
+        open(conf, "w").write("[printer WonderMaker]\nmoonraker_host: pi-one.local\nmoonraker_port: 7125\n")
+        self.assertEqual(L.fluidd_url("board", "1.2.3.4", conf), "http://pi-one.local/")
+        open(conf, "w").write("[printer x]\nmoonraker_host: 127.0.0.1\n")        # KlipperScreen on the Pi itself
+        self.assertEqual(L.fluidd_url("mypi", "1.2.3.4", conf), "http://mypi.local/")
+        self.assertEqual(L.fluidd_url("", "1.2.3.4", os.path.join(d, "missing.conf")), "http://1.2.3.4/")
+
     def test_web_url(self):
         self.assertEqual(L.web_url("wmpi", "1.2.3.4"), "http://wmpi.local/")
         self.assertEqual(L.web_url("", "1.2.3.4"), "http://1.2.3.4/")

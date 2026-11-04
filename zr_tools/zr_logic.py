@@ -5,7 +5,7 @@ import configparser
 import os
 
 SETTINGS_FILE = os.path.expanduser("~/printer_data/config/zr_screen.conf")
-DEFAULTS = {"layout": "tabs", "density": "auto", "theme": "dark", "style": "soft"}
+DEFAULTS = {"layout": "tabs", "density": "comfortable", "theme": "dark", "style": "soft"}
 LAYOUTS = ("tabs", "grid")          # C (big touch, tabs) and A (card grid)
 DENSITIES = ("auto", "compact", "comfortable")
 THEMES = ("dark", "light")
@@ -323,45 +323,80 @@ def read_moonraker_host(text):
     return m.group(1) if m else ""
 
 
+KS_CONF = os.path.expanduser("~/printer_data/config/KlipperScreen.conf")
+LOCAL_HOSTS = ("", "localhost", "127.0.0.1", "::1")
+
+
+def fluidd_url(hostname="", ip="", conf=None):
+    """Where Fluidd is: the Pi address entered in KlipperScreen.conf (moonraker_host) when it is a real address,
+    otherwise this machine's own name or address (KlipperScreen running on the Pi itself)."""
+    try:
+        with open(conf or KS_CONF) as f:
+            host = read_moonraker_host(f.read())
+    except OSError:
+        host = ""
+    if host not in LOCAL_HOSTS:
+        return "http://%s/" % host
+    return web_url(hostname, ip)
+
+
 # ---------------------------------------------------------------------------
 # Looks (style x theme): plain GTK3 CSS, built here so it can be tested
 # ---------------------------------------------------------------------------
 _STYLE_TOKENS = {
     # radius, border width, accent, accent text, font scale
-    "soft": {"radius": 16, "bw": 1, "accent": "#3b82f6", "on_text": "#ffffff", "font": "100%"},
+    "soft": {"radius": 14, "bw": 1, "accent": "#2f7bf6", "on_text": "#ffffff", "font": "100%"},
     "flat": {"radius": 6, "bw": 0, "accent": "#14b8a6", "on_text": "#ffffff", "font": "100%"},
     "bold": {"radius": 10, "bw": 3, "accent": "#ff9800", "on_text": "#000000", "font": "110%"},
     "classic": {"radius": 10, "bw": 2, "accent": "#2e7d32", "on_text": "#ffffff", "font": "100%"},
 }
 
 
-def build_css(theme, style):
+def build_css(theme, style, density="compact"):
+    """Design A: tall rounded cards, status chips, a rounded tab bar, big action buttons. Plain GTK3 CSS."""
     t = _STYLE_TOKENS.get(style) or _STYLE_TOKENS["soft"]
+    big = density == "comfortable"
     light = theme == "light"
     if light:
-        card_bg, edge, small, hint, chip_bg, track = "rgba(0,0,0,0.06)", "rgba(0,0,0,0.30)", "#444444", "#666666", "rgba(0,0,0,0.08)", "rgba(0,0,0,0.35)"
-        dot_edge = "#444444"
+        bg, card, card_on, edge, small, hint = "#eef1f4", "#ffffff", "#e4eefc", "#cfd6de", "#44505c", "#66727e"
+        text = "#14181c"
+        ready = ("#d6f3e0", "#17703d"); active = ("#d9e6fd", "#1b4fb3"); empty = ("#fdebd0", "#a15c00")
+        dot_edge = "#44505c"
     else:
-        card_bg, edge, small, hint, chip_bg, track = "rgba(255,255,255,0.07)", "rgba(255,255,255,0.28)", "#c4c4c4", "#9a9a9a", "rgba(255,255,255,0.10)", "rgba(255,255,255,0.45)"
+        bg, card, card_on, edge, small, hint = "#11161b", "#1b232b", "#18222f", "#2a343e", "#b4bec8", "#8a96a2"
+        text = "#e8edf2"
+        ready = ("#173b25", "#6fe39a"); active = ("#16325f", "#8db8ff"); empty = ("#4a3212", "#ffb74d")
         dot_edge = "#ffffff"
-    if style == "classic":
-        card_bg = "rgba(255,255,255,0.04)" if not light else "rgba(0,0,0,0.05)"
-        edge = "#9a9a9a" if light else "#555555"
-    bw = t["bw"]
+    acc = t["accent"]
+    r = t["radius"] if style != "soft" else 14
     return """
-    .zr_card { border: %(bw)dpx solid %(edge)s; border-radius: %(r)dpx; background-color: %(card_bg)s; }
-    .zr_active { border: 3px solid #4CAF50; }
+    .zr_card { border: 2px solid %(edge)s; border-radius: %(r)dpx; background-image: none; background-color: %(card)s; color: %(text)s; }
+    .zr_active { border: 2px solid %(acc)s; background-color: %(card_on)s; }
     .zr_swatch { border: 2px solid %(dot_edge)s; border-radius: %(sr)dpx; }
-    .zr_dot { border: 2px solid %(edge)s; border-radius: 28px; }
-    .zr_dot_on { border: 5px solid %(accent)s; }
-    .zr_chip { border-radius: %(r)dpx; background-image: none; background-color: %(chip_bg)s; border: %(bw)dpx solid %(edge)s; font-size: %(font)s; }
-    .zr_chip_on { background-color: %(accent)s; color: %(on_text)s; border-color: %(accent)s; }
-    .zr_section { font-size: %(font)s; padding-top: 6px; }
+    .zr_dot { border: 2px solid %(edge)s; border-radius: 32px; }
+    .zr_dot_on { border: 5px solid %(acc)s; }
+    .zr_chip { border-radius: %(r)dpx; background-image: none; background-color: %(card)s; color: %(text)s; border: 2px solid %(edge)s; }
+    .zr_chip_on { background-color: %(acc)s; color: #ffffff; border-color: %(acc)s; }
+    .zr_pill { border-radius: 14px; padding: 2px 10px; font-weight: bold; font-size: %(pill)s; background-color: %(card)s; color: %(small)s; }
+    .zr_pill_ready { background-color: %(ready_bg)s; color: %(ready_fg)s; }
+    .zr_pill_active { background-color: %(active_bg)s; color: %(active_fg)s; }
+    .zr_pill_empty { background-color: %(empty_bg)s; color: %(empty_fg)s; }
+    .zr_pill_info { background-color: %(card)s; color: %(text)s; border: 1px solid %(edge)s; }
+    .zr_title { font-weight: bold; font-size: %(title)s; }
+    .zr_mat { font-weight: bold; font-size: %(mat)s; }
+    .zr_btn, .zr_tab { border-radius: %(r)dpx; background-image: none; background-color: %(card)s; color: %(text)s; border: 1px solid %(edge)s; box-shadow: none; text-shadow: none; }
+    .zr_btn_primary { background-color: %(acc)s; border-color: %(acc)s; color: #ffffff; }
+    .zr_btn_green { background-color: #2e9d57; border-color: #2e9d57; color: #ffffff; }
+    .zr_btn_orange { background-color: #d9822b; border-color: #d9822b; color: #ffffff; }
+    .zr_btn_red { background-color: #c0392b; border-color: #c0392b; color: #ffffff; }
+    .zr_selected { background-image: none; background-color: %(acc)s; border-color: %(acc)s; color: #ffffff; }
+    .zr_section { font-weight: bold; padding-top: 6px; }
     .zr_small { font-size: 85%%; color: %(small)s; }
     .zr_hint { font-size: 85%%; color: %(hint)s; }
-    .zr_selected { background-image: none; background-color: %(accent)s; color: %(on_text)s; }
     scrollbar.vertical { min-width: 18px; }
-    scrollbar slider { min-width: 14px; min-height: 40px; border-radius: 8px; background-color: %(track)s; }
-    """ % {"bw": bw, "edge": edge, "r": t["radius"], "sr": max(t["radius"] // 2, 4), "card_bg": card_bg, "accent": t["accent"],
-           "on_text": t["on_text"], "font": t["font"], "small": small, "hint": hint, "chip_bg": chip_bg,
-           "track": track, "dot_edge": dot_edge}
+    scrollbar slider { min-width: 14px; min-height: 40px; border-radius: 8px; background-color: %(edge)s; }
+    """ % {"edge": edge, "r": r, "sr": max(r // 2, 4), "card": card, "card_on": card_on, "acc": acc, "text": text,
+           "small": small, "hint": hint, "dot_edge": dot_edge,
+           "ready_bg": ready[0], "ready_fg": ready[1], "active_bg": active[0], "active_fg": active[1],
+           "empty_bg": empty[0], "empty_fg": empty[1],
+           "pill": "100%" if big else "85%", "title": "120%" if big else "100%", "mat": "130%" if big else "110%"}

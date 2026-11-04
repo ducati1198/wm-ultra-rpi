@@ -445,20 +445,20 @@ screen_density_hint() {  # WIDTHxHEIGHT -> compact|comfortable
 do_screen_test() {
     print_header "Screen test (read-only)"
     local r t; read -r r t < <(detect_screen)
-    if [ -n "$r" ]; then print_success "Screen found: $r (ZR Tools density: $(screen_density_hint "$r"))"; else print_warning "No screen found on the Pi's video output."; fi
+    if [ -n "$r" ]; then print_success "Screen found: $r (ZR Tools size: comfortable by default; Auto would pick $(screen_density_hint "$r"))"; else print_warning "No screen found on the Pi's video output."; fi
     [ "$t" = touch ] && print_success "Touch device found." || print_warning "No touch device found (a USB touch cable, or the screen has no touch)."
     echo "  Rotation is an operating-system setting, see README 'Touchscreen'."
 }
 
-write_screen_conf() {  # layout from --screen-layout, else keep, else default tabs; density stays 'auto'
-    local layout="$SCREEN_LAYOUT" theme=dark density=auto
+write_screen_conf() {  # layout from --screen-layout, else keep, else default tabs; density comfortable
+    local layout="$SCREEN_LAYOUT" theme=dark density=comfortable
     if [ -f "$ZR_CONF" ]; then
         [ -n "$layout" ] || layout="$(sed -n 's/^layout *= *//p' "$ZR_CONF" | head -n1)"
         theme="$(sed -n 's/^theme *= *//p' "$ZR_CONF" | head -n1)"; density="$(sed -n 's/^density *= *//p' "$ZR_CONF" | head -n1)"
     fi
     case "$layout" in tabs|grid) ;; *) layout=tabs ;; esac
     case "$theme" in dark|light) ;; *) theme=dark ;; esac
-    case "$density" in auto|compact|comfortable) ;; *) density=auto ;; esac
+    case "$density" in auto|compact|comfortable) ;; *) density=comfortable ;; esac
     [ "$DRY" = 1 ] && { echo -e "  ${DIM}would write $ZR_CONF (layout=$layout)${NC}"; return 0; }
     mkdir -p "$(dirname "$ZR_CONF")"
     printf '# Written by ./installer.sh and the ZR Tools Settings page\n[screen]\nlayout = %s\ndensity = %s\ntheme = %s\n' "$layout" "$density" "$theme" > "$ZR_CONF"
@@ -491,7 +491,7 @@ step_screen() {
     print_header "Step 11: touchscreen (KlipperScreen + ZR Tools)"
     why "A screen connected to the Pi shows KlipperScreen with a ZR Tools page: toolheads, filament, climate, calibration, ACE Pro (if present). Not yet tested on hardware."
     local r t; read -r r t < <(detect_screen)
-    [ -n "$r" ] && print_info "Screen found: $r, density $(screen_density_hint "$r")" || print_warning "No screen detected now. KlipperScreen is installed anyway."
+    [ -n "$r" ] && print_info "Screen found: $r, size comfortable by default" || print_warning "No screen detected now. KlipperScreen is installed anyway."
     [ "$t" = touch ] || print_warning "No touch device detected now."
     local pin url sha; pin="$(addon_pin klipperscreen)"; url="${pin%|*}"; sha="${pin#*|}"
     fetch_addon "$url" "$sha" "$KS_DIR" || { warn_later "Could not download KlipperScreen (network?). Run ./installer.sh --update later."; return 0; }

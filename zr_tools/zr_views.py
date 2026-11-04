@@ -147,7 +147,7 @@ class ViewsMixin:
 
         act = [("load", "Load from ACE", self._ace_load), ("retract", "Unload to ACE", self._ace_unload),
                ("fan", "Feed assist", self._ace_assist), ("stop", "Stop motor", self._ace_stop)]
-        body.pack_start(self._tile_grid(act, cols=2 if self.density == "compact" else 4), False, False, 0)
+        body.pack_start(self._tile_grid(act, cols=2 if (self.density == "compact" or getattr(self._screen, "width", 0) <= 900) else 4), False, False, 0)
 
         mv = [("arrow-down", "Feed", self._ace_feed), ("arrow-up", "Retract", self._ace_retract)]
         row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
@@ -406,7 +406,7 @@ class ViewsMixin:
         lines = ["Pi temperature: %s" % ("%.0f C" % temp if temp is not None else "unknown"),
                  "Power: %s" % (L.throttled_text(flags) if flags else "unknown"),
                  "can0: %s" % can, "Klipper: %s" % kstate,
-                 "Fluidd: %s" % (L.web_url(host, ip) or "unknown")]
+                 "Fluidd: %s" % (L.fluidd_url(host, ip) or "unknown")]
         self.w["sys"].set_text("\n".join(lines))
 
     def _install_dir(self):
