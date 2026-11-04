@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.13.21
+
+- `docs/WIRING.md`: added the USB-A to MX1.25 4-pin camera cable (at least 1 m long, photo and wire colours) and a second photo of the USB-A to JST-XH cable for the main board; both photos are also in the README hardware list.
+
 ## 0.13.20
 
 - Rescue tool: the settings snapshots in `~/wm-screen-backup/rescue-snapshots` now belong to the board user (they were root-owned, so deleting them asked about write-protected files).

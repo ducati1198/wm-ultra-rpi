@@ -27,6 +27,10 @@ The Pi has a normal USB-A port and the main board has a small 4-pin **JST-XH, 2.
 
 ![USB-A to JST-XH 4-pin cable](img/cable-usb-a-to-jst-xh.jpg)
 
+Another example of this cable (USB 2.0 to JST-XH 4-pin harness, the kind to use between the Pi and the main board, the MCU):
+
+![USB 2.0 to JST-XH 4-pin harness for the main board](img/cable-usb-a-to-jst-xh-mcu.jpg)
+
 **Option A: buy a ready-made "USB-A to JST-XH 2.54 4-pin" cable** (like the one above). The wire order of these cables is made for other uses, **so you must re-pin it** to match the main board:
 
 1. Do not trust the colours or the pin order of the plug. Use a multimeter to find which wire of the plug goes to which USB contact.
@@ -62,3 +66,19 @@ Either way:
 ## What stays as it is
 
 The CAN cable to the toolhead hub, the motors, heaters and everything else on the main board stay exactly as they were on the printer. Only the screen/host board's cable is replaced by this one.
+
+## Camera cable (USB-A to MX1.25, 4 pin)
+
+To plug the printer's camera into the Pi you need a **USB-A to MX1.25 4-pin cable, at least 1 m (3 ft) long** so it reaches from the camera to the Pi (sold as "USB to MX1.25 connector 4P with ground cable"). The plug on the camera end is **MX1.25 (1.25 mm pitch)**, smaller than the JST-XH (2.54 mm) used for the main board above. Check the connector on your camera before you order.
+
+![USB-A to MX1.25 4-pin camera cable](img/cable-usb-a-to-mx125-camera.jpg)
+
+| Wire colour | Signal |
+|---|---|
+| Red | 5 V (+) |
+| White | Data- |
+| Green | Data+ |
+| Black | GND |
+
+This is a normal USB camera cable with a standard USB colour code, and the camera is powered from the Pi's 5 V. The colours are the seller's; measure with a multimeter if the cable looks different. Once plugged in, `ls /dev/v4l/by-id/` on the Pi should list the camera (see the camera entry in the README troubleshooting table).
+

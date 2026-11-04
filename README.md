@@ -123,6 +123,11 @@ The installer never flashes any board and never starts Klipper unless you ask fo
 - **Raspberry Pi OS Lite (64-bit), Debian 12 "Bookworm"**, written with Raspberry Pi Imager. Newer Raspberry Pi OS releases are based on Debian 13 "Trixie" and are **not tested**: in the Imager choose **Raspberry Pi OS (other) → Raspberry Pi OS (Legacy, 64-bit) Lite**, which is the Bookworm release. Not the 32-bit image and not the Trixie one. (The Desktop version also works, but Lite is all you need: you use Fluidd in a browser.) In the imager's settings set the **username to `t13dp`** (WonderMaker's software has `/home/t13dp` built in), enable SSH, and set your Wi-Fi or use a cable.
 - The printer's **main board** (WM-ZR-D V1.2): it carries the Klipper USB-CAN bridge (USB id `1d50:606f`), and the toolheads and filament hub stay on its CAN bus.
 - A **USB-A to JST-XH 2.54 mm 4-pin cable**, bought or made, from the Pi's USB-A port to the red 4-pin connector of the main board. A ready-made one must be **re-pinned** to the board's order (DM, DP, G; leave VIN empty). **VIN is 24 V: cut or do not connect the red wire, never feed it to the Pi.** See [docs/WIRING.md](docs/WIRING.md).
+
+  ![USB 2.0 to JST-XH 4-pin cable for the main board](docs/img/cable-usb-a-to-jst-xh-mcu.jpg)
+- A **USB-A to MX1.25 (1.25 mm pitch) 4-pin camera cable, at least 1 m (3 ft) long**, from the printer's camera to a USB port of the Pi. Wire colours: red 5 V, white Data-, green Data+, black GND. Not needed if you do not use the camera. Details: [docs/WIRING.md](docs/WIRING.md#camera-cable-usb-a-to-mx125-4-pin).
+
+  ![USB-A to MX1.25 4-pin camera cable](docs/img/cable-usb-a-to-mx125-camera.jpg)
 - The WonderMaker software: from **your own printer** (the original screen board, if it is reachable) or the factory files in this repo (see 3.1). 
 
 ### 2.2 How it is connected
