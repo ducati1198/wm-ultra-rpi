@@ -257,6 +257,11 @@ Full dashboard without an ACE Pro:
 The Fluidd build from [wm-ultra-fluidd-acepro-panel](https://github.com/ducati1198/wm-ultra-fluidd-acepro-panel) adds the Toolheads card (toolhead status, colours and materials, chamber, air filter, doors, **Print with colours**) and the **Choose toolheads** window at print start, shown only when a colour or material does not match.
 
 ![Toolhead dialog](docs/img/fluidd-toolhead-dialog.png)
+*Toolhead dialog: colour, material, ACE feeder and the endless-spool chain (demo data).*
+
+![Tool change in progress](docs/img/fluidd-tool-change-progress.png)
+*The card shows a progress bar while a tool change runs (demo data).*
+
 ![Choose toolheads](docs/img/fluidd-choose-toolheads.png)
 
 Without an Anycubic ACE Pro the ACE parts stay hidden. If you add one later, use [wm-ultra-fluidd-acepro-panel](https://github.com/ducati1198/wm-ultra-fluidd-acepro-panel).
