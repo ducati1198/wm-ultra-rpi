@@ -431,7 +431,7 @@ What it does, in this order (everything that can fail comes before the factory a
 
 | Situation | What happens |
 |---|---|
-| KlipperScreen fails to start 3 times within 2 minutes | The board stops retrying and opens a **rescue window** with big touch buttons: **Restart KlipperScreen**, **Factory restore** (asks to confirm first), **Reboot board**, and **More**: error details, network status, reset KlipperScreen settings, reinstall KlipperScreen files. |
+| KlipperScreen fails to start 3 times within 2 minutes | The board stops retrying and opens a **rescue window** with big touch buttons: **Restart KlipperScreen**, **Factory restore**, **Reboot board**, and **More**: error details, network status, reset KlipperScreen settings, reinstall KlipperScreen files. Every action that changes something asks "Are you sure?" first, and factory restore, reset settings and reinstall show a progress bar with the step it is on (the last part of a factory restore, while the board reboots, is an estimate). The window takes a few seconds to open because KlipperScreen is stopped and a second screen server is started. |
 | The window is wanted on purpose | **ZR Tools > More > System > Rescue**, or a USB stick (below). KlipperScreen stops while it is open; **Restart KlipperScreen** brings it back. |
 | No network, no working screen app | Use a USB stick: plug a FAT32 or exFAT stick into the board and create an **empty file** on it named `WM-FACTORY` (go back to the factory software, no questions asked) or `WM-RESCUE` (open the rescue window), then **reboot the board**. The stick is checked once, at boot. |
 

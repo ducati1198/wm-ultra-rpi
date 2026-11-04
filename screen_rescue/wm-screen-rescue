@@ -37,6 +37,7 @@ SNAP="$BK/rescue-snapshots"
 STAMP="$(date +%Y%m%d-%H%M%S)"
 REASON_FILE="${WM_RESCUE_REASON_FILE:-/run/wm-rescue.reason}"
 
+step() { echo "STEP $1/$2 $3"; [ "$DRY" = 1 ] || sleep "${WM_RESCUE_PAUSE:-1}"; }    # the window reads these lines for its progress bar
 log() { echo "$(date '+%F %T') $*" >> "$LOG" 2>/dev/null; }
 doit() { if [ "$DRY" = 1 ]; then log "[dry] would run: $*"; echo "[test mode] would run: $*"; else "$@"; fi; }
 
@@ -78,33 +79,40 @@ act() {
         reboot) log "action: reboot"; doit systemctl reboot ;;
         factory)
             log "action: factory restore"
-            backup_note; snapshot_config
-            factory_restore
+            step 1 4 "Saving your KlipperScreen settings"; snapshot_config
+            step 2 4 "Checking the list of factory services"; backup_note
+            step 3 4 "Starting the factory restore"; factory_restore
+            step 4 4 "Restoring the factory software"
             echo "Restoring the factory software. The board reboots by itself." ;;
         reset-settings)
             log "action: reset KlipperScreen settings"
             local host good="$BK/known-good"; host="$(pi_host)"
             [ -f "$good/KlipperScreen.conf" ] || { echo "No saved default settings ($good). Use 'Reinstall KlipperScreen files' or factory restore."; exit 4; }
-            snapshot_config
+            step 1 4 "Saving your current settings"; snapshot_config
+            step 2 4 "Restoring the default settings"
             if [ "$DRY" = 1 ]; then echo "[test mode] would restore default settings with Pi $host"; log "[dry] reset settings"
             else
                 cp -p "$good/KlipperScreen.conf" "$CFG_DIR/KlipperScreen.conf"; cp -p "$good/zr_screen.conf" "$CFG_DIR/zr_screen.conf" 2>/dev/null
                 [ -n "$host" ] && sed -i -E "s/^moonraker_host:.*/moonraker_host: $host/" "$CFG_DIR/KlipperScreen.conf"
                 chown "$WM_USER" "$CFG_DIR/KlipperScreen.conf" "$CFG_DIR/zr_screen.conf" 2>/dev/null
+                step 3 4 "Keeping the Pi address ($host)"
                 echo "Default settings restored (Pi address kept: $host). Your old files are in $SNAP/$STAMP."
             fi
-            restart_ks ;;
+            step 4 4 "Restarting KlipperScreen"; restart_ks ;;
         reinstall-files)
             log "action: reinstall KlipperScreen files"
+            step 1 4 "Checking the saved copy of KlipperScreen"
             [ -s "$BK/ks-program.tar.gz" ] || { echo "No saved copy of KlipperScreen ($BK/ks-program.tar.gz). Use factory restore."; exit 5; }
             if [ "$DRY" = 1 ]; then echo "[test mode] would unpack $BK/ks-program.tar.gz into $HOME_DIR"; log "[dry] reinstall files"
             else
+                step 2 4 "Moving the old files aside"
                 rm -rf "$KS_DIR.broken"; [ -d "$KS_DIR" ] && mv "$KS_DIR" "$KS_DIR.broken"
+                step 3 4 "Unpacking KlipperScreen"
                 tar xzf "$BK/ks-program.tar.gz" -C "$HOME_DIR" && chown -R "$WM_USER" "$KS_DIR" \
                     || { echo "Unpacking failed; the old folder is in $KS_DIR.broken"; exit 5; }
                 rm -rf "$KS_DIR.broken"; echo "KlipperScreen files restored."
             fi
-            restart_ks ;;
+            step 4 4 "Restarting KlipperScreen"; restart_ks ;;
         details)
             echo "== KlipperScreen service"; SYSTEMD_COLORS=0 journalctl -u KlipperScreen -n 12 --no-pager 2>&1 | sed 's/\x1b\[[0-9;]*m//g' | cut -c1-110
             echo; echo "== Screen server (X)"; tail -n 8 "$HOME_DIR/.local/share/xorg/Xorg.0.log" /var/log/Xorg.0.log 2>/dev/null | grep -E '\((EE|WW)\)|Fatal|error' | tail -n 6 | cut -c1-110

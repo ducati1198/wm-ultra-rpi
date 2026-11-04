@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.13.16
+
+- Rescue window (screen board): every button now asks for a confirmation first (Restart KlipperScreen, Reboot board, Factory restore, Reset KlipperScreen settings, Reinstall KlipperScreen files). Factory restore, Reset settings and Reinstall show a progress bar with the current step (`STEP n/4` lines from `wm-screen-rescue act`); the end of a factory restore, while the board reboots, is an estimated bar. **Not yet tested on hardware**; the first rescue window test (manual open, 3 failed starts) worked.
+
 ## 0.13.15
 
 - ZR Tools touchscreen: new look (design A) on every page: tall toolhead cards with status chips and round spools drawn in the filament colour, a rounded bottom tab bar, a toolhead page with a big action grid, a bigger colour preview and dots on the Edit filament page (colour first, then material). The default size is now **Comfortable** (`zr_screen.conf`, `screen_board.sh`, `installer.sh`); existing settings files are kept as they are.
