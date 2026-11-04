@@ -68,6 +68,7 @@ The full command list is in [3.4](#34-command-table). The installer **never flas
 | Fluidd shows `ZRU-B001: Screen–Mainboard communication error` | Expected while the main board is not connected or powered (section 4). |
 | Fluidd page shows 403 | `./installer.sh --doctor` and accept the home-folder fix. |
 | Fluidd shows "PolKit warnings detected" | `./installer.sh --repair` |
+| Screen board: KlipperScreen will not start | A rescue window opens by itself after 3 failed starts. No screen? USB stick with an empty file `WM-FACTORY`, reboot (section 7). |
 | Not sure what is wrong | `./installer.sh --doctor`: it explains each problem and offers a fix. |
 | Asking someone for help | `./installer.sh --support-bundle` and send the `.tgz`. |
 
@@ -422,6 +423,26 @@ What it does, in this order (everything that can fail comes before the factory a
 | `bash scripts/screen_board.sh --uninstall-klipperscreen` | same as `--factory-restore`: KlipperScreen is never removed without turning the factory services back on |
 | `bash scripts/screen_board.sh --status` | read-only: what is enabled, running and installed |
 
+**If KlipperScreen stops working: the rescue tool** (installed by default, `--no-rescue` skips it; *not yet tested on hardware*)
+
+| Situation | What happens |
+|---|---|
+| KlipperScreen fails to start 3 times within 2 minutes | The board stops retrying and opens a **rescue window** with big touch buttons: **Restart KlipperScreen**, **Factory restore** (asks to confirm first), **Reboot board**, and **More**: error details, network status, reset KlipperScreen settings, reinstall KlipperScreen files. |
+| The window is wanted on purpose | **ZR Tools > More > System > Rescue**, or a USB stick (below). KlipperScreen stops while it is open; **Restart KlipperScreen** brings it back. |
+| No network, no working screen app | Use a USB stick: plug a FAT32 or exFAT stick into the board and create an **empty file** on it named `WM-FACTORY` (go back to the factory software, no questions asked) or `WM-RESCUE` (open the rescue window), then **reboot the board**. The stick is checked once, at boot. |
+
+![Rescue window](docs/img/rescue-window.png)
+*The rescue window (800x480). Drawn on the screen board in test mode.*
+
+Details:
+- **Factory restore** never leaves the board stuck. It uses the saved list `~/wm-screen-backup/disabled.list`. If that file is missing, it uses a built-in list of the 8 factory services (`makerbase-client`, `klipper`, `moonraker`, `nginx`, `crowsnest`, `makerbase-webcam`, `klipper-mcu`, `hostapd`, each in the state a factory board has). `klipper` and `hostapd` are not enabled on a factory board; the WonderMaker app is expected to start Klipper itself (to be confirmed on hardware).
+- Before any restore your KlipperScreen settings and the Pi address are copied to `~/wm-screen-backup/rescue-snapshots/`.
+- The USB flag file is renamed to `WM-FACTORY.done` (or `WM-RESCUE.done`) after it is used, so a stick left in does not trigger it again. A short report, `WM-RESCUE-LOG.txt`, is written to the stick. The USB check works only while KlipperScreen is installed (the factory restore removes the rescue tool).
+- If the screen server itself cannot start, the window tries a second graphics driver; if that fails too, a message is drawn straight on the screen and the USB stick is the way out (best effort).
+- Not covered: a KlipperScreen that is running but frozen or black (a stick with `WM-RESCUE` or `WM-FACTORY` still works).
+- Files: `screen_rescue/wm-screen-rescue`, `screen_rescue/wm-rescue-window.py`; log in `/var/log/wm-screen-rescue.log`.
+- To test it safely: first check that a stick shows up (`lsblk` over SSH), then try `WM-RESCUE`, then break KlipperScreen on purpose (for example rename `/usr/local/sbin/wm-ks-start` and reboot) and watch the window appear, then try **Factory restore** and `WM-FACTORY` last.
+
 To read the board first (nothing is changed): `scripts/screen_board_inspect.sh`. Notes: the board's Reboot/Shut down buttons in ZR Tools act on the **Pi**; the Pi's `moonraker.conf` must trust the board's address; the apt packages stay installed after a restore.
 
 On the Pi, `./installer.sh --screen-remove` removes KlipperScreen again (Klipper, Moonraker and Fluidd stay).
@@ -449,7 +470,7 @@ On the Pi, `./installer.sh --screen-remove` removes KlipperScreen again (Klipper
 | Klipper "mcu ... uuid" error | New board, new `canbus_uuid` (see 4). |
 | Screen board: `apt-get update` fails | Fix the clock and apt first (the block at the start of section 7). |
 | Screen board: KlipperScreen says it cannot connect | Open **Pi address** on the screen and enter the Pi's IP; check the Pi is on and trusts the board in `moonraker.conf`. |
-| Screen board: black or wrong screen | `bash ~/wm-screen-backup/screen_board.sh --factory-restore` from SSH, or `--screen-driver fbdev` when installing. |
+| Screen board: black or wrong screen | `bash ~/wm-screen-backup/screen_board.sh --factory-restore` from SSH, or `--screen-driver fbdev` when installing. With no network: the rescue window (opens after 3 failed starts) or a USB stick with an empty file `WM-FACTORY` (section 7). |
 
 ## 10. Repository layout
 
@@ -457,6 +478,7 @@ On the Pi, `./installer.sh --screen-remove` removes KlipperScreen again (Klipper
 installer.sh            the Pi installer
 factory/ultra/          WonderMaker ZR Ultra: Klipper, Moonraker, settings, scripts, checksums
 factory/ultra-s/        WonderMaker ZR Ultra-S: same, with the chamber/air-filter/door settings on
+screen_rescue/          rescue window and USB-stick check for the screen board
 scripts/                pull_from_board.sh, stage_from_repo.sh, board_check.sh, screen_board.sh (+ _inspect, _precheck, _preflight_mac) for the screen board
 config/                 systemd units, nginx files, can0 udev rule, pinned Python requirements, crowsnest template, addon version pins
 zr_tools/               ZR Tools KlipperScreen panel (copied by the installer)
