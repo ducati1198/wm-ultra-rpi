@@ -7,7 +7,7 @@ Use at your own risk. These notes describe what the software side expects; they 
 | Board | Role | After the swap |
 |---|---|---|
 | WM-ZR-M V1.2 (RK3308B), screen/host board | ran Klipper, Moonraker, Fluidd and the touchscreen app | replaced by the Pi |
-| WM-ZR-D V1.2, main board | Klipper USB-CAN bridge (USB `1d50:606f`), CAN bus at 1 Mbit to the toolheads and hub | stays (or its replacement) |
+| WM-ZR-D V1.2, main board | Klipper USB-CAN bridge (USB `1d50:606f`), CAN bus at 1 Mbit to the toolheads and hub | stays |
 
 Klipper talks to the main board over USB; the main board bridges to the CAN bus. On the Pi the CAN interface is `can0`, set to 1 Mbit and `txqueuelen 1024` by the udev rule in `config/99-wm-can0.rules`.
 

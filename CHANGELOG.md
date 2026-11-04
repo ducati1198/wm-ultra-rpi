@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.13.14
+
+- README and docs: wording written for any working printer (no mention of a dead or replacement board; "original screen board" instead of "old board"; the main board is "the printer's main board"). The ZRU-B001 note now says it is expected while the main board is not connected or powered.
+
 ## 0.13.13
 
 - README: new top part with a Quick start, an everyday cheat sheet (install, update, check, repair, backup, restore, undo, uninstall), a "How it works" diagram (`docs/img/how-it-works.svg`) and a short "If something goes wrong" table. The detailed sections are unchanged.

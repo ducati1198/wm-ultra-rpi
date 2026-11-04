@@ -61,4 +61,4 @@ Either way:
 
 ## What stays as it is
 
-The CAN cable to the toolhead hub, the motors, heaters and everything else on the main board stay exactly as they were on the printer. Only the old board's cable is replaced by this one.
+The CAN cable to the toolhead hub, the motors, heaters and everything else on the main board stay exactly as they were on the printer. Only the screen/host board's cable is replaced by this one.
