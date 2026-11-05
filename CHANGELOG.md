@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.13.24
+
+- README (top): the ACE Pro is not an MMU here; it is used only to load and unload the filament and to dry it.
+
 ## 0.13.23
 
 - README (section 5): note that the ACE 2 Pro (RS-485, needs Anycubic's USB-to-RS485 signal cable) is not tested on this printer, with a link to what is known in the panel repo.

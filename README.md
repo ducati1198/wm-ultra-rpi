@@ -10,6 +10,8 @@
 
 </div>
 
+> **The ACE Pro is not an MMU.** The WonderMaker has four toolheads that do the switching, so the ACE Pro here is used **only to load and unload the filament and to dry it**.
+
 > **Status:** tested with a fake home folder, on a fresh Raspberry Pi (install, doctor, Fluidd, Moonraker, Klipper loading the config) and on one WonderMaker screen board. **Not tested with a running printer yet.** Use at your own risk, see the [full disclaimer](#disclaimer-use-at-your-own-risk).
 
 ## Quick start
