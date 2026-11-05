@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.13.22
+
+- `docs/wondermaker-plus-notes.md`: notes on how the Wondermaker+ community config differs from the factory config and from this printer, with a plan to review it after the new MCU is installed. Nothing from it is installed.
+
 ## 0.13.21
 
 - `docs/WIRING.md`: added the USB-A to MX1.25 4-pin camera cable (at least 1 m long, photo and wire colours) and a second photo of the USB-A to JST-XH cable for the main board; both photos are also in the README hardware list.
