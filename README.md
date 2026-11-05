@@ -254,6 +254,8 @@ Fluidd is the web page you use to control the printer from a phone or computer: 
 
 ![Fluidd with an ACE Pro](docs/img/fluidd-with-acepro.png)
 
+**ACE Pro or ACE 2 Pro?** The ACE driver is for the first-generation **ACE Pro** (USB). The **ACE 2 Pro** talks RS-485 and needs Anycubic's own USB-to-RS485 signal cable; it is **not tested** on this printer. What is known so far (cable, driver, installer) is in [ACE 2 Pro: what is known](https://github.com/ducati1198/wm-ultra-fluidd-acepro-panel#22-which-ace-do-you-have) in the panel repo.
+
 Full dashboard without an ACE Pro:
 
 ![Fluidd dashboard without an ACE Pro](docs/img/fluidd-dashboard-no-ace.png)

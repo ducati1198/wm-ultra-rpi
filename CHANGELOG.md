@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.13.23
+
+- README (section 5): note that the ACE 2 Pro (RS-485, needs Anycubic's USB-to-RS485 signal cable) is not tested on this printer, with a link to what is known in the panel repo.
+
 ## 0.13.22
 
 - `docs/wondermaker-plus-notes.md`: notes on how the Wondermaker+ community config differs from the factory config and from this printer, with a plan to review it after the new MCU is installed. Nothing from it is installed.
