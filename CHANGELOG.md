@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.10.0
+
+- **NetworkManager as an option** for KlipperScreen's Network panel (`--network-manager on|off`, menu: Add-ons). Default **off**. It is asked when you add a touchscreen, with a note that switching to NetworkManager can drop the network connection. KlipperScreen's own script reboots the Pi when it installs NetworkManager, so the installer does it itself: it installs and enables NetworkManager, turns dhcpcd off, and restarts nothing, so the change starts at the next reboot. If NetworkManager is already running, nothing is changed.
+- Add it later with `./installer.sh --update --network-manager on` or from Add-ons. Go back with `./installer.sh --remove network-manager` (or Uninstall in the menu), which enables dhcpcd again; it only does that when this installer made the switch.
+- The plan lists "network manager" with yes or no.
+
 ## 1.9.2
 
 - The plan shown before an install now lists every optional program with yes or no: panel, webcam, timelapse, shell command, touchscreen, Obico (with the chosen server), OctoApp and OctoEverywhere. Before, Obico, OctoApp and OctoEverywhere were missing. The list is one array (`PLAN_OPTIONS`), and a test fails when an installer answer is saved but not in that list, so a program added later cannot be left out of the plan.

@@ -323,6 +323,7 @@ The installer asks **"Add a touchscreen?"** (default yes). Skip it with `--scree
 | Option | Meaning |
 |---|---|
 | `--screen on\|off\|macros` | `on`: KlipperScreen on the Pi (for a screen plugged into the Pi). `off`: nothing. `macros`: only the ZR Tools macros in `printer.cfg`, for people who use the WonderMaker screen board (section 7) |
+| `--network-manager on\|off` | NetworkManager, for KlipperScreen's own **Network** panel (choose Wi-Fi on the screen). Default **off**. KlipperScreen's installer is run without it on purpose: switching a Pi to NetworkManager can **drop the network connection** (your SSH session and Fluidd) and Wi-Fi may need its password again (screen's Network panel, or `sudo nmtui`). The installer therefore installs and enables it but does **not** restart anything: it takes over at the next reboot. If NetworkManager is already running (Raspberry Pi OS Bookworm uses it), nothing is changed. Asked during the install only when you add a touchscreen |
 | `--screen-layout tabs\|grid` | `tabs` (default): big touch buttons with bottom tabs. `grid`: cards on a home page |
 | `--screen-backend x11\|weston\|cage` | graphics stack, default `x11` |
 | `--screen-test` | read-only: shows the screen and touch device found |
@@ -577,7 +578,7 @@ OctoApp and OctoEverywhere ask questions while they install, so the installer on
 `./installer.sh` with no options at a terminal always opens a numbered menu, also on a Pi where nothing is installed yet (choose **1) Install or reinstall** there). `./installer.sh --menu` opens it any time; `./installer.sh --install`, or any other option, skips the menu and does that one thing. Each menu entry runs the same installer option you could type yourself, so nothing works differently from the command line.
 
 ```
-WonderMaker Ultra Raspberry Pi replacement - installer 1.9.2
+WonderMaker Ultra Raspberry Pi replacement - installer 1.10.0
   Klipper: active   Moonraker: active   nginx: active
   3 new change(s) on GitHub (version 1.6.1). Choose 2 to see them and update.
 
@@ -606,6 +607,7 @@ WonderMaker Ultra Raspberry Pi replacement - installer 1.9.2
   | `obico`, `octoapp`, `octoeverywhere` | the add-on's service and folders; your account on their website stays |
   | `fluidd` | the Fluidd web page (with the Toolheads panel) and its nginx site; `./installer.sh --update` puts it back |
   | `moonraker`, `klipper` | the service, the program folder and its Python environment; `~/printer_data` stays |
+  | `network-manager` | switches the Pi back to dhcpcd, only if this installer switched it (effective at the next reboot) |
   | `data` | `~/printer_data` (config, calibration, database, gcode files). A backup is made first and you must type `DELETE` |
   | `system` | the services, nginx files and can0 rule listed in the install record (same as `--uninstall`) |
   | `cleanup` | a page of installer-made files with their sizes, see below |
@@ -626,6 +628,7 @@ WonderMaker Ultra Raspberry Pi replacement - installer 1.9.2
   | Installer records | `~/wm-rpi-backup` (saved answers and the install record; afterwards the installer no longer knows what is installed) | type `DELETE` |
   | The installer folder | the repository folder this script is in | type `DELETE` |
 - **Advanced → Start Klipper again** (`./installer.sh --start-klipper`) undoes *Stop Klipper*: it enables Klipper at boot and starts it now, without the hardware checks. *First start* does the same after checking the main board and can0.
+- **NetworkManager (for the screen's Network panel):** off by default. Add it later with `./installer.sh --update --network-manager on` or from **Add-ons → NetworkManager**. If the Pi was switched by this installer, **Uninstall → NetworkManager** (`./installer.sh --remove network-manager`) enables dhcpcd again and disables NetworkManager, again taking effect at the next reboot. If NetworkManager was already in use, the installer leaves your network setup alone. If the network does not come back after the reboot: plug in a cable, or use the screen's Network panel, or `sudo nmtui` on the Pi.
 - **PolKit warning:** if Fluidd shows "PolKit warnings detected" (Moonraker says `org.freedesktop.packagekit.* is not registered`), the cause is the missing `packagekit` package. The installer checks for this after every install, update and repair, every time the menu opens, and in `--doctor`. It asks Moonraker for its warnings; when it finds this one it installs PackageKit, installs Moonraker's PolicyKit rule, restarts Moonraker and looks again. During a print it only tells you. If PackageKit cannot be installed (no internet), it sets `enable_system_updates: False` in `moonraker.conf` (a copy is saved), so Moonraker stops managing Debian packages.
 - **KIAUH:** if `~/kiauh` exists the menu warns you. KIAUH installs stock Klipper and Moonraker and would break WonderMaker's compiled modules; this installer manages the WonderMaker versions.
 - `./installer.sh --webcam on|off` and `--timelapse on|off` (with `--update`) are the matching options for those two add-ons.

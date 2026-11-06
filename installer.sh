@@ -29,9 +29,10 @@
 # ./installer.sh --shell-command on|off   the Klipper "gcode shell command" extension (RUN_SHELL_COMMAND CMD=name runs a Linux command from G-code). Installed automatically; off skips it
 # ./installer.sh --menu                numbered menu (install, update, add-ons, check and fix, backup, screen, advanced). Opens by itself when you run ./installer.sh with no options on a Pi that is already installed
 # ./installer.sh --install             the normal install (skips the menu)
-# ./installer.sh --remove NAME         remove something after asking: screen, webcam, timelapse, shell-command, obico, octoapp, octoeverywhere, fluidd, moonraker, klipper, data, system, cleanup (installer files: old backups, support bundles, saved copies, the installer folder), or all (everything except your printer data, backups and installer files)
+# ./installer.sh --remove NAME         remove something after asking: screen, network-manager, webcam, timelapse, shell-command, obico, octoapp, octoeverywhere, fluidd, moonraker, klipper, data, system, cleanup (installer files: old backups, support bundles, saved copies, the installer folder), or all (everything except your printer data, backups and installer files)
 # ./installer.sh --webcam on|off       crowsnest webcam service;  --timelapse on|off   Moonraker timelapse (both used with --update)
 # ./installer.sh --obico-server URL    which Obico to connect to: https://app.obico.io (Obico's website, the default) or your own self-hosted server. Asked when you choose Obico
+# ./installer.sh --network-manager on|off   NetworkManager for KlipperScreen's Network panel (default off: it can drop the network connection until the Pi is restarted). Add it later with: ./installer.sh --update --network-manager on
 # ./installer.sh --obico on|off        optional remote access: Obico for Klipper (moonraker-obico). Also --octoapp on|off and --octoeverywhere on|off. Each is asked (default no)
 # ./installer.sh --screen on|off|macros   KlipperScreen on the Pi (on), nothing (off), or only the ZR Tools macros (macros: for the WonderMaker screen board). Asked if not given; default on
 # ./installer.sh --screen-layout tabs|grid   touch layout: tabs = big buttons + bottom tabs (default), grid = card grid
@@ -65,7 +66,7 @@ TESTING="${WM_INSTALLER_TEST:-0}"        # 1 = no sudo, no apt, no systemctl, no
 MODE="install"
 DRY=0
 SRC_KIND=""; SRC_ARG=""; MODEL="ultra-s"; MODULES_DIR=""; FROM_FACTORY=0
-WANT_PANEL=1; WANT_SCREEN=ask; WANT_TIMELAPSE=1; WANT_CROWSNEST=1; CLI_REMOTE=""; WANT_SHELLCMD=1; OBICO_SERVER=""; CLI_OBICO_SERVER=""; WANT_OBICO=ask; WANT_OCTOAPP=ask; WANT_OCTOEVERYWHERE=ask
+WANT_PANEL=1; WANT_SCREEN=ask; WANT_TIMELAPSE=1; WANT_CROWSNEST=1; CLI_REMOTE=""; WANT_SHELLCMD=1; OBICO_SERVER=""; CLI_OBICO_SERVER=""; WANT_OBICO=ask; WANT_OCTOAPP=ask; WANT_OCTOEVERYWHERE=ask; WANT_NETMGR=ask
 SCREEN_LAYOUT=""; SCREEN_BACKEND="x11"; REPO_DIR="$SCRIPT_DIR"
 STAMP="$(date +%Y%m%d-%H%M%S)"
 BACKUP_ROOT="$HOME_DIR/wm-rpi-backup"
@@ -139,6 +140,7 @@ while [ $# -gt 0 ]; do
         --shell-command) case "${2:-}" in on|yes|1) WANT_SHELLCMD=1 ;; off|no|0) WANT_SHELLCMD=0 ;; *) print_error "--shell-command needs on or off"; exit 1 ;; esac; CLI_SHELLCMD="$WANT_SHELLCMD"; shift ;;
         --obico)        case "${2:-}" in on|yes|1) WANT_OBICO=1 ;; off|no|0) WANT_OBICO=0 ;; *) print_error "--obico needs on or off"; exit 1 ;; esac; CLI_REMOTE="$CLI_REMOTE obico"; CLI_OBICO="$WANT_OBICO"; shift ;;
         --octoapp)      case "${2:-}" in on|yes|1) WANT_OCTOAPP=1 ;; off|no|0) WANT_OCTOAPP=0 ;; *) print_error "--octoapp needs on or off"; exit 1 ;; esac; CLI_REMOTE="$CLI_REMOTE octoapp"; CLI_OCTOAPP="$WANT_OCTOAPP"; shift ;;
+        --network-manager) case "${2:-}" in on|yes|1) WANT_NETMGR=1 ;; off|no|0) WANT_NETMGR=0 ;; *) print_error "--network-manager needs on or off"; exit 1 ;; esac; CLI_REMOTE="$CLI_REMOTE netmgr"; CLI_NETMGR="$WANT_NETMGR"; shift ;;
         --octoeverywhere) case "${2:-}" in on|yes|1) WANT_OCTOEVERYWHERE=1 ;; off|no|0) WANT_OCTOEVERYWHERE=0 ;; *) print_error "--octoeverywhere needs on or off"; exit 1 ;; esac; CLI_REMOTE="$CLI_REMOTE octoeverywhere"; CLI_OCTOEVERYWHERE="$WANT_OCTOEVERYWHERE"; shift ;;
         --screen)       case "${2:-}" in on|yes|1) WANT_SCREEN=1 ;; off|no|0) WANT_SCREEN=0 ;; macros) WANT_SCREEN=macros ;; *) print_error "--screen needs on, off or macros"; exit 1 ;; esac; shift ;;
         --screen-layout) case "${2:-}" in tabs|grid) SCREEN_LAYOUT="$2" ;; *) print_error "--screen-layout needs tabs or grid"; exit 1 ;; esac; shift ;;
@@ -482,6 +484,28 @@ PY
         [ -f "$keep/config.json.keep" ] && cp "$keep/config.json.keep" "$HOME_DIR/fluidd/config.json"
     else echo -e "  ${DIM}would replace ~/fluidd with the panel build (old one saved)${NC}"; fi
     print_success "Fluidd panel installed (from $PANEL_FROM). Hard-refresh the browser (Ctrl/Cmd+Shift+R)."
+}
+
+# ---------------------------------------------------------------------------
+# NetworkManager for KlipperScreen's Network panel. KlipperScreen's own script reboots the Pi when it installs this, so it is done here
+# instead: install, enable, switch dhcpcd off, and leave the actual switch to the next reboot.
+# ---------------------------------------------------------------------------
+NETMGR_STATE="$BACKUP_ROOT/netmgr.state"
+nm_active() { [ "$(service_state NetworkManager)" = active ] || { [ "$TESTING" = 1 ] && [ "${WM_TEST_NM:-0}" = 1 ]; }; }
+step_netmgr() {
+    [ "$WANT_NETMGR" = 1 ] || return 0
+    print_header "NetworkManager (for KlipperScreen's Network panel)"
+    why "KlipperScreen's Network panel talks to NetworkManager. Without it the panel does not appear."
+    if nm_active; then print_success "NetworkManager is already running: nothing to change."; return 0; fi
+    print_warning "The network may drop when the Pi restarts with NetworkManager. After the reboot, if it does not come back: connect a cable, or use the screen's Network panel, or run: sudo nmtui"
+    if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would run: apt-get install network-manager; disable dhcpcd; enable NetworkManager (no restart)${NC}"; return 0; fi
+    if [ "$(service_enabled dhcpcd)" = enabled ]; then mkdir -p "$BACKUP_ROOT"; echo "dhcpcd-was-enabled" > "$NETMGR_STATE"; fi
+    SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y network-manager || { warn_later "NetworkManager could not be installed (network?). Run ./installer.sh --update --network-manager on to retry."; return 0; }
+    SUDO mkdir -p /etc/NetworkManager/conf.d
+    SUDO systemctl disable dhcpcd 2>/dev/null
+    SUDO systemctl enable NetworkManager
+    warn_later "NetworkManager is installed and starts at the next reboot (sudo reboot). Until then nothing changed. If the network does not come back: cable, or sudo nmtui, or ./installer.sh --remove network-manager from the screen's keyboard."
+    print_success "NetworkManager installed and enabled. It takes over at the next reboot."
 }
 
 # ---------------------------------------------------------------------------
@@ -835,6 +859,16 @@ questions() {
         elif ask_yn "Add only the ZR Tools macros (needed if the WonderMaker screen board is your screen)?" y; then WANT_SCREEN=macros
         else WANT_SCREEN=0; fi
     fi
+    if [ "$WANT_NETMGR" = ask ]; then
+        if [ "$WANT_SCREEN" != 1 ]; then WANT_NETMGR=0
+        elif nm_active; then print_info "NetworkManager is already running here, so KlipperScreen's Network panel will work."; WANT_NETMGR=0
+        else
+            echo "  KlipperScreen has a Network panel (pick a Wi-Fi network on the screen). It needs NetworkManager."
+            echo -e "  ${YELLOW}Note:${NC} switching this Pi to NetworkManager can DROP the network connection (your SSH session and Fluidd) and you may have to enter the Wi-Fi password again on the screen or with nmtui."
+            echo "  Nothing is restarted by the installer: the change starts at the next reboot. You can add it later with: ./installer.sh --update --network-manager on"
+            if ask_yn "Install NetworkManager for the Network panel?" n; then WANT_NETMGR=1; else WANT_NETMGR=0; fi
+        fi
+    fi
 }
 
 # ============================================================================
@@ -960,6 +994,7 @@ OBICO_SERVER=$OBICO_SERVER
 WANT_OBICO=$WANT_OBICO
 WANT_OCTOAPP=$WANT_OCTOAPP
 WANT_OCTOEVERYWHERE=$WANT_OCTOEVERYWHERE
+WANT_NETMGR=$WANT_NETMGR
 CROWSNEST_PIN=$(addon_pin crowsnest | cut -d'|' -f2)
 TIMELAPSE_PIN=$(addon_pin moonraker-timelapse | cut -d'|' -f2)
 PANEL_SHA=$([ -n "$PANEL_ZIP" ] && sha256sum "$PANEL_ZIP" 2>/dev/null | cut -d' ' -f1)
@@ -972,11 +1007,11 @@ load_answers() {
         case "$k" in
             VERSION) OLD_VERSION="$v" ;; CROWSNEST_PIN) OLD_CN_PIN="$v" ;; TIMELAPSE_PIN) OLD_TL_PIN="$v" ;; PANEL_SHA) OLD_PANEL_SHA="$v" ;;
             MODEL) [ -n "${MODEL_SET:-}" ] || MODEL="$v" ;; SRC_KIND) : ;;
-            WANT_PANEL|WANT_SCREEN|WANT_TIMELAPSE|WANT_CROWSNEST|WANT_SHELLCMD|WANT_OBICO|WANT_OCTOAPP|WANT_OCTOEVERYWHERE|OBICO_SERVER) printf -v "$k" '%s' "$v" ;;
+            WANT_PANEL|WANT_SCREEN|WANT_TIMELAPSE|WANT_CROWSNEST|WANT_SHELLCMD|WANT_OBICO|WANT_OCTOAPP|WANT_OCTOEVERYWHERE|WANT_NETMGR|OBICO_SERVER) printf -v "$k" '%s' "$v" ;;
             SCREEN_BACKEND) printf -v "$k" '%s' "$v" ;; KS_PIN) OLD_KS_PIN="$v" ;;
         esac
     done < "$CONF"
-    local r; for r in ${CLI_REMOTE:-}; do case "$r" in obico) WANT_OBICO="$CLI_OBICO" ;; octoapp) WANT_OCTOAPP="$CLI_OCTOAPP" ;; octoeverywhere) WANT_OCTOEVERYWHERE="$CLI_OCTOEVERYWHERE" ;; webcam) WANT_CROWSNEST="$CLI_WEBCAM" ;; timelapse) WANT_TIMELAPSE="$CLI_TIMELAPSE" ;; esac; done
+    local r; for r in ${CLI_REMOTE:-}; do case "$r" in obico) WANT_OBICO="$CLI_OBICO" ;; octoapp) WANT_OCTOAPP="$CLI_OCTOAPP" ;; octoeverywhere) WANT_OCTOEVERYWHERE="$CLI_OCTOEVERYWHERE" ;; netmgr) WANT_NETMGR="$CLI_NETMGR" ;; webcam) WANT_CROWSNEST="$CLI_WEBCAM" ;; timelapse) WANT_TIMELAPSE="$CLI_TIMELAPSE" ;; esac; done
     [ -n "${CLI_OBICO_SERVER:-}" ] && OBICO_SERVER="$CLI_OBICO_SERVER"
     [ -n "${CLI_SHELLCMD:-}" ] && WANT_SHELLCMD="$CLI_SHELLCMD"    # --shell-command on|off given now wins over the saved answer
     return 0
@@ -992,6 +1027,7 @@ PLAN_OPTIONS=(
     "obico|WANT_OBICO"
     "octoapp|WANT_OCTOAPP"
     "octoeverywhere|WANT_OCTOEVERYWHERE"
+    "network manager|WANT_NETMGR"
 )
 show_plan() {
     print_header "Plan (nothing has been changed yet)"
@@ -1195,6 +1231,7 @@ do_update() {
         if [ "$(addon_pin klipperscreen | cut -d'|' -f2)" != "${OLD_KS_PIN:-}" ] || [ ! -d "$KS_DIR" ]; then step_screen; else copy_zr_panel; print_success "ZR Tools screen files refreshed"; fi
     fi
     if [ "$WANT_SCREEN" = macros ]; then step_macros; fi
+    if [ "$WANT_NETMGR" = 1 ]; then step_netmgr; fi
     if [ "$WANT_TIMELAPSE" = 1 ]; then step_timelapse; fi
     if [ "$WANT_SHELLCMD" = 1 ]; then step_shellcmd; fi
     step_remote_update
@@ -1542,6 +1579,13 @@ do_remove_addon() {
             [ "$name" != obico ] && print_info "moonraker.conf may still have an [update_manager $name] section; Fluidd shows a harmless warning until you delete it."
             print_info "Restart Moonraker$([ "$name" = obico ] && echo " and Klipper") from Fluidd when you are ready." ;;
         screen) do_screen_remove ;;
+        network-manager)
+            if [ ! -f "$NETMGR_STATE" ]; then print_info "This installer did not switch the Pi to NetworkManager (it was already in use, or never installed), so there is nothing to switch back. Not touching your network setup."; return 0; fi
+            echo "  This switches the Pi back to dhcpcd: dhcpcd is enabled and NetworkManager is disabled. It takes effect at the next reboot; nothing restarts now. The network-manager package stays installed. KlipperScreen's Network panel stops working."
+            ask_yn "Switch back to dhcpcd?" n || { echo "Nothing changed."; return 0; }
+            SUDO systemctl enable dhcpcd; SUDO systemctl disable NetworkManager
+            rm -f "$NETMGR_STATE"; WANT_NETMGR=0; save_answers
+            print_success "Done. Reboot when you are ready (sudo reboot). Install NetworkManager again any time: ./installer.sh --update --network-manager on" ;;
         webcam)
             [ -d "$HOME_DIR/crowsnest" ] || [ -f /etc/systemd/system/crowsnest.service ] || { print_info "The webcam service is not installed."; return 0; }
             echo "  This removes the webcam service (crowsnest) and ~/crowsnest. Your camera settings file crowsnest.conf stays in your config folder."
@@ -1615,7 +1659,7 @@ PY
             done
             [ -f "$STATE" ] && uninstall_system_files
             print_success "Everything was removed except ~/printer_data and your backups." ;;
-        *) die_with_fix "unknown name '${name}'." "use one of: screen, webcam, timelapse, shell-command, obico, octoapp, octoeverywhere, fluidd, moonraker, klipper, data, system, cleanup, all." ;;
+        *) die_with_fix "unknown name '${name}'." "use one of: screen, network-manager, webcam, timelapse, shell-command, obico, octoapp, octoeverywhere, fluidd, moonraker, klipper, data, system, cleanup, all." ;;
     esac
 }
 
@@ -1632,6 +1676,7 @@ menu_item() { if [ -n "$3" ]; then printf '   %s) %-28s %b%s%b\n' "$1" "$2" "$DI
 addon_status() {   # name -> installed|running|not installed
     case "$1" in
         screen)   [ -d "$KS_DIR" ] && { [ "$(service_state KlipperScreen)" = active ] && echo running || echo installed; } || echo "not installed" ;;
+        network-manager) [ "$(service_state NetworkManager)" = active ] && echo running || { [ "$(service_enabled NetworkManager)" = enabled ] && echo installed || echo "not installed"; } ;;
         webcam)   [ -d "$HOME_DIR/crowsnest" ] && { [ "$(service_state crowsnest)" = active ] && echo running || echo installed; } || echo "not installed" ;;
         timelapse) [ -d "$HOME_DIR/moonraker-timelapse" ] && echo installed || echo "not installed" ;;
         shell-command) [ -f "$HOME_DIR/klipper/klippy/extras/gcode_shell_command.py" ] && echo installed || echo "not installed" ;;
@@ -1680,21 +1725,22 @@ menu_updates() {
 }
 
 menu_addons() {
-    local k items=(screen webcam timelapse shell-command obico octoapp octoeverywhere)
-    declare -A label=([screen]="Touchscreen (KlipperScreen)" [webcam]="Webcam (crowsnest)" [timelapse]="Timelapse" [shell-command]="Klipper gcode shell command" [obico]="Obico for Klipper" [octoapp]="OctoApp" [octoeverywhere]="OctoEverywhere")
-    declare -A help=([screen]="Screen plugged into the Pi, with the ZR Tools page" [webcam]="USB camera streams for Fluidd" [timelapse]="Moonraker timelapse + ffmpeg" [shell-command]="RUN_SHELL_COMMAND: run Linux commands from G-code" [obico]="Remote view and failure detection (obico.io account)" [octoapp]="Phone app notifications and control" [octoeverywhere]="Remote access, webcam and notifications (free account)")
+    local k items=(screen network-manager webcam timelapse shell-command obico octoapp octoeverywhere)
+    declare -A label=([screen]="Touchscreen (KlipperScreen)" [network-manager]="NetworkManager (Network panel)" [webcam]="Webcam (crowsnest)" [timelapse]="Timelapse" [shell-command]="Klipper gcode shell command" [obico]="Obico for Klipper" [octoapp]="OctoApp" [octoeverywhere]="OctoEverywhere")
+    declare -A help=([network-manager]="Wi-Fi choice on the screen. Can drop the network until a reboot" [screen]="Screen plugged into the Pi, with the ZR Tools page" [webcam]="USB camera streams for Fluidd" [timelapse]="Moonraker timelapse + ffmpeg" [shell-command]="RUN_SHELL_COMMAND: run Linux commands from G-code" [obico]="Remote view and failure detection (obico.io account)" [octoapp]="Phone app notifications and control" [octoeverywhere]="Remote access, webcam and notifications (free account)")
     while true; do
         echo; echo "  Add-ons"
         local n=0; for k in "${items[@]}"; do n=$((n+1)); menu_item "$n" "${label[$k]}" "[$(addon_status "$k")] ${help[$k]}"; done
         menu_item 0 "Back" ""
         menu_read "Choose one to install or remove:" || return 0
         [ "$REPLY_MENU" = 0 ] || [ -z "$REPLY_MENU" ] && return 0
-        if ! [[ "$REPLY_MENU" =~ ^[1-7]$ ]]; then echo "  Choose a number from the list."; continue; fi
+        if ! [[ "$REPLY_MENU" =~ ^[0-9]+$ ]] || [ "$REPLY_MENU" -lt 1 ] || [ "$REPLY_MENU" -gt "${#items[@]}" ]; then echo "  Choose a number from the list."; continue; fi
         k="${items[$((REPLY_MENU-1))]}"; local st; st="$(addon_status "$k")"
         if [ "$st" = "not installed" ]; then
             ask_yn "Install ${label[$k]}?" n || continue
             case "$k" in
                 screen) menu_run --update --screen on ;;
+                network-manager) echo "  This can drop the network connection (SSH, Fluidd) when the Pi restarts. Nothing restarts by itself."; ask_yn "Still install it?" n && menu_run --update --network-manager on ;;
                 webcam) menu_run --update --webcam on ;;
                 timelapse) menu_run --update --timelapse on ;;
                 *) menu_run --update "--$k" on ;;
@@ -1763,9 +1809,9 @@ menu_restore() {   # shows where the backups are kept and lets you choose one by
 }
 
 menu_uninstall() {
-    local k n items=(screen webcam timelapse shell-command obico octoapp octoeverywhere fluidd moonraker klipper data system cleanup all)
-    declare -A label=([screen]="Touchscreen (KlipperScreen)" [webcam]="Webcam (crowsnest)" [timelapse]="Timelapse" [shell-command]="Klipper gcode shell command" [obico]="Obico for Klipper" [octoapp]="OctoApp" [octoeverywhere]="OctoEverywhere" [fluidd]="Fluidd web page" [moonraker]="Moonraker" [klipper]="Klipper" [data]="My printer data" [system]="System files" [cleanup]="Clean up installer files" [all]="Everything above")
-    declare -A help=([fluidd]="The page you open in the browser, with its nginx site" [moonraker]="The web API Fluidd and the add-ons use" [klipper]="The printer firmware host" [data]="printer.cfg, calibration, database, gcode files (a backup is made first)" [system]="Services, nginx files and the can0 rule the installer added" [cleanup]="Old backups, support bundles, moved-aside folders, saved copies, the installer folder" [all]="Everything except my printer data, my backups and the installer files")
+    local k n items=(screen network-manager webcam timelapse shell-command obico octoapp octoeverywhere fluidd moonraker klipper data system cleanup all)
+    declare -A label=([screen]="Touchscreen (KlipperScreen)" [network-manager]="NetworkManager (switch back to dhcpcd)" [webcam]="Webcam (crowsnest)" [timelapse]="Timelapse" [shell-command]="Klipper gcode shell command" [obico]="Obico for Klipper" [octoapp]="OctoApp" [octoeverywhere]="OctoEverywhere" [fluidd]="Fluidd web page" [moonraker]="Moonraker" [klipper]="Klipper" [data]="My printer data" [system]="System files" [cleanup]="Clean up installer files" [all]="Everything above")
+    declare -A help=([network-manager]="Only if this installer switched you to it" [fluidd]="The page you open in the browser, with its nginx site" [moonraker]="The web API Fluidd and the add-ons use" [klipper]="The printer firmware host" [data]="printer.cfg, calibration, database, gcode files (a backup is made first)" [system]="Services, nginx files and the can0 rule the installer added" [cleanup]="Old backups, support bundles, moved-aside folders, saved copies, the installer folder" [all]="Everything except my printer data, my backups and the installer files")
     while true; do
         echo; echo "  Uninstall"; echo "  Choose what to remove. Each choice explains what goes and asks before it changes anything."
         n=0; for k in "${items[@]}"; do n=$((n+1)); case "$k" in all|cleanup) menu_item "$n" "${label[$k]}" "${help[$k]}" ;; *) menu_item "$n" "${label[$k]}" "[$(addon_status "$k")] ${help[$k]:-}" ;; esac; done
@@ -1857,7 +1903,7 @@ show_plan
 guard_not_printing
 save_answers
 step_packages; step_groups; step_python; step_unpack; step_model; step_venvs; step_modules
-step_services; step_nginx; step_can; step_panel; step_screen; step_timelapse; step_shellcmd; step_remote; step_crowsnest; step_start
+step_services; step_nginx; step_can; step_panel; step_screen; step_netmgr; step_timelapse; step_shellcmd; step_remote; step_crowsnest; step_start
 save_answers
 self_test
 if [ "$AUTOSTART" = 1 ] && [ "$DRY" != 1 ]; then do_first_start auto || true; fi
