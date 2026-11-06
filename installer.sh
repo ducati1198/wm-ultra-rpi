@@ -618,16 +618,46 @@ step_screen() {
     [ "$SCREEN_BACKEND" = x11 ] && echo "  Rotate: add 'xrandr --output <name> --rotate left' to an X11 autostart (README, 'Touchscreen')."
 }
 
+run_official_uninstall() {   # name dir command... : the add-on's OWN uninstaller, run first. Returns 0 when it ran and succeeded.
+    local name="$1" dir="$2"; shift 2
+    if [ "$TESTING" = 1 ]; then echo "[test] official uninstall $name: $*" >> "$HOME_DIR/.sudo.log"; return 0; fi
+    [ -d "$dir" ] || return 1
+    print_info "Running $name's own uninstaller ($*) ..."
+    if ( cd "$dir" && "$@" ); then return 0; fi
+    print_warning "$name's own uninstaller did not finish cleanly; the installer finishes the removal itself below."; return 1
+}
+official_with_answers() {   # command... : at a terminal the maker's uninstaller asks you its own questions; otherwise it is answered with yes
+    if remote_interactive; then "$@"; else yes y 2>/dev/null | "$@"; fi
+}
+moonraker_drop_update_section() {   # name : remove [update_manager NAME] from moonraker.conf (copy kept), so Fluidd stops listing a removed add-on
+    local f="$HOME_DIR/printer_data/config/moonraker.conf"
+    [ -f "$f" ] || return 0
+    grep -qiE "^\[update_manager +$1\]" "$f" || return 0
+    cp "$f" "$f.wm-before-$1-removal-$STAMP"
+    python3 - "$f" "$1" <<'PY'
+import sys, re
+p, name = sys.argv[1], sys.argv[2].lower()
+out = []; skip = False
+for l in open(p).read().split("\n"):
+    m = re.match(r"\s*\[(.+?)\]", l)
+    if m: skip = m.group(1).strip().lower() == "update_manager " + name
+    if not skip: out.append(l)
+open(p, "w").write("\n".join(out))
+PY
+    print_info "Removed [update_manager $1] from moonraker.conf (copy: moonraker.conf.wm-before-$1-removal-$STAMP)"
+}
 do_screen_remove() {
     print_header "Remove the touchscreen (KlipperScreen)"
     load_answers || true
     [ -d "$KS_DIR" ] || [ "$TESTING" = 1 ] || [ -f /etc/systemd/system/KlipperScreen.service ] || die_with_fix "KlipperScreen is not installed on this Pi." "nothing to remove."
     echo "Removes the KlipperScreen service, ~/KlipperScreen and its Python environment. Klipper, Moonraker, Fluidd and the ZR Tools macros stay."
     ask_yn "Continue?" n || exit 0
+    run_official_uninstall KlipperScreen "$KS_DIR" bash scripts/Uninstall.sh
     SUDO systemctl stop KlipperScreen; SUDO systemctl disable KlipperScreen
     SUDO rm -f /etc/systemd/system/KlipperScreen.service; SUDO systemctl daemon-reload
     if [ "$DRY" != 1 ]; then
         rm -rf "$KS_DIR" "$HOME_DIR/.KlipperScreen-env"
+        moonraker_drop_update_section KlipperScreen
         local f="$HOME_DIR/printer_data/config/KlipperScreen.conf"
         [ -f "$f" ] && sed -i '/^\[menu __main zr_tools\]/,/^$/d' "$f"
         WANT_SCREEN=macros; save_answers     # the ZR Tools macros stay in printer.cfg
@@ -1591,11 +1621,12 @@ do_remove_addon() {
             [ -d "$HOME_DIR/$dir" ] || [ -d "$HOME_DIR/$env" ] || { print_info "$name is not installed."; return 0; }
             echo "  This removes $name from this Pi (its service, ~/$dir and ~/$env). Your account on their website stays; remove the printer there yourself."
             ask_yn "Remove $name?" n || { echo "Nothing changed."; return 0; }
-            if [ "$TESTING" = 1 ]; then echo "[test] remove $name" >> "$HOME_DIR/.sudo.log"
+            if [ "$TESTING" = 1 ]; then echo "[test] remove $name" >> "$HOME_DIR/.sudo.log"; [ "$name" != obico ] && run_official_uninstall "$name" "$HOME_DIR/$dir" bash ./uninstall.sh
             else
-                if [ "$name" != obico ] && [ -x "$HOME_DIR/$dir/uninstall.sh" ] && remote_interactive; then ( cd "$HOME_DIR/$dir" && bash ./uninstall.sh ) || print_warning "$name's own uninstaller did not finish; the service is stopped below anyway."; fi
+                # OctoApp and OctoEverywhere ship ./uninstall.sh. Obico's own uninstall (./install.sh -u) only lists the steps below, which are done here exactly as it lists them.
+                if [ "$name" != obico ] && [ -f "$HOME_DIR/$dir/uninstall.sh" ]; then run_official_uninstall "$name" "$HOME_DIR/$dir" official_with_answers bash ./uninstall.sh; fi
                 SUDO systemctl stop "$svc" 2>/dev/null; SUDO systemctl disable "$svc" 2>/dev/null
-                SUDO rm -f "/etc/systemd/system/$svc.service"; SUDO systemctl daemon-reload
+                SUDO rm -f "/etc/systemd/system/$svc.service"; SUDO systemctl daemon-reload; SUDO systemctl reset-failed 2>/dev/null
                 if [ "$name" = obico ]; then   # Klipper would not start with the include pointing at a deleted file
                     rm -f "$cfgd/moonraker_obico_macros.cfg"
                     if grep -q 'include moonraker_obico_macros.cfg' "$cfgd/printer.cfg" 2>/dev/null; then
@@ -1609,7 +1640,7 @@ do_remove_addon() {
             rm -rf "$HOME_DIR/$dir" "$HOME_DIR/$env"
             case "$name" in obico) WANT_OBICO=0 ;; octoapp) WANT_OCTOAPP=0 ;; *) WANT_OCTOEVERYWHERE=0 ;; esac; save_answers
             print_success "$name removed."
-            [ "$name" != obico ] && print_info "moonraker.conf may still have an [update_manager $name] section; Fluidd shows a harmless warning until you delete it."
+            [ "$name" != obico ] && moonraker_drop_update_section "$name"
             print_info "Restart Moonraker$([ "$name" = obico ] && echo " and Klipper") from Fluidd when you are ready." ;;
         screen) do_screen_remove ;;
         network-manager)
@@ -1623,10 +1654,11 @@ do_remove_addon() {
             [ -d "$HOME_DIR/crowsnest" ] || [ -f /etc/systemd/system/crowsnest.service ] || { print_info "The webcam service is not installed."; return 0; }
             echo "  This removes the webcam service (crowsnest) and ~/crowsnest. Your camera settings file crowsnest.conf stays in your config folder."
             ask_yn "Remove the webcam service?" n || { echo "Nothing changed."; return 0; }
+            run_official_uninstall crowsnest "$HOME_DIR/crowsnest" official_with_answers make uninstall
             SUDO systemctl stop crowsnest; SUDO systemctl disable crowsnest
             SUDO rm -f /etc/systemd/system/crowsnest.service /usr/local/bin/crowsnest /etc/logrotate.d/crowsnest; SUDO systemctl daemon-reload
-            rm -rf "$HOME_DIR/crowsnest"; WANT_CROWSNEST=0; save_answers
-            print_success "Webcam service removed." ;;
+            rm -rf "$HOME_DIR/crowsnest"; moonraker_drop_update_section crowsnest; WANT_CROWSNEST=0; save_answers
+            print_success "Webcam service removed. crowsnest asks for a reboot after its uninstall: sudo reboot when you are ready." ;;
         timelapse)
             [ -d "$HOME_DIR/moonraker-timelapse" ] || { print_info "Timelapse is not installed."; return 0; }
             echo "  This removes the timelapse component and ~/moonraker-timelapse. ffmpeg, timelapse.cfg and finished videos stay. The [timelapse] section in moonraker.conf is commented out (a copy is kept)."
@@ -1645,6 +1677,7 @@ open(p, "w").write("\n".join(out))
 PY
                 print_info "Commented out [timelapse] in moonraker.conf (copy: moonraker.conf.wm-before-timelapse-removal-$STAMP)"
             fi
+            moonraker_drop_update_section timelapse
             rm -rf "$HOME_DIR/moonraker-timelapse"; WANT_TIMELAPSE=0; save_answers
             print_success "Timelapse removed. Restart Moonraker from Fluidd when you are ready." ;;
         fluidd)

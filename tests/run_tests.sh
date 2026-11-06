@@ -268,6 +268,22 @@ check "the old link token is not carried to the new server" "grep -q '^# auth_to
 check "the Obico service is restarted after a server change" "grep -q 'systemctl restart moonraker-obico' $O2/.sudo.log"
 check "--remove obico sets the settings file aside so a new install asks again" "M 'y\n' $O2 --remove obico | grep -q 'set aside' && [ ! -f $O2/printer_data/config/moonraker-obico.cfg ] && ls $O2/printer_data/config/moonraker-obico.cfg.wm-removed-*"
 
+
+echo "== uninstall uses the add-on's own uninstaller"
+UO="$T/uo"; mkun "$UO"; printf '\n[update_manager crowsnest]\ntype: git_repo\npath: ~/crowsnest\n\n[update_manager KlipperScreen]\ntype: git_repo\npath: ~/KlipperScreen\n\n[other]\nx: 1\n' >> "$UO/printer_data/config/moonraker.conf"
+: > "$UO/.sudo.log"
+M 'y\n' $UO --remove webcam >/dev/null
+check "webcam: crowsnest's own 'make uninstall' runs first, before the installer's own cleanup" "grep -n 'official uninstall crowsnest: official_with_answers make uninstall' $UO/.sudo.log | head -1 | cut -d: -f1 | { read a; b=\$(grep -n 'systemctl stop crowsnest' $UO/.sudo.log | head -1 | cut -d: -f1); [ \$a -lt \$b ]; }"
+check "webcam: its [update_manager crowsnest] section is removed, other sections stay, a copy is kept" "! grep -q 'update_manager crowsnest' $UO/printer_data/config/moonraker.conf && grep -q '^\[other\]' $UO/printer_data/config/moonraker.conf && ls $UO/printer_data/config/moonraker.conf.wm-before-crowsnest-removal-*"
+M 'y\n' $UO --remove screen >/dev/null
+check "touchscreen: KlipperScreen's own scripts/Uninstall.sh runs" "grep -q 'official uninstall KlipperScreen: bash scripts/Uninstall.sh' $UO/.sudo.log"
+check "touchscreen: its [update_manager KlipperScreen] section is removed" "! grep -qi 'update_manager KlipperScreen' $UO/printer_data/config/moonraker.conf && grep -q '^\[other\]' $UO/printer_data/config/moonraker.conf"
+OA="$T/oa"; rm -rf "$OA"; mkdir -p "$OA"; mkstage "$T/stage_oa"; inst "$OA" --from-stage "$T/stage_oa" --screen off >/dev/null; printf '[server]\nport: 7125\n' > "$OA/printer_data/config/moonraker.conf"
+inst "$OA" --update --octoapp on --octoeverywhere on >/dev/null
+M 'y\n' $OA --remove octoapp >/dev/null; M 'y\n' $OA --remove octoeverywhere >/dev/null
+check "OctoApp and OctoEverywhere: their own ./uninstall.sh is the first step" "grep -q 'official uninstall octoapp: bash ./uninstall.sh' $OA/.sudo.log && grep -q 'official uninstall octoeverywhere: bash ./uninstall.sh' $OA/.sudo.log"
+check "Obico: the steps from its own uninstall list are done (service, reset-failed, include lines)" "sed -n '/^do_remove_addon()/,/^}/p' $ROOT/installer.sh | grep -q 'reset-failed' && sed -n '/^do_remove_addon()/,/^}/p' $ROOT/installer.sh | grep -q 'include moonraker-obico-update.cfg' && sed -n '/^do_remove_addon()/,/^}/p' $ROOT/installer.sh | grep -q 'include moonraker_obico_macros.cfg'"
+
 echo "== Obico server choice and one SSH password"
 check "--obico-server needs a web address" "! bash $ROOT/installer.sh --obico-server not-a-url"
 check "Obico defaults to app.obico.io and saves it" "grep -q 'OBICO_SERVER=https://app.obico.io' $HR/wm-rpi-backup/install.conf"

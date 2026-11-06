@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.10.2
+
+- **Removing an add-on now runs its own official uninstaller first:** KlipperScreen (`scripts/Uninstall.sh`), crowsnest (`make uninstall`), OctoApp and OctoEverywhere (`./uninstall.sh`; at a terminal you answer its own questions). Before, OctoApp and OctoEverywhere only did it at a terminal, and KlipperScreen and crowsnest were removed by the installer alone. Obico has no uninstall script (`./install.sh -u` only prints the steps), so its listed steps are done, now including `systemctl reset-failed`.
+- After the official uninstaller the installer finishes anything it left behind, and removes the add-on's `[update_manager ...]` section from `moonraker.conf` (a dated copy is kept), so Fluidd stops listing a removed add-on.
+
 ## 1.10.1
 
 - **Obico used the website although a self-hosted server was chosen.** Obico's installer keeps an existing `moonraker-obico.cfg` and ignores the server it is given. The installer now checks that file: when its server differs from your choice, the file is reset (`-f`, Obico keeps a dated copy) and you are told to link the printer again. After the install it checks again and corrects the address if needed.

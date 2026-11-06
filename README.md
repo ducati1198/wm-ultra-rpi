@@ -580,7 +580,7 @@ OctoApp and OctoEverywhere ask questions while they install, so the installer on
 `./installer.sh` with no options at a terminal always opens a numbered menu, also on a Pi where nothing is installed yet (choose **1) Install or reinstall** there). `./installer.sh --menu` opens it any time; `./installer.sh --install`, or any other option, skips the menu and does that one thing. Each menu entry runs the same installer option you could type yourself, so nothing works differently from the command line.
 
 ```
-WonderMaker Ultra Raspberry Pi replacement - installer 1.10.1
+WonderMaker Ultra Raspberry Pi replacement - installer 1.10.2
   Klipper: active   Moonraker: active   nginx: active
   3 new change(s) on GitHub (version 1.6.1). Choose 2 to see them and update.
 
@@ -602,11 +602,11 @@ WonderMaker Ultra Raspberry Pi replacement - installer 1.10.1
 
   | NAME | What it removes |
   |---|---|
-  | `screen` | KlipperScreen (the ZR Tools macros and `zr_screen.conf` stay) |
-  | `webcam` | the crowsnest service and `~/crowsnest` (your `crowsnest.conf` stays) |
+  | `screen` | KlipperScreen: runs its own `scripts/Uninstall.sh` first (the ZR Tools macros and `zr_screen.conf` stay) |
+  | `webcam` | runs crowsnest's own `make uninstall` first, then removes the service and `~/crowsnest` (your `crowsnest.conf` stays; crowsnest asks for a reboot afterwards) |
   | `timelapse` | the timelapse component and `~/moonraker-timelapse`; the `[timelapse]` section in `moonraker.conf` is commented out (a copy is saved) |
   | `shell-command` | the gcode shell command extension (refused while `printer.cfg` still uses it) |
-  | `obico`, `octoapp`, `octoeverywhere` | the add-on's service and folders; your account on their website stays |
+  | `obico`, `octoapp`, `octoeverywhere` | OctoApp and OctoEverywhere: their own `./uninstall.sh` runs first (at a terminal it asks you its own questions). Obico has no uninstall script (`./install.sh -u` only prints the steps), so the installer does exactly the steps it lists: stop, disable and delete the service, `reset-failed`, delete `~/moonraker-obico` and its environment, and remove the two include lines. Your account on their website stays |
   | `fluidd` | the Fluidd web page (with the Toolheads panel) and its nginx site; `./installer.sh --update` puts it back |
   | `moonraker`, `klipper` | the service, the program folder and its Python environment; `~/printer_data` stays |
   | `network-manager` | switches the Pi back to dhcpcd, only if this installer switched it (effective at the next reboot) |
@@ -631,6 +631,7 @@ WonderMaker Ultra Raspberry Pi replacement - installer 1.10.1
   | The installer folder | the repository folder this script is in | type `DELETE` |
 - **Advanced → Start Klipper again** (`./installer.sh --start-klipper`) undoes *Stop Klipper*: it enables Klipper at boot and starts it now, without the hardware checks. *First start* does the same after checking the main board and can0.
 - **NetworkManager (for the screen's Network panel):** off by default. Add it later with `./installer.sh --update --network-manager on` or from **Add-ons → NetworkManager**. If the Pi was switched by this installer, **Uninstall → NetworkManager** (`./installer.sh --remove network-manager`) enables dhcpcd again and disables NetworkManager, again taking effect at the next reboot. If NetworkManager was already in use, the installer leaves your network setup alone. If the network does not come back after the reboot: plug in a cable, or use the screen's Network panel, or `sudo nmtui` on the Pi.
+- **Official uninstallers first:** every removal that has an official uninstaller runs it first (KlipperScreen, crowsnest, OctoApp, OctoEverywhere). The installer then checks the result and finishes anything left (service file, folders), so a failed official uninstaller does not leave a half-removed add-on. It also removes the add-on's `[update_manager ...]` section from `moonraker.conf` (a copy is kept), so Fluidd stops listing it. Moonraker timelapse and the shell command have no uninstaller; their files are removed by the installer.
 - **PolKit warning:** if Fluidd shows "PolKit warnings detected" (Moonraker says `org.freedesktop.packagekit.* is not registered`), the cause is the missing `packagekit` package. The installer checks for this after every install, update and repair, every time the menu opens, and in `--doctor`. It asks Moonraker for its warnings; when it finds this one it installs PackageKit, installs Moonraker's PolicyKit rule, restarts Moonraker and looks again. During a print it only tells you. If PackageKit cannot be installed (no internet), it sets `enable_system_updates: False` in `moonraker.conf` (a copy is saved), so Moonraker stops managing Debian packages.
 - **KIAUH:** if `~/kiauh` exists the menu warns you. KIAUH installs stock Klipper and Moonraker and would break WonderMaker's compiled modules; this installer manages the WonderMaker versions.
 - `./installer.sh --webcam on|off` and `--timelapse on|off` (with `--update`) are the matching options for those two add-ons.
