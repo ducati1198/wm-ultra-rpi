@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.14.1
+
+- **The Ultra-S factory files now carry the real CAN uuids** of the owner's printer, copied from its working board (main board, hub, extruder, T0-T3 and the load cell) instead of empty or placeholder values. A repo install on that printer's hardware therefore starts with the right ids and no "Duplicate canbus_uuid". **They belong to those boards:** on a different printer they will not be on the bus, so `--first-start` still checks them (it only changes the main board's uuid) and a toolhead or the hub still needs its own uuid (`scripts/read_write_can_id.sh`).
+
 ## 1.14.0
 
 - **Obico is installed with its own plain installer** (`git clone` then `./install.sh`, as on Obico's wiki). The installer no longer asks for the Obico server and no longer passes server or Moonraker flags: Obico's installer asks that itself. `--obico-server` is removed. Like OctoApp and OctoEverywhere, it starts only in a terminal without `--yes`; otherwise it is downloaded and the command to finish is printed (`cd ~/moonraker-obico && ./install.sh`).
