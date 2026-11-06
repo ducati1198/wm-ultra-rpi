@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.8.0
+
+- **PolKit warning fixed.** Fluidd showed "PolKit warnings detected" (`org.freedesktop.packagekit.* is not registered`) because the `packagekit` package was missing. The installer now installs it, together with Moonraker's PolicyKit rule. It also asks Moonraker for its warnings after every install, update and repair, every time the menu opens, and in `--doctor` (which could not fix this before), and repairs the problem when Moonraker reports it. During a print it only tells you. If PackageKit cannot be installed, it sets `enable_system_updates: False` in `moonraker.conf` (a copy is saved).
+- **Restore from a numbered list.** The menu shows the folder the backups are kept in and lists the backup files there; you press a number. A last entry takes a path to a file somewhere else.
+- The "Touchscreen settings" menu page is gone (the touchscreen can still be installed and removed under Add-ons).
+- **New Uninstall section** in the menu, and `--remove NAME` now covers everything the installer installs: `screen`, `webcam`, `timelapse`, `shell-command`, `obico`, `octoapp`, `octoeverywhere`, `fluidd`, `moonraker`, `klipper`, `data` (backup first, type `DELETE`), `system` and `all` (type `REMOVE`; keeps your printer data and backups).
+
 ## 1.7.0
 
 - Copying from the old board over SSH asks for the password **once**. Before, klipper, moonraker and the data were three more connections, so the password was asked for each. All steps now share one connection (SSH ControlMaster), which is closed at the end.

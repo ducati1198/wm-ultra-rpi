@@ -71,7 +71,7 @@ The full command list is in [3.4](#34-command-table). The installer **never flas
 |---|---|
 | Fluidd shows `ZRU-B001: Screen–Mainboard communication error` | Expected while the main board is not connected or powered (section 4). |
 | Fluidd page shows 403 | `./installer.sh --doctor` and accept the home-folder fix. |
-| Fluidd shows "PolKit warnings detected" | `./installer.sh --repair` |
+| Fluidd shows "PolKit warnings detected" | Open the menu (or run `./installer.sh --repair`): it installs PackageKit and Moonraker's PolicyKit rule. `--doctor` also fixes it |
 | Screen board: KlipperScreen will not start | A rescue window opens by itself after 3 failed starts. No screen? USB stick with an empty file `WM-FACTORY`, reboot (section 7; the USB route is not tested on hardware). |
 | Not sure what is wrong | `./installer.sh --doctor`: it explains each problem and offers a fix. |
 | Asking someone for help | `./installer.sh --support-bundle` and send the `.tgz`. |
@@ -194,7 +194,7 @@ The installer first asks **which printer you have** (ZR Ultra or ZR Ultra-S; or 
 | Environments | `klippy-env` and `moonraker-env` built from `config/klippy-requirements.txt` and `config/moonraker-requirements.txt` (exact versions of WonderMaker's image). The environments themselves are not stored in git: they are machine-built folders, so they are rebuilt on the Pi |
 | Module check | tries to import the 10 compiled WonderMaker modules and tells you if one fails |
 | Services | `moonraker.service` enabled; `klipper.service` installed but **disabled and stopped** while the install runs (the last step enables and starts it, see 3.3) |
-| PolicyKit | installs Moonraker's PolicyKit rule (its own script), so Fluidd can start, stop and restart Klipper, crowsnest and KlipperScreen. Without it Fluidd shows "PolKit warnings detected" |
+| PolicyKit | installs PackageKit and Moonraker's PolicyKit rule (its own script), so Fluidd can start, stop and restart Klipper, crowsnest and KlipperScreen. Without it Fluidd shows "PolKit warnings detected" |
 | nginx | Fluidd on port 80 with the websocket, API and webcam routes. Also lets nginx pass through your home folder (`chmod o+x ~`, Debian 12 makes it private, which gives a 403) |
 | CAN rule | brings `can0` up at 1 Mbit when the main board appears |
 | Fluidd panel | optional, see 5. The panel is **downloaded from [wm-ultra-fluidd-acepro-panel](https://github.com/ducati1198/wm-ultra-fluidd-acepro-panel) every time** (so you always get its latest), checked against the checksum published next to it. It needs internet (no copy is kept in this repo); if the download fails the web page is skipped with a warning and `--update` retries. `--update` installs a newer panel when there is one |
@@ -489,6 +489,7 @@ On the Pi, `./installer.sh --screen-remove` removes KlipperScreen again (Klipper
 
 ## 8. Go back / uninstall
 
+- The menu's **Uninstall** section (or `./installer.sh --remove NAME`, see [The menu](#the-menu)) removes any single part: the add-ons, Fluidd, Moonraker, Klipper, your printer data, or everything except your data and backups.
 - `./installer.sh --uninstall` removes the services, nginx files and can0 rule the installer added. Your folders in `~` stay.
 - Moved folders are in `~/wm-rpi-backup/`.
 - Nothing was changed on the original screen board or on any firmware, so there is nothing to restore there.
@@ -504,7 +505,7 @@ On the Pi, `./installer.sh --screen-remove` removes KlipperScreen again (Klipper
 | No picture from the camera | `ls /dev/v4l/by-id/`, put that path on the `device:` line of `~/printer_data/config/crowsnest.conf`, `sudo systemctl restart crowsnest` |
 | Moonraker does not answer | `journalctl -u moonraker -n 50` |
 | Fluidd page shows 403 Forbidden | nginx cannot read your home folder (Debian 12 makes it private). `chmod o+x ~ && sudo systemctl reload nginx`, or `./installer.sh --doctor` and accept the fix. |
-| Fluidd says "PolKit warnings detected" | Moonraker lacks its PolicyKit rule: `./installer.sh --repair` installs it. |
+| Fluidd says "PolKit warnings detected" | The `packagekit` package or Moonraker's PolicyKit rule is missing. The installer fixes it by itself when the menu opens; or run `./installer.sh --repair`. |
 | Fluidd says `mcu 'mcu': ZRU-B001: Screen–Mainboard communication error` | Expected while the main board is not connected: Klipper cannot reach it over CAN. Connect it (section 4). |
 | No `can0` | Main board not powered or not on USB. `lsusb` should show `1d50:606f`. |
 | Klipper "mcu ... uuid" error | New board, new `canbus_uuid` (see 4). |
@@ -576,7 +577,7 @@ OctoApp and OctoEverywhere ask questions while they install, so the installer on
 On a Pi that is already installed, `./installer.sh` with no options at a terminal opens a numbered menu (`./installer.sh --menu` opens it any time). A first-time install goes straight to the install questions as before; `./installer.sh --install` runs the normal install and skips the menu. Each menu entry runs the same installer option you could type yourself, so nothing works differently from the command line.
 
 ```
-WonderMaker Ultra Raspberry Pi replacement - installer 1.6.0
+WonderMaker Ultra Raspberry Pi replacement - installer 1.8.0
   Klipper: active   Moonraker: active   nginx: active
   3 new change(s) on GitHub (version 1.6.1). Choose 2 to see them and update.
 
@@ -585,13 +586,31 @@ WonderMaker Ultra Raspberry Pi replacement - installer 1.6.0
    3) Add-ons                      Touchscreen, webcam, timelapse, shell command, Obico, OctoApp, OctoEverywhere
    4) Check and fix                Doctor, repair, hardware test
    5) Backup and restore           Save and restore config, calibration and database
-   6) Touchscreen settings         Layout, screen test, remove
-   7) Advanced                     First start, stop Klipper, support bundle, uninstall
+   6) Uninstall                    Remove any add-on, Fluidd, Moonraker, Klipper or everything
+   7) Advanced                     First start, stop Klipper, support bundle
    0) Exit
 ```
 
 - **Status on top:** the version, whether Klipper, Moonraker and nginx are running, and (if the Pi is online) whether GitHub has newer changes.
 - **A print stops changes:** while a print is running the menu says so and every entry that changes something refuses, as the command line does. Looking (status, quick check) still works.
 - **Add-ons** shows `[installed]`, `[running]` or `[not installed]` for each add-on. Pick one to install it, or to remove it after a confirmation (`./installer.sh --remove obico|octoapp|octoeverywhere|shell-command`). Removing uses the makers' own uninstallers where they have one; your account on their website stays. Removing Obico also removes the include line it added to `printer.cfg` (a copy is saved first), because Klipper would not start with it pointing at a deleted file. Removing the shell command extension is refused while `printer.cfg` still has a `[gcode_shell_command ...]` section.
+- **Backup and restore:** *Restore a backup* shows the folder the backups are kept in (`~/wm-backups`) and lists the backup files there, newest first, with size and date. Press the number of the one you want; a safety copy of the current settings is made before anything is replaced. The last number lets you type the path of a backup file somewhere else.
+- **Uninstall** (menu entry 6) lists everything the installer puts on the Pi, each with `[installed]` or `[not installed]`. Pick a number to see what goes and confirm; nothing changes before you confirm. The same removals work from the command line with `./installer.sh --remove NAME`:
+
+  | NAME | What it removes |
+  |---|---|
+  | `screen` | KlipperScreen (the ZR Tools macros and `zr_screen.conf` stay) |
+  | `webcam` | the crowsnest service and `~/crowsnest` (your `crowsnest.conf` stays) |
+  | `timelapse` | the timelapse component and `~/moonraker-timelapse`; the `[timelapse]` section in `moonraker.conf` is commented out (a copy is saved) |
+  | `shell-command` | the gcode shell command extension (refused while `printer.cfg` still uses it) |
+  | `obico`, `octoapp`, `octoeverywhere` | the add-on's service and folders; your account on their website stays |
+  | `fluidd` | the Fluidd web page (with the Toolheads panel) and its nginx site; `./installer.sh --update` puts it back |
+  | `moonraker`, `klipper` | the service, the program folder and its Python environment; `~/printer_data` stays |
+  | `data` | `~/printer_data` (config, calibration, database, gcode files). A backup is made first and you must type `DELETE` |
+  | `system` | the services, nginx files and can0 rule listed in the install record (same as `--uninstall`) |
+  | `all` | every item above except `data`; you must type `REMOVE`. Your printer data and your backups are not touched |
+
+  A running print blocks all of them.
+- **PolKit warning:** if Fluidd shows "PolKit warnings detected" (Moonraker says `org.freedesktop.packagekit.* is not registered`), the cause is the missing `packagekit` package. The installer checks for this after every install, update and repair, every time the menu opens, and in `--doctor`. It asks Moonraker for its warnings; when it finds this one it installs PackageKit, installs Moonraker's PolicyKit rule, restarts Moonraker and looks again. During a print it only tells you. If PackageKit cannot be installed (no internet), it sets `enable_system_updates: False` in `moonraker.conf` (a copy is saved), so Moonraker stops managing Debian packages.
 - **KIAUH:** if `~/kiauh` exists the menu warns you. KIAUH installs stock Klipper and Moonraker and would break WonderMaker's compiled modules; this installer manages the WonderMaker versions.
 - `./installer.sh --webcam on|off` and `--timelapse on|off` (with `--update`) are the matching options for those two add-ons.

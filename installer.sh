@@ -28,7 +28,7 @@
 # ./installer.sh --shell-command on|off   the Klipper "gcode shell command" extension (RUN_SHELL_COMMAND CMD=name runs a Linux command from G-code). Installed automatically; off skips it
 # ./installer.sh --menu                numbered menu (install, update, add-ons, check and fix, backup, screen, advanced). Opens by itself when you run ./installer.sh with no options on a Pi that is already installed
 # ./installer.sh --install             the normal install (skips the menu)
-# ./installer.sh --remove NAME         remove an add-on after asking: obico, octoapp, octoeverywhere or shell-command (the makers' own uninstallers; your account stays on their website)
+# ./installer.sh --remove NAME         remove something after asking: screen, webcam, timelapse, shell-command, obico, octoapp, octoeverywhere, fluidd, moonraker, klipper, data, system, or all (everything except your printer data and backups)
 # ./installer.sh --webcam on|off       crowsnest webcam service;  --timelapse on|off   Moonraker timelapse (both used with --update)
 # ./installer.sh --obico-server URL    which Obico to connect to: https://app.obico.io (Obico's website, the default) or your own self-hosted server. Asked when you choose Obico
 # ./installer.sh --obico on|off        optional remote access: Obico for Klipper (moonraker-obico). Also --octoapp on|off and --octoeverywhere on|off. Each is asked (default no)
@@ -89,6 +89,7 @@ die_with_fix()  { print_error "Can't continue: $1"; echo -e "  Fix: $2"; exit 1;
 
 ask_yn() {  # prompt default(y/n)
     local p="$1" d="${2:-y}" a
+    if [ "${REMOVE_CONFIRMED:-0}" = 1 ]; then return 0; fi   # only set by "--remove all", after the typed confirmation
     if [ "${WM_ASSUME_YES:-0}" = 1 ]; then [ "$d" = y ]; return; fi
     read -r -p "$(echo -e "${YELLOW}?${NC} $p [${d}] ")" a || a=""
     a="${a:-$d}"; [[ "$a" =~ ^[Yy] ]]
@@ -343,11 +344,56 @@ step_services_files() {
 polkit_rule_present() {   # rules.d is root/polkitd-only (mode 700), so a plain test as the user cannot see the file
     SUDO test -f /etc/polkit-1/rules.d/moonraker.rules || SUDO test -f /usr/share/polkit-1/rules.d/moonraker.rules || SUDO test -f /etc/polkit-1/localauthority/50-local.d/10-moonraker.pkla
 }
+packagekit_present() {   # Moonraker's update manager asks PolicyKit about org.freedesktop.packagekit.*; those actions only exist when PackageKit is installed
+    if [ "$TESTING" = 1 ]; then [ -f "$HOME_DIR/.polkit_fixed" ] || { [ "${WM_TEST_PACKAGEKIT:-1}" = 1 ] && [ "${WM_TEST_POLKIT_WARN:-0}" != 1 ]; }; return; fi
+    [ -f /usr/share/polkit-1/actions/org.freedesktop.packagekit.policy ]
+}
+polkit_warnings() {   # what Moonraker itself reports about PolicyKit (one line each); empty when it reports nothing or does not answer
+    if [ "$TESTING" = 1 ]; then [ "${WM_TEST_POLKIT_WARN:-0}" = 1 ] && [ ! -f "$HOME_DIR/.polkit_fixed" ] && echo "Action org.freedesktop.packagekit.system-update is not registered"; return 0; fi
+    api_get /server/info | python3 -c 'import sys,json
+try:
+    for w in json.load(sys.stdin)["result"].get("warnings", []):
+        if "olkit" in w.lower() or "polkit" in w.lower() or "is not registered" in w: print(w.strip().splitlines()[0][:160])
+except Exception: pass' 2>/dev/null
+}
+moonraker_no_system_updates() {   # last resort when PackageKit cannot be installed: tell Moonraker not to manage Debian packages
+    local d f; d="$(cfg_dir)"; f="$(grep -l '^\[update_manager\]' "$d"/*.conf 2>/dev/null | head -n1)"
+    if [ -z "$f" ]; then f="$d/moonraker.conf"; [ -f "$f" ] || return 1; cp "$f" "$f.wm-before-polkit-fix-$STAMP"; printf '\n[update_manager]\nenable_system_updates: False\n' >> "$f"
+    elif grep -q '^enable_system_updates' "$f"; then return 0
+    else cp "$f" "$f.wm-before-polkit-fix-$STAMP"; sed -i '0,/^\[update_manager\]/s//[update_manager]\nenable_system_updates: False/' "$f"; fi
+    print_info "Set enable_system_updates: False in $(basename "$f") (copy: $(basename "$f").wm-before-polkit-fix-$STAMP): Moonraker no longer manages Debian packages."
+}
+step_packagekit() {
+    packagekit_present && return 0
+    why "Fluidd's update manager checks PackageKit's PolicyKit actions. Without the packagekit package Moonraker says 'PolKit warnings detected'."
+    if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would run: sudo apt-get install -y packagekit${NC}"; return 0; fi
+    if [ "$TESTING" = 1 ]; then SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y packagekit; touch "$HOME_DIR/.polkit_fixed"; return 0; fi
+    SUDO apt-get update -qq >/dev/null 2>&1
+    if SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y packagekit >/dev/null 2>&1 && packagekit_present; then print_success "PackageKit installed (the PolKit warning source)"; return 0; fi
+    print_warning "PackageKit could not be installed (no internet, or this Debian's package list is old)."
+    moonraker_no_system_updates || warn_later "Could not stop Moonraker's PolKit warning. Run: sudo apt install packagekit, then restart Moonraker."
+}
+polkit_fix() {   # PackageKit + Moonraker's rule, restart Moonraker, look again. Returns 0 when Moonraker no longer complains.
+    step_polkit
+    [ "$DRY" = 1 ] && return 0
+    SUDO systemctl restart moonraker
+    [ "$TESTING" = 1 ] || sleep 6
+    [ -z "$(polkit_warnings)" ]
+}
+polkit_check_and_fix() {   # looked at after every install, update, repair and when the menu opens; changes nothing while a print is active
+    local w; w="$(polkit_warnings)"
+    if [ -z "$w" ] && packagekit_present; then return 0; fi
+    case "$(print_state)" in printing|paused) print_warning "Moonraker reports a PolicyKit problem (Fluidd: 'PolKit warnings detected'). It will be fixed the next time you open the menu or run --repair when no print is active."; return 0 ;; esac
+    print_warning "${w:-PackageKit is missing, so Fluidd would show 'PolKit warnings detected'.}"
+    if polkit_fix; then print_success "PolKit warning fixed. Reload the Fluidd page."; else warn_later "Moonraker still reports a PolicyKit problem. Run ./installer.sh --doctor, or: sudo apt install packagekit && sudo systemctl restart moonraker"; fi
+}
 step_polkit() {   # without this rule Moonraker may not restart services (Fluidd shows "PolKit warnings detected")
     why "Moonraker needs a PolicyKit rule to start, stop and restart services (Klipper, crowsnest, KlipperScreen) from Fluidd. WonderMaker's own image has it; a fresh Pi does not."
+    step_packagekit
     if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would run: moonraker/scripts/set-policykit-rules.sh${NC}"; return 0; fi
     if [ "$TESTING" = 1 ]; then echo "[test] polkit rules" >> "$HOME_DIR/.sudo.log"; return 0; fi
     if [ -f "$HOME_DIR/moonraker/scripts/set-policykit-rules.sh" ]; then
+        if polkit_rule_present; then return 0; fi
         bash "$HOME_DIR/moonraker/scripts/set-policykit-rules.sh" >/dev/null 2>&1 && polkit_rule_present && { record "FILE /etc/polkit-1/rules.d/moonraker.rules"; print_success "PolicyKit rule for Moonraker installed"; return 0; }
     fi
     warn_later "Could not install Moonraker's PolicyKit rule: Fluidd will show a PolKit warning and cannot restart services. Run: ./installer.sh --repair"
@@ -1205,6 +1251,7 @@ self_test() {
         [ "$c" = 200 ] && print_success "nginx forwards the API to Moonraker" || print_warning "the API through nginx answered '$c'"
     fi
     local k; k="$(klippy_state)"; print_info "Klipper state: ${k:-not running}"
+    polkit_check_and_fix
 }
 
 # ============================================================================
@@ -1260,6 +1307,7 @@ do_doctor() {
     if can_exists; then
         can_is_up && doc_ok "can0 is up" || { doc_bad "can0 is down" "Klipper cannot reach the toolheads."; offer_fix "bring can0 up (1 Mbit)" bash -c "sudo ip link set can0 up type can bitrate 1000000"; }
     else doc_bad "no can0 interface" "It appears when the main board is connected."; fi
+    if [ -n "$(polkit_warnings)" ] || ! packagekit_present; then doc_bad "Moonraker reports 'PolKit warnings detected' (PackageKit is missing)" "Fluidd's update manager cannot check or install updates."; offer_fix "install PackageKit and restart Moonraker" polkit_fix; else doc_ok "no PolKit warnings from Moonraker"; fi
     if [ "$TESTING" != 1 ]; then
         polkit_rule_present && doc_ok "Moonraker's PolicyKit rule is installed" || { doc_bad "Moonraker's PolicyKit rule is missing" "Fluidd shows a PolKit warning and cannot restart services."; offer_fix "install it" step_polkit; }
         local hc; hc="$(curl -s -m 5 -o /dev/null -w '%{http_code}' http://127.0.0.1/ 2>/dev/null)"
@@ -1336,6 +1384,7 @@ do_check() {
         [ "$(service_state moonraker)" = active ] || { print_error "Moonraker is not running"; bad=1; }
         [ -x "$SCRIPT_DIR/scripts/board_check.sh" ] && bash "$SCRIPT_DIR/scripts/board_check.sh"
     }
+    if [ -n "$(polkit_warnings)" ] || ! packagekit_present; then print_warning "Fluidd shows 'PolKit warnings detected' (PackageKit missing). Fix: ./installer.sh --repair"; fi
     [ "$bad" = 0 ] && print_success "All good." || { print_error "Problems found."; exit 1; }
 }
 
@@ -1346,6 +1395,9 @@ do_uninstall() {
     [ -f "$STATE" ] || die_with_fix "no install record at $STATE." "nothing to remove."
     echo "This removes the services, nginx files and can0 rule the installer added. Your files in ~ are left in place."
     ask_yn "Continue?" n || exit 0
+    uninstall_system_files
+}
+uninstall_system_files() {
     SUDO systemctl stop klipper; SUDO systemctl stop moonraker
     SUDO systemctl disable klipper; SUDO systemctl disable moonraker
     local k v
@@ -1404,7 +1456,80 @@ do_remove_addon() {
             print_success "$name removed."
             [ "$name" != obico ] && print_info "moonraker.conf may still have an [update_manager $name] section; Fluidd shows a harmless warning until you delete it."
             print_info "Restart Moonraker$([ "$name" = obico ] && echo " and Klipper") from Fluidd when you are ready." ;;
-        *) die_with_fix "unknown add-on '${name}'." "use one of: obico, octoapp, octoeverywhere, shell-command." ;;
+        screen) do_screen_remove ;;
+        webcam)
+            [ -d "$HOME_DIR/crowsnest" ] || [ -f /etc/systemd/system/crowsnest.service ] || { print_info "The webcam service is not installed."; return 0; }
+            echo "  This removes the webcam service (crowsnest) and ~/crowsnest. Your camera settings file crowsnest.conf stays in your config folder."
+            ask_yn "Remove the webcam service?" n || { echo "Nothing changed."; return 0; }
+            SUDO systemctl stop crowsnest; SUDO systemctl disable crowsnest
+            SUDO rm -f /etc/systemd/system/crowsnest.service /usr/local/bin/crowsnest /etc/logrotate.d/crowsnest; SUDO systemctl daemon-reload
+            rm -rf "$HOME_DIR/crowsnest"; WANT_CROWSNEST=0; save_answers
+            print_success "Webcam service removed." ;;
+        timelapse)
+            [ -d "$HOME_DIR/moonraker-timelapse" ] || { print_info "Timelapse is not installed."; return 0; }
+            echo "  This removes the timelapse component and ~/moonraker-timelapse. ffmpeg, timelapse.cfg and finished videos stay. The [timelapse] section in moonraker.conf is commented out (a copy is kept)."
+            ask_yn "Remove timelapse?" n || { echo "Nothing changed."; return 0; }
+            local comp="$HOME_DIR/moonraker/moonraker/components/timelapse.py" mc="$cfgd/moonraker.conf"
+            [ -L "$comp" ] && rm -f "$comp"
+            if grep -q '^\[timelapse\]' "$mc" 2>/dev/null; then
+                cp "$mc" "$mc.wm-before-timelapse-removal-$STAMP"
+                python3 - "$mc" <<'PY'
+import sys
+p = sys.argv[1]; out = []; inside = False
+for line in open(p).read().split("\n"):
+    if line.startswith("["): inside = line.startswith("[timelapse]")
+    out.append("#" + line if inside and line.strip() and not line.startswith("#") else line)
+open(p, "w").write("\n".join(out))
+PY
+                print_info "Commented out [timelapse] in moonraker.conf (copy: moonraker.conf.wm-before-timelapse-removal-$STAMP)"
+            fi
+            rm -rf "$HOME_DIR/moonraker-timelapse"; WANT_TIMELAPSE=0; save_answers
+            print_success "Timelapse removed. Restart Moonraker from Fluidd when you are ready." ;;
+        fluidd)
+            [ -d "$HOME_DIR/fluidd" ] || [ -e /etc/nginx/sites-enabled/fluidd ] || { print_info "The Fluidd web page is not installed."; return 0; }
+            echo "  This removes the Fluidd web page (~/fluidd, with the WonderMaker Toolheads panel) and its nginx site. Klipper and Moonraker keep running."
+            echo "  You cannot open the printer in a browser until you run ./installer.sh --update (it puts the page back)."
+            ask_yn "Remove the Fluidd web page?" n || { echo "Nothing changed."; return 0; }
+            SUDO rm -f /etc/nginx/sites-enabled/fluidd /etc/nginx/sites-available/fluidd /etc/nginx/conf.d/common_vars.conf /etc/nginx/conf.d/upstreams.conf
+            SUDO nginx -t >/dev/null 2>&1 && SUDO systemctl reload nginx
+            rm -rf "$HOME_DIR/fluidd"
+            print_success "Fluidd web page removed." ;;
+        moonraker|klipper)
+            local pre; pre="$name"
+            [ -d "$HOME_DIR/$pre" ] || [ -f /etc/systemd/system/$pre.service ] || { print_info "$name is not installed."; return 0; }
+            if [ "$name" = moonraker ]; then echo "  This removes Moonraker (its service, ~/moonraker and ~/moonraker-env). Fluidd, KlipperScreen and the remote-access add-ons need it. ~/printer_data stays."
+            else echo "  This removes Klipper (its service, ~/klipper and ~/klippy-env). The printer will not run without it. ~/printer_data stays."; fi
+            ask_yn "Remove $name?" n || { echo "Nothing changed."; return 0; }
+            SUDO systemctl stop "$name"; SUDO systemctl disable "$name"
+            SUDO rm -f "/etc/systemd/system/$name.service"; SUDO systemctl daemon-reload
+            rm -rf "$HOME_DIR/$name" "$HOME_DIR/$([ "$name" = klipper ] && echo klippy-env || echo moonraker-env)"
+            print_success "$name removed. Put it back with ./installer.sh --update or --install." ;;
+        data)
+            [ -d "$HOME_DIR/printer_data" ] || { print_info "There is no ~/printer_data."; return 0; }
+            echo "  This DELETES ~/printer_data: printer.cfg and all your config, calibration, the Moonraker database (history and settings), gcode files and logs."
+            echo "  A backup of your config and database is saved first in ~/wm-backups."
+            ask_yn "Delete my printer data?" n || { echo "Nothing changed."; return 0; }
+            local word; read -r -p "  Type DELETE (capital letters) to confirm, anything else cancels: " word || word=""
+            [ "$word" = DELETE ] || { echo "Nothing changed."; return 0; }
+            ARG1="$HOME_DIR/wm-backups"; do_backup >/dev/null
+            SUDO systemctl stop klipper; SUDO systemctl stop moonraker
+            rm -rf "$HOME_DIR/printer_data"
+            print_success "Printer data deleted. The backup is in ~/wm-backups (newest file): copy it off the Pi." ;;
+        system)
+            [ -f "$STATE" ] || { print_info "Nothing recorded to remove."; return 0; }
+            do_uninstall ;;
+        all)
+            echo "  This removes every add-on, Fluidd, Moonraker, Klipper and the system files the installer added."
+            echo "  Your printer data (~/printer_data) and your backups are NOT touched; remove the data separately."
+            local word c; read -r -p "  Type REMOVE (capital letters) to confirm, anything else cancels: " word || word=""
+            [ "$word" = REMOVE ] || { echo "Nothing changed."; return 0; }
+            for c in screen webcam timelapse shell-command obico octoapp octoeverywhere fluidd moonraker klipper; do
+                [ "$(addon_status "$c")" = "not installed" ] && continue
+                ( ARG1="$c"; REMOVE_CONFIRMED=1; FORCE=1; do_remove_addon )
+            done
+            [ -f "$STATE" ] && uninstall_system_files
+            print_success "Everything was removed except ~/printer_data and your backups." ;;
+        *) die_with_fix "unknown name '${name}'." "use one of: screen, webcam, timelapse, shell-command, obico, octoapp, octoeverywhere, fluidd, moonraker, klipper, data, system, all." ;;
     esac
 }
 
@@ -1424,6 +1549,11 @@ addon_status() {   # name -> installed|running|not installed
         webcam)   [ -d "$HOME_DIR/crowsnest" ] && { [ "$(service_state crowsnest)" = active ] && echo running || echo installed; } || echo "not installed" ;;
         timelapse) [ -d "$HOME_DIR/moonraker-timelapse" ] && echo installed || echo "not installed" ;;
         shell-command) [ -f "$HOME_DIR/klipper/klippy/extras/gcode_shell_command.py" ] && echo installed || echo "not installed" ;;
+        fluidd)   [ -d "$HOME_DIR/fluidd" ] && echo installed || echo "not installed" ;;
+        moonraker) [ -d "$HOME_DIR/moonraker" ] && echo installed || echo "not installed" ;;
+        klipper)  [ -d "$HOME_DIR/klipper" ] && echo installed || echo "not installed" ;;
+        data)     [ -d "$HOME_DIR/printer_data" ] && echo "present" || echo "not present" ;;
+        system)   [ -f "$STATE" ] && echo installed || echo "nothing recorded" ;;
         obico|octoapp|octoeverywhere)
             local d=$1 sv=$1; [ "$1" = obico ] && { d=moonraker-obico; sv=moonraker-obico; }
             [ -d "$HOME_DIR/$d" ] && { if [ "$TESTING" = 1 ]; then echo installed; elif [ "$(service_state "$sv")" = active ]; then echo running; else echo "downloaded, not running"; fi; } || echo "not installed" ;;
@@ -1485,8 +1615,6 @@ menu_addons() {
             esac
         else
             case "$k" in
-                webcam|timelapse) echo "  ${label[$k]} is installed. To stop it: sudo systemctl disable --now $([ "$k" = webcam ] && echo crowsnest || echo moonraker) (timelapse is a Moonraker component; leave it unless you know you do not want it)."; menu_pause ;;
-                screen) ask_yn "Remove KlipperScreen from this Pi (Klipper, Moonraker and Fluidd stay)?" n && menu_run --screen-remove ;;
                 *) menu_run --remove "$k" ;;
             esac
         fi
@@ -1510,33 +1638,56 @@ menu_backup() {
     while true; do
         echo; echo "  Backup and restore"
         menu_item 1 "Back up my settings" "Saves config, calibration and database to ~/wm-backups (copy it off the Pi)"
-        menu_item 2 "Restore a backup" "Asks for the file; a safety copy is made first"
+        menu_item 2 "Restore a backup" "Pick one from the list; a safety copy is made first"
         menu_item 3 "Undo the last install" "Puts back the folders the installer moved aside"
         menu_item 0 "Back" ""
         menu_read "Choose:" || return 0
         case "$REPLY_MENU" in
             1) menu_run --backup ;;
-            2) menu_read "Path of the .tgz file (Enter to cancel):" || return 0; [ -n "$REPLY_MENU" ] && menu_run --restore "$REPLY_MENU" ;;
+            2) menu_restore ;;
             3) menu_run --undo ;;
             0|"") return 0 ;; *) echo "  Choose a number from the list." ;;
         esac
     done
 }
 
-menu_screen() {
+menu_restore() {   # shows where the backups are kept and lets you choose one by number
+    local dir="$HOME_DIR/wm-backups" files=() f n i extra
+    echo; echo "  Restore a backup"
+    echo "  Backups made by this installer are kept in: $dir"
+    mapfile -t files < <(ls -1t "$dir"/wm-backup-*.tgz 2>/dev/null)
+    if [ "${#files[@]}" = 0 ]; then echo "  There are no backups in that folder yet. Use 'Back up my settings' first, or copy a backup file there."
+    else
+        i=0; for f in "${files[@]}"; do i=$((i+1)); printf '   %s) %s   %s   %s\n' "$i" "$(basename "$f")" "$(du -h "$f" | cut -f1)" "$(date -r "$f" '+%Y-%m-%d %H:%M' 2>/dev/null)"; done
+    fi
+    extra=$(( ${#files[@]} + 1 ))
+    menu_item "$extra" "A backup file in another place" "You type its path"
+    menu_item 0 "Back" ""
+    menu_read "Choose a backup:" || return 0
+    case "$REPLY_MENU" in
+        0|"") return 0 ;;
+        *[!0-9]*) echo "  Choose a number from the list."; return 0 ;;
+    esac
+    n="$REPLY_MENU"
+    if [ "$n" = "$extra" ]; then
+        menu_read "Path of the .tgz file (Enter to cancel):" || return 0
+        [ -n "$REPLY_MENU" ] && menu_run --restore "$REPLY_MENU"
+    elif [ "$n" -ge 1 ] && [ "$n" -le "${#files[@]}" ]; then menu_run --restore "${files[$((n-1))]}"
+    else echo "  Choose a number from the list."; fi
+}
+
+menu_uninstall() {
+    local k n items=(screen webcam timelapse shell-command obico octoapp octoeverywhere fluidd moonraker klipper data system all)
+    declare -A label=([screen]="Touchscreen (KlipperScreen)" [webcam]="Webcam (crowsnest)" [timelapse]="Timelapse" [shell-command]="Klipper gcode shell command" [obico]="Obico for Klipper" [octoapp]="OctoApp" [octoeverywhere]="OctoEverywhere" [fluidd]="Fluidd web page" [moonraker]="Moonraker" [klipper]="Klipper" [data]="My printer data" [system]="System files" [all]="Everything above")
+    declare -A help=([fluidd]="The page you open in the browser, with its nginx site" [moonraker]="The web API Fluidd and the add-ons use" [klipper]="The printer firmware host" [data]="printer.cfg, calibration, database, gcode files (a backup is made first)" [system]="Services, nginx files and the can0 rule the installer added" [all]="Everything except my printer data and my backups")
     while true; do
-        echo; echo "  Touchscreen settings   [$(addon_status screen)]"
-        menu_item 1 "Layout: tabs" "Big buttons with bottom tabs (default)"
-        menu_item 2 "Layout: grid" "Cards on a home page"
-        menu_item 3 "Screen test" "Read-only: shows the screen found, its size and wide or tall"
-        menu_item 4 "Remove KlipperScreen" "Klipper, Moonraker and Fluidd stay"
+        echo; echo "  Uninstall"; echo "  Choose what to remove. Each choice explains what goes and asks before it changes anything."
+        n=0; for k in "${items[@]}"; do n=$((n+1)); case "$k" in all) menu_item "$n" "${label[$k]}" "${help[$k]}" ;; *) menu_item "$n" "${label[$k]}" "[$(addon_status "$k")] ${help[$k]:-}" ;; esac; done
         menu_item 0 "Back" ""
         menu_read "Choose:" || return 0
-        case "$REPLY_MENU" in
-            1) menu_run --screen-layout tabs ;; 2) menu_run --screen-layout grid ;; 3) menu_run --screen-test ;;
-            4) ask_yn "Remove KlipperScreen?" n && menu_run --screen-remove ;;
-            0|"") return 0 ;; *) echo "  Choose a number from the list." ;;
-        esac
+        [ "$REPLY_MENU" = 0 ] || [ -z "$REPLY_MENU" ] && return 0
+        if ! [[ "$REPLY_MENU" =~ ^[0-9]+$ ]] || [ "$REPLY_MENU" -lt 1 ] || [ "$REPLY_MENU" -gt "${#items[@]}" ]; then echo "  Choose a number from the list."; continue; fi
+        menu_run --remove "${items[$((REPLY_MENU-1))]}"
     done
 }
 
@@ -1546,11 +1697,10 @@ menu_advanced() {
         menu_item 1 "First start" "With the main board connected: checks, then starts Klipper"
         menu_item 2 "Stop Klipper" "Stops Klipper and keeps it from starting at boot"
         menu_item 3 "Support bundle" "A scrubbed .tgz of logs and config to share when asking for help"
-        menu_item 4 "Uninstall" "Removes what the installer added to the system (your files in ~ stay)"
         menu_item 0 "Back" ""
         menu_read "Choose:" || return 0
         case "$REPLY_MENU" in
-            1) menu_run --first-start ;; 2) menu_run --disable-klipper ;; 3) menu_run --support-bundle ;; 4) menu_run --uninstall ;;
+            1) menu_run --first-start ;; 2) menu_run --disable-klipper ;; 3) menu_run --support-bundle ;;
             0|"") return 0 ;; *) echo "  Choose a number from the list." ;;
         esac
     done
@@ -1558,6 +1708,7 @@ menu_advanced() {
 
 do_menu() {
     load_answers || true
+    [ -f "$CONF" ] && [ "${WM_MENU_NO_POLKIT:-0}" != 1 ] && polkit_check_and_fix
     while true; do
         echo; menu_status; echo
         menu_item 1 "Install or reinstall" "Sets up Klipper, Moonraker and Fluidd; asks a few plain questions"
@@ -1565,13 +1716,13 @@ do_menu() {
         menu_item 3 "Add-ons" "Touchscreen, webcam, timelapse, shell command, Obico, OctoApp, OctoEverywhere"
         menu_item 4 "Check and fix" "Doctor, repair, hardware test"
         menu_item 5 "Backup and restore" "Save and restore config, calibration and database"
-        menu_item 6 "Touchscreen settings" "Layout, screen test, remove"
-        menu_item 7 "Advanced" "First start, stop Klipper, support bundle, uninstall"
+        menu_item 6 "Uninstall" "Remove any add-on, Fluidd, Moonraker, Klipper or everything"
+        menu_item 7 "Advanced" "First start, stop Klipper, support bundle"
         menu_item 0 "Exit" ""
         menu_read "Choose:" || { echo; return 0; }
         case "$REPLY_MENU" in
             1) ask_yn "Run the install now? It asks its own questions first." y && menu_run --install ;;
-            2) menu_updates ;; 3) menu_addons ;; 4) menu_fix ;; 5) menu_backup ;; 6) menu_screen ;; 7) menu_advanced ;;
+            2) menu_updates ;; 3) menu_addons ;; 4) menu_fix ;; 5) menu_backup ;; 6) menu_uninstall ;; 7) menu_advanced ;;
             0|q|Q|"") return 0 ;;
             *) echo "  Choose a number from the list." ;;
         esac
