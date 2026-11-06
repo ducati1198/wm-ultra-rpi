@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.18.0
+
+- **Screen board: Uninstall installer files** (menu entry 9, or `--remove rescue|backups|restoredata|installer`). Removes, each after a question: the rescue tool and the on-screen Factory mode button; screen backups, support bundles and the board report; the saved restore data (`~/wm-screen-backup`, refused while KlipperScreen is installed because a factory restore needs it, unless `--force`); the downloaded installer folder. KlipperScreen itself is only removed by Back to factory mode.
+
 ## 1.17.0
 
 - **Screen board menu is now complete** (`bash scripts/screen_board.sh --menu`): Install, **Update** (newest ZR Tools screen files from GitHub, backup first), **Check and fix** (doctor with Fix everything, status, last log, restart the screen, board report, pre-check), **Backup and restore** (screen settings, safety copy before a restore), **Settings** (Pi address, screen driver, network and system with time zone and host name), **Support bundle**, dry run and factory mode. Each entry is also an option: `--update`, `--doctor [--fix-all]`, `--backup`, `--restore-backup [N]`, `--support-bundle`, `--log`, `--restart-screen`, `--system [tz:Zone|host:name]`. Not yet tried on the real screen board.

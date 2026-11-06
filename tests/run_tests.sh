@@ -754,4 +754,17 @@ check "board --update copies the new panels after a backup" "WM_TEST_UPDATE_DIR=
 check "board --system shows host name and sets a time zone" "myb --system | grep -q 'Host name' && myb --system tz:America/Toronto | grep -q 'Time zone is America/Toronto' && ! myb --system tz:'bad zone!'"
 check "board --log and --restart-screen run" "myb --log | grep -q 'Last log' && myb --restart-screen | grep -q restarted"
 
+MU="$T/mu"; mkdir -p "$MU/printer_data/config"; FK="$T/wm-ultra-rpi-fake"; mkdir -p "$FK/scripts"; cp "$SB" "$FK/scripts/"; echo 1.0.0 > "$FK/VERSION"
+muf() { WM_ASSUME_YES=1 WM_TEST_SERVICES="makerbase-client klipper moonraker nginx" WM_HOME="$MU" WM_INSTALLER_TEST=1 bash "$FK/scripts/screen_board.sh" "$@" 2>&1 </dev/null; }
+muf --pi 192.0.2.10 --no-reboot >/dev/null; muf --backup >/dev/null; muf --support-bundle >/dev/null
+check "board --remove restoredata is refused while KlipperScreen is installed" "! muf --remove restoredata && [ -d $MU/wm-screen-backup ]"
+check "board --remove rescue removes the rescue tool and the Factory mode button, KlipperScreen stays" "muf --remove rescue | grep -q 'Rescue tool and Factory mode button removed' && grep -q 'remove factory button' $MU/.sudo.log && [ -d $MU/KlipperScreen ]"
+check "board --remove backups deletes backups and bundles" "muf --remove backups | grep -q 'deleted' && [ ! -d $MU/wm-screen-backups ] && ! ls $MU/wm-screen-support-*.tgz"
+check "board --remove with a wrong name is refused" "! muf --remove nope"
+check "board --remove installer refuses a folder that is not a wm-ultra-rpi copy" "mkdir -p $T/other/scripts && cp $SB $T/other/scripts/ && echo 1 > $T/other/VERSION && WM_ASSUME_YES=1 WM_HOME=$MU WM_INSTALLER_TEST=1 bash $T/other/scripts/screen_board.sh --remove installer </dev/null | grep -q 'not removing' && [ -d $T/other ]"
+check "board menu: uninstall page lists the four entries" "mb '9\n0\n0\n' --menu | grep -q 'Rescue tool + Factory mode button' && mb '9\n0\n0\n' --menu | grep -q 'Downloaded installer folder'"
+muf --factory-restore --no-reboot >/dev/null
+check "board --remove restoredata works once KlipperScreen is gone" "muf --remove restoredata | grep -q 'deleted' && [ ! -d $MU/wm-screen-backup ]"
+check "board --remove installer deletes the downloaded folder" "muf --remove installer | grep -q 'Installer folder deleted' && [ ! -d $FK ]"
+
 echo; echo "passed: $PASS  failed: $FAIL"; [ "$FAIL" = 0 ]

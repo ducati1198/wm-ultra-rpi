@@ -8,7 +8,7 @@
 #
 # bash scripts/screen_board.sh --pi HOST [--screen-driver modesetting|fbdev] [--dry-run] [--yes]   install
 # bash scripts/screen_board.sh --menu                        numbered menu: install, status, change Pi address or screen driver, factory restore, checks, dry run
-# Also: --update  --doctor [--fix-all]  --backup  --restore-backup [N]  --support-bundle  --log  --restart-screen  --system [tz:Zone|host:name]  --set-driver modesetting|fbdev
+# Also: --update  --doctor [--fix-all]  --backup  --restore-backup [N]  --support-bundle  --log  --restart-screen  --system [tz:Zone|host:name]  --remove installer|backups|rescue|restoredata  --set-driver modesetting|fbdev
 # bash scripts/screen_board.sh --status                      read-only: what is installed / disabled
 # bash scripts/screen_board.sh --uninstall-klipperscreen     same as --factory-restore (KlipperScreen is never removed without turning the factory services back on)
 # bash scripts/screen_board.sh --factory-restore             remove KlipperScreen, turn the factory services back on, reboot
@@ -70,6 +70,7 @@ while [ $# -gt 0 ]; do
         --set-pi) MODE=setpi; PI_HOST="${2:-}"; shift ;;
         --menu) MODE=menu ;;
         --update) MODE=update ;;
+        --remove) MODE=removefiles; ARG1="${2:-}"; shift ;;
         --doctor) MODE=doctor ;;
         --fix-all) FIXALL=1 ;;
         --backup) MODE=backup ;;
@@ -708,6 +709,60 @@ do_system_board() {
         esac
     fi
 }
+do_remove_files() {   # installer-file removal; never touches KlipperScreen itself (use --factory-restore for that)
+    local what="${ARG1:-}"
+    case "$what" in
+        installer)
+            local d="$REPO_DIR"
+            case "$(basename "$d")" in wm-ultra-rpi*) ;; *) print_info "The installer folder ($d) does not look like a downloaded copy of wm-ultra-rpi: not removing it."; return 0 ;; esac
+            [ "$d" != "$HOME_DIR" ] && [ "$d" != / ] && [ -f "$d/scripts/screen_board.sh" ] || { print_info "No installer folder to remove."; return 0; }
+            echo "  This deletes the downloaded installer folder $d. KlipperScreen and your settings stay. A copy of this script stays in $BK (when KlipperScreen is installed)."
+            ask_yn "Delete $d?" y || { echo "Nothing changed."; return 0; }
+            [ "$DRY" = 1 ] && { echo -e "  ${DIM}would delete $d${NC}"; return 0; }
+            cd "$HOME_DIR" 2>/dev/null || cd /
+            rm -rf "$d"; rm -f /tmp/screen_board_report.txt; print_success "Installer folder deleted." ;;
+        backups)
+            local list=() f; for f in "$BKDIR" "$HOME_DIR"/wm-screen-support-*.tgz /tmp/screen_board_report.txt; do [ -e "$f" ] && list+=("$f"); done
+            [ "${#list[@]}" -gt 0 ] || { print_info "No screen backups or support bundles."; return 0; }
+            echo "  This deletes:"; for f in "${list[@]}"; do echo "    - $f"; done
+            echo "  After this a screen-settings backup cannot be restored. Copy them off the board first if you want to keep them."
+            ask_yn "Delete them?" y || { echo "Nothing changed."; return 0; }
+            [ "$DRY" = 1 ] && { echo -e "  ${DIM}would delete them${NC}"; return 0; }
+            rm -rf "${list[@]}"; print_success "Backups and bundles deleted." ;;
+        rescue)
+            [ -x "$RESCUE_BIN" ] || [ -f /usr/local/sbin/wm-factory-restore ] || [ -f "$BK/known-good/KlipperScreen.conf" ] || [ "$TESTING" = 1 -a -d "$BK" ] || { print_info "The rescue tool and the Factory mode button are not installed."; return 0; }
+            echo "  This removes the rescue tool (rescue window, USB stick flag) and the on-screen Factory mode button (the sudoers line and /usr/local/sbin/wm-factory-restore)."
+            [ -f "$BK/board_mode" ] && echo "  KlipperScreen stays. To go back to factory mode afterwards, use: bash $BK/screen_board.sh --factory-restore"
+            ask_yn "Remove them?" y || { echo "Nothing changed."; return 0; }
+            remove_rescue
+            if [ "$DRY" != 1 ]; then
+                if [ "$TESTING" = 1 ]; then echo "[test] remove factory button" >> "$HOME_DIR/.sudo.log"; else sudo rm -f /etc/sudoers.d/wm-factory-restore /usr/local/sbin/wm-factory-restore; fi
+            fi
+            print_success "Rescue tool and Factory mode button removed." ;;
+        restoredata)
+            [ -d "$BK" ] || { print_info "No saved restore data ($BK)."; return 0; }
+            if [ -f "$BK/board_mode" ] && [ "$FORCE" != 1 ]; then
+                die_with_fix "KlipperScreen is still installed, and $BK is what a factory restore needs." "go back to factory mode first (menu: Back to factory mode), or add --force if you really want to lose the way back."
+            fi
+            echo "  This deletes $BK: the saved service list, the saved copy of this script, the original KlipperScreen.conf and the rescue snapshots."
+            ask_yn "Delete $BK?" y || { echo "Nothing changed."; return 0; }
+            [ "$DRY" = 1 ] && { echo -e "  ${DIM}would delete $BK${NC}"; return 0; }
+            rm -rf "$BK"; print_success "Saved restore data deleted." ;;
+        *) die_with_fix "unknown name '${what}'." "use one of: installer, backups, rescue, restoredata." ;;
+    esac
+}
+menu_uninstall() {
+    while true; do
+        echo; echo "  Uninstall installer files (KlipperScreen itself is not removed here; for that use Back to factory mode)"
+        menu_item 1 "Rescue tool + Factory mode button" "rescue window, USB flag, on-screen button"
+        menu_item 2 "My backups and bundles" "screen backups, support bundles, board report"
+        menu_item 3 "Saved restore data" "only possible when KlipperScreen is gone"
+        menu_item 4 "Downloaded installer folder" "the folder you ran this script from"
+        menu_item 0 "Back" ""
+        menu_read "Choose:" || return 0
+        case "$REPLY_MENU" in 1) menu_sub --remove rescue ;; 2) menu_sub --remove backups ;; 3) menu_sub --remove restoredata ;; 4) menu_sub --remove installer; return 0 ;; 0|"") return 0 ;; *) echo "  Choose a number from the list." ;; esac
+    done
+}
 menu_item() { printf '   %s) %-34s %b%s%b\n' "$1" "$2" "$DIM" "$3" "$NC"; }
 menu_sub() {   # run this script again with options; pause so the output can be read
     echo; bash "$0" "$@"; local rc=$?; echo; [ -t 0 ] && read -r -p "  Press Enter to go back to the menu " _ || true; return $rc
@@ -798,6 +853,7 @@ menu_main() {
         menu_item 6 "Support bundle" "scrubbed .tgz of logs and config to share when asking for help"
         menu_item 7 "Dry run of the install" "shows what would happen, changes nothing"
         menu_item 8 "Back to factory mode" "removes KlipperScreen, factory services return, reboot"
+        menu_item 9 "Uninstall installer files" "rescue tool, backups, saved restore data, the installer folder"
         menu_item 0 "Exit" ""
         menu_read "Choose:" || return 0
         case "$REPLY_MENU" in
@@ -809,6 +865,7 @@ menu_main() {
             6) menu_sub --support-bundle ;;
             7) menu_ask_pi || return 0; menu_sub --pi "$PI_HOST" --dry-run ;;
             8) menu_sub --factory-restore ;;
+            9) menu_uninstall ;;
             0|"") return 0 ;;
             *) echo "  Choose a number from the list." ;;
         esac
@@ -819,6 +876,7 @@ case "$MODE" in
     menu) menu_main ;;
     setdriver) do_setdriver ;;
     update) do_update_board ;;
+    removefiles) do_remove_files ;;
     doctor) do_doctor_board ;;
     backup) do_backup_board ;;
     restorebk) do_restore_board ;;
