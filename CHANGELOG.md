@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.17.0
+
+- **Screen board menu is now complete** (`bash scripts/screen_board.sh --menu`): Install, **Update** (newest ZR Tools screen files from GitHub, backup first), **Check and fix** (doctor with Fix everything, status, last log, restart the screen, board report, pre-check), **Backup and restore** (screen settings, safety copy before a restore), **Settings** (Pi address, screen driver, network and system with time zone and host name), **Support bundle**, dry run and factory mode. Each entry is also an option: `--update`, `--doctor [--fix-all]`, `--backup`, `--restore-backup [N]`, `--support-bundle`, `--log`, `--restart-screen`, `--system [tz:Zone|host:name]`. Not yet tried on the real screen board.
+
 ## 1.16.0
 
 - **Menu for the screen board:** `bash scripts/screen_board.sh --menu` has numbered entries for install, status, changing the Pi address, changing the screen driver, back to factory mode, a read-only board report, the pre-check and a dry run. New option `--set-driver modesetting|fbdev` switches the driver without reinstalling. Not yet tried on the real screen board.

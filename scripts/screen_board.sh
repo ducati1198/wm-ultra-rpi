@@ -8,6 +8,7 @@
 #
 # bash scripts/screen_board.sh --pi HOST [--screen-driver modesetting|fbdev] [--dry-run] [--yes]   install
 # bash scripts/screen_board.sh --menu                        numbered menu: install, status, change Pi address or screen driver, factory restore, checks, dry run
+# Also: --update  --doctor [--fix-all]  --backup  --restore-backup [N]  --support-bundle  --log  --restart-screen  --system [tz:Zone|host:name]  --set-driver modesetting|fbdev
 # bash scripts/screen_board.sh --status                      read-only: what is installed / disabled
 # bash scripts/screen_board.sh --uninstall-klipperscreen     same as --factory-restore (KlipperScreen is never removed without turning the factory services back on)
 # bash scripts/screen_board.sh --factory-restore             remove KlipperScreen, turn the factory services back on, reboot
@@ -29,7 +30,7 @@ if [ -n "${WM_HOME:-}" ]; then HOME_DIR="$WM_HOME"; elif [ "$(id -u)" = 0 ]; the
 BK="$HOME_DIR/wm-screen-backup"
 KS_DIR="$HOME_DIR/KlipperScreen"; KS_ENV="$HOME_DIR/.KlipperScreen-env"
 CFG_DIR="$HOME_DIR/printer_data/config"
-MODE=install; RESCUE=1; DRY=0; PI_HOST=""; DRIVER=modesetting; REBOOT=1; FORCE=0; DETACH=0
+FIXALL=0; ARG1=""; ARG_BACKUP=""; MODE=install; RESCUE=1; DRY=0; PI_HOST=""; DRIVER=modesetting; REBOOT=1; FORCE=0; DETACH=0
 STAMP="$(date +%Y%m%d-%H%M%S)"
 # Services stopped and disabled, in this order (restore starts them in reverse order). Only those that exist are touched.
 SERVICES=(makerbase-client klipper moonraker nginx crowsnest makerbase-webcam janus klipper-mcu hostapd moonraker-obico octoapp)
@@ -68,6 +69,15 @@ while [ $# -gt 0 ]; do
         --screen-driver) case "${2:-}" in modesetting|fbdev) DRIVER="$2" ;; *) print_error "--screen-driver needs modesetting or fbdev"; exit 1 ;; esac; shift ;;
         --set-pi) MODE=setpi; PI_HOST="${2:-}"; shift ;;
         --menu) MODE=menu ;;
+        --update) MODE=update ;;
+        --doctor) MODE=doctor ;;
+        --fix-all) FIXALL=1 ;;
+        --backup) MODE=backup ;;
+        --restore-backup) MODE=restorebk; case "${2:-}" in [0-9]*) ARG_BACKUP="$2"; shift ;; esac ;;
+        --support-bundle) MODE=bundle ;;
+        --log) MODE=log ;;
+        --restart-screen) MODE=restartks ;;
+        --system) MODE=system; case "${2:-}" in tz:*|host:*) ARG1="$2"; shift ;; esac ;;
         --set-driver) MODE=setdriver; case "${2:-}" in modesetting|fbdev) DRIVER="$2" ;; *) print_error "--set-driver needs modesetting or fbdev"; exit 1 ;; esac; shift ;;
         --status) MODE=status ;;
         --uninstall-klipperscreen) MODE=uninstall ;;
@@ -565,10 +575,144 @@ do_setdriver() {   # switch the graphics driver of an installed KlipperScreen wi
 }
 guard_printing() { [ "$FORCE" = 1 ] || ! printing_now || die_with_fix "a print is running on this board." "wait for it to finish, or add --force."; }
 
+# ---------------------------------------------------------------- more tools for the menu
+BKDIR="$HOME_DIR/wm-screen-backups"
+board_scrub() { sed -E 's/((password|passwd|token|api_?key|secret|ssid|psk|key)[[:space:]]*[:=][[:space:]]*).*/\1<removed>/I; s/\b(10\.[0-9]+\.[0-9]+\.[0-9]+|192\.168\.[0-9]+\.[0-9]+|172\.(1[6-9]|2[0-9]|3[01])\.[0-9]+\.[0-9]+)\b/<private-ip>/g; s/([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}/<mac>/g'; }
+need_ks() { [ -d "$KS_DIR" ] || [ "$TESTING" = 1 ] || die_with_fix "KlipperScreen is not installed here." "run the installer first (menu: Install)."; }
+
+do_backup_board() {
+    print_header "Backup of the screen settings"
+    local out="$BKDIR/screen-backup-$STAMP.tgz" items=() i
+    mkdir -p "$BKDIR"
+    for i in printer_data/config/KlipperScreen.conf printer_data/config/zr_screen.conf wm-screen-backup/disabled.list wm-screen-backup/board_mode; do [ -e "$HOME_DIR/$i" ] && items+=("$i"); done
+    [ "${#items[@]}" -gt 0 ] || die_with_fix "nothing to back up (KlipperScreen is not installed here)." "install first."
+    tar czf "$out" -C "$HOME_DIR" "${items[@]}" 2>/dev/null || die_with_fix "could not write the backup." "free disk space."
+    chmod 600 "$out"
+    print_success "Saved $out"
+    echo "  It holds the KlipperScreen and ZR Tools settings and the list of factory services to turn back on."
+}
+do_restore_board() {
+    print_header "Restore a screen backup"
+    local list=() f n=0 pick
+    for f in $(ls -1t "$BKDIR"/screen-backup-*.tgz 2>/dev/null); do list+=("$f"); done
+    [ "${#list[@]}" -gt 0 ] || die_with_fix "no backups in $BKDIR." "make one first (menu: Backup and restore)."
+    for f in "${list[@]}"; do n=$((n+1)); echo "   $n) $(basename "$f")"; done
+    if [ -n "${ARG_BACKUP:-}" ]; then pick="$ARG_BACKUP"
+    else read -r -p "  Number to restore (Enter cancels): " pick || pick=""; fi
+    [ -n "$pick" ] || { echo "Nothing changed."; return 0; }
+    [[ "$pick" =~ ^[0-9]+$ ]] && [ "$pick" -ge 1 ] && [ "$pick" -le "${#list[@]}" ] || die_with_fix "'$pick' is not in the list." "choose one of the numbers."
+    f="${list[$((pick-1))]}"
+    ask_yn "Restore $(basename "$f")? A safety copy of the current settings is made first." y || { echo "Nothing changed."; return 0; }
+    STAMP="$STAMP-safety" do_backup_board >/dev/null 2>&1 || true
+    tar xzf "$f" -C "$HOME_DIR" || die_with_fix "could not unpack the backup." "the file may be damaged."
+    SUDO systemctl restart KlipperScreen
+    print_success "Settings restored from $(basename "$f")"
+}
+do_update_board() {
+    print_header "Update the ZR Tools screen files"
+    local new old w; old="$(cat "$REPO_DIR/VERSION" 2>/dev/null)"
+    if [ "$TESTING" = 1 ]; then w="${WM_TEST_UPDATE_DIR:-}"; [ -d "$w" ] || { print_info "Test: no update folder."; return 0; }
+    else
+        w="$(mktemp -d)"; print_info "Downloading the newest version from GitHub ..."
+        curl -fsSL -m 120 https://codeload.github.com/ducati1198/wm-ultra-rpi/tar.gz/refs/heads/main | tar -xz --strip-components=1 -C "$w" || die_with_fix "could not download the update." "check the internet connection."
+    fi
+    new="$(cat "$w/VERSION" 2>/dev/null)"
+    [ -n "$new" ] || die_with_fix "the download has no VERSION file." "try again later."
+    echo "  Installed: ${old:-unknown}    Newest: $new"
+    if [ "$new" = "$old" ]; then print_success "Already up to date."; return 0; fi
+    need_ks; guard_printing
+    echo "  This copies the new ZR Tools panels and this script's copies. KlipperScreen itself, your settings and the factory services are not touched."
+    ask_yn "Update now?" y || { echo "Nothing changed."; return 0; }
+    do_backup_board >/dev/null 2>&1 || true
+    if [ "$DRY" != 1 ]; then
+        mkdir -p "$KS_DIR/panels"; cp "$w"/zr_tools/{zr_tools.py,zr_views.py,zr_logic.py} "$KS_DIR/panels/"
+        [ -f "$w/zr_tools/pi_address_panel.py" ] && cp "$w/zr_tools/pi_address_panel.py" "$KS_DIR/panels/pi_address.py"
+        [ -f "$KS_DIR/panels/network.py" ] && grep -q wpa_cli "$KS_DIR/panels/network.py" 2>/dev/null && [ -f "$w/zr_tools/wifi_panel.py" ] && cp "$w/zr_tools/wifi_panel.py" "$KS_DIR/panels/network.py"
+        mkdir -p "$BK"; cp "$w/scripts/screen_board.sh" "$BK/screen_board.sh"
+        [ "$TESTING" = 1 ] || { [ -f /usr/local/sbin/wm-factory-restore ] && sudo install -o root -g root -m 755 "$w/scripts/screen_board.sh" /usr/local/sbin/wm-factory-restore; }
+    fi
+    SUDO systemctl restart KlipperScreen
+    print_success "Updated to $new. A backup of your settings was made first."
+}
+do_doctor_board() {
+    print_header "Screen board doctor (asks before changing anything)"
+    local bad=0 u f
+    ok()  { echo -e "  ${GREEN}[ok]${NC}      $1"; }
+    pb()  { echo -e "  ${RED}[problem]${NC} $1"; echo -e "            ${DIM}$2${NC}"; bad=$((bad+1)); }
+    fixit() { if [ "${FIXALL:-0}" = 1 ] || ask_yn "  Fix: $1?" y; then shift; "$@" && print_success "done" || print_warning "the fix did not work"; fi; }
+    [ "$TESTING" = 1 ] || [ "$(id -un)" = "$WM_USER" ] || [ "$(id -u)" = 0 ] && ok "user is $(id -un)" || pb "user is $(id -un), not $WM_USER" "log in as $WM_USER."
+    if [ -d "$KS_DIR" ] || [ "$TESTING" = 1 ]; then ok "KlipperScreen folder"; else pb "KlipperScreen is not installed" "menu: Install."; fi
+    if [ -f "$BK/board_mode" ]; then
+        svc_enabled KlipperScreen && ok "KlipperScreen starts at boot" || { pb "KlipperScreen will not start at boot" "the screen would stay black after a restart."; fixit "enable it" SUDO systemctl enable KlipperScreen; }
+        svc_active KlipperScreen && ok "KlipperScreen is running" || { pb "KlipperScreen is not running" "journalctl -u KlipperScreen -n 40"; fixit "start it" SUDO systemctl restart KlipperScreen; }
+        for f in zr_tools.py zr_views.py zr_logic.py; do
+            [ -f "$KS_DIR/panels/$f" ] && continue
+            pb "ZR Tools file missing: $f" "a KlipperScreen update may have removed it."
+            fixit "copy the ZR Tools files again" bash -c "mkdir -p '$KS_DIR/panels' && cp '$REPO_DIR'/zr_tools/{zr_tools.py,zr_views.py,zr_logic.py} '$KS_DIR/panels/'"; break
+        done
+        [ -f "$CFG_DIR/KlipperScreen.conf" ] && ok "KlipperScreen.conf exists" || pb "KlipperScreen.conf is missing" "restore a backup (menu: Backup and restore)."
+        for u in "${SERVICES[@]}"; do svc_exists "$u" && svc_enabled "$u" && { pb "factory service $u is still enabled" "it would start at the next boot and fight with KlipperScreen."; fixit "disable $u" SUDO systemctl disable "$u"; }; done
+        if [ "$TESTING" != 1 ]; then
+            [ -x "$RESCUE_BIN" ] && ok "rescue tool installed" || print_info "rescue tool not installed (optional)"
+            [ -f /usr/local/sbin/wm-factory-restore ] && ok "Factory mode button installed" || pb "Factory mode button is missing" "bash $BK/screen_board.sh --factory-restore still works."
+        fi
+        local h; h="$(sed -n 's/^moonraker_host: *//p' "$CFG_DIR/KlipperScreen.conf" 2>/dev/null | head -1)"
+        if [ -n "$h" ]; then
+            if [ "$TESTING" = 1 ] || curl -fsS -m 5 "http://$h:7125/server/info" >/dev/null 2>&1; then ok "the Pi answers at $h"; else pb "the Pi does not answer at $h" "wrong address, or the Pi is off. Change it: menu Settings > Pi address."; fi
+        fi
+    else
+        print_info "This board is in factory mode (KlipperScreen is not installed). Nothing more to check."
+    fi
+    local free; free="$(disk_free_mb)"; [ "${free:-0}" -gt 300 ] && ok "disk space (${free} MB free)" || pb "only ${free} MB free" "free space before updating."
+    [ -f /swapfile.wm ] && pb "a temporary swap file was left behind" "it is only needed during the install."
+    echo; [ "$bad" = 0 ] && print_success "No problems found." || print_warning "$bad problem(s) found. For a report to share: bash scripts/screen_board.sh --support-bundle"
+}
+do_bundle_board() {
+    print_header "Support bundle (screen board)"
+    local w out="$HOME_DIR/wm-screen-support-$STAMP.tgz"; w="$(mktemp -d)"; mkdir -p "$w/b/config" "$w/b/logs"
+    { echo "screen_board $(cat "$REPO_DIR/VERSION" 2>/dev/null) $(date -u +%FT%TZ) user=$(id -un)"; uname -a; grep PRETTY /etc/os-release 2>/dev/null; free -m | sed -n 2p; df -h "$HOME_DIR" | tail -1
+      do_status 2>&1 | sed 's/\x1b\[[0-9;]*m//g'; } | board_scrub > "$w/b/system.txt"
+    local f; for f in KlipperScreen.conf zr_screen.conf; do [ -f "$CFG_DIR/$f" ] && board_scrub < "$CFG_DIR/$f" > "$w/b/config/$f"; done
+    [ -f "$BK/disabled.list" ] && cp "$BK/disabled.list" "$w/b/config/"
+    if [ "$TESTING" != 1 ]; then
+        journalctl -u KlipperScreen -n 150 --no-pager 2>/dev/null | board_scrub > "$w/b/logs/journal-KlipperScreen.txt"
+        tail -n 150 "$HOME_DIR/.local/share/xorg/Xorg.0.log" 2>/dev/null | board_scrub > "$w/b/logs/Xorg.0.log"
+        tail -n 150 /tmp/KlipperScreen.log "$HOME_DIR/printer_data/logs/KlipperScreen.log" 2>/dev/null | board_scrub > "$w/b/logs/KlipperScreen.log"
+    fi
+    tar czf "$out" -C "$w" b && chmod 600 "$out" && rm -rf "$w"
+    print_success "Saved $out"
+    echo "  Passwords, tokens, Wi-Fi names, private IP and MAC addresses are removed. Look inside before you send it."
+}
+do_log_board() {
+    print_header "Last log lines"
+    if [ "$TESTING" = 1 ]; then echo "  (test) no log"; return 0; fi
+    echo "--- KlipperScreen (journal)"; journalctl -u KlipperScreen -n 25 --no-pager 2>/dev/null || sudo journalctl -u KlipperScreen -n 25 --no-pager 2>/dev/null
+    echo "--- X server"; tail -n 15 "$HOME_DIR/.local/share/xorg/Xorg.0.log" 2>/dev/null
+}
+do_restartks() { need_ks; SUDO systemctl restart KlipperScreen; print_success "KlipperScreen restarted."; }
+do_system_board() {
+    print_header "Network and system (screen board)"
+    echo "  Host name:  $(hostname)"
+    echo "  Time zone:  $(timedatectl show -p Timezone --value 2>/dev/null || cat /etc/timezone 2>/dev/null)"
+    echo "  Clock:      $(date '+%Y-%m-%d %H:%M:%S %Z')"
+    echo "  Addresses:  $(hostname -I 2>/dev/null)"
+    command -v wpa_cli >/dev/null 2>&1 && wpa_cli -i wlan0 status 2>/dev/null | sed -n 's/^\(ssid\|wpa_state\)=/  Wi-Fi \1: /p'
+    if [ -n "${ARG1:-}" ]; then
+        case "$ARG1" in
+            tz:*) local tz="${ARG1#tz:}"; [[ "$tz" =~ ^[A-Za-z0-9_+/-]+$ ]] || die_with_fix "'$tz' is not a time zone name." "for example America/Toronto"
+                  ask_yn "Set the time zone to $tz?" y && { SUDO timedatectl set-timezone "$tz"; print_success "Time zone is $tz"; } ;;
+            host:*) local h="${ARG1#host:}"; echo "$h" | grep -Eq '^[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?$' || die_with_fix "'$h' is not a valid host name." "lower-case letters, digits and '-'."
+                  ask_yn "Change the host name to $h? (takes full effect after a reboot)" n && {
+                      [ "$DRY" = 1 ] || [ "$TESTING" = 1 ] || SUDO sed -i "s/^\(127\.0\.1\.1[[:space:]]\+\).*/\1$h/" /etc/hosts
+                      SUDO hostnamectl set-hostname "$h"; print_success "Host name is $h"; } ;;
+        esac
+    fi
+}
 menu_item() { printf '   %s) %-34s %b%s%b\n' "$1" "$2" "$DIM" "$3" "$NC"; }
 menu_sub() {   # run this script again with options; pause so the output can be read
     echo; bash "$0" "$@"; local rc=$?; echo; [ -t 0 ] && read -r -p "  Press Enter to go back to the menu " _ || true; return $rc
 }
+menu_sub_script() { local f="$1"; shift; echo; bash "$SCRIPT_DIR/$f" "$@"; echo; [ -t 0 ] && read -r -p "  Press Enter to go back to the menu " _ || true; }
 menu_read() { local a; read -r -p "  $1 " a || return 1; REPLY_MENU="$(echo "$a" | tr -d '[:space:]')"; return 0; }
 menu_ask_pi() {   # sets PI_HOST (keeps a known one when Enter is pressed)
     local cur="$PI_HOST"; [ -z "$cur" ] && [ -f "$CFG_DIR/KlipperScreen.conf" ] && cur="$(sed -n 's/^moonraker_host: *//p' "$CFG_DIR/KlipperScreen.conf" | head -1)"
@@ -583,41 +727,105 @@ menu_driver() {
     menu_read "Choose:" || return 0
     case "$REPLY_MENU" in 1) menu_sub --set-driver modesetting ;; 2) menu_sub --set-driver fbdev ;; esac
 }
+menu_fix() {
+    while true; do
+        echo; echo "  Check and fix"
+        menu_item 1 "Doctor" "finds problems, offers a fix for each (asks first)"
+        menu_item 2 "Fix everything" "Doctor, then applies every safe fix after one question"
+        menu_item 3 "Status" "read-only"
+        menu_item 4 "Show the last log" "KlipperScreen and X server log lines"
+        menu_item 5 "Restart the screen" "restarts KlipperScreen"
+        menu_item 6 "Board report (read-only)" "writes /tmp/screen_board_report.txt to send for help"
+        menu_item 7 "Pre-check (READY / NOT READY)" "read-only"
+        menu_item 0 "Back" ""
+        menu_read "Choose:" || return 0
+        case "$REPLY_MENU" in 1) menu_sub --doctor ;; 2) menu_sub --doctor --fix-all ;; 3) menu_sub --status ;; 4) menu_sub --log ;; 5) menu_sub --restart-screen ;;
+            6) menu_sub_script screen_board_inspect.sh ;; 7) menu_sub_script screen_board_precheck.sh --local-test ;; 0|"") return 0 ;; *) echo "  Choose a number from the list." ;; esac
+    done
+}
+menu_backup() {
+    while true; do
+        echo; echo "  Backup and restore"
+        menu_item 1 "Back up my screen settings" "saves KlipperScreen.conf, ZR Tools settings and the factory-services list"
+        menu_item 2 "Restore a backup" "pick one from the list; a safety copy is made first"
+        menu_item 0 "Back" ""
+        menu_read "Choose:" || return 0
+        case "$REPLY_MENU" in 1) menu_sub --backup ;; 2) menu_sub --restore-backup ;; 0|"") return 0 ;; *) echo "  Choose a number from the list." ;; esac
+    done
+}
+menu_settings() {
+    while true; do
+        echo; echo "  Settings"
+        menu_item 1 "Change the Pi address" "for an installed KlipperScreen"
+        menu_item 2 "Change the screen driver" "modesetting or fbdev"
+        menu_item 3 "Network and system" "host name, time zone, clock, addresses"
+        menu_item 0 "Back" ""
+        menu_read "Choose:" || return 0
+        case "$REPLY_MENU" in
+            1) menu_ask_pi || return 0; menu_sub --set-pi "$PI_HOST" ;;
+            2) menu_driver ;;
+            3) menu_system ;;
+            0|"") return 0 ;; *) echo "  Choose a number from the list." ;;
+        esac
+    done
+}
+menu_system() {
+    while true; do
+        echo; echo "  Network and system"
+        menu_item 1 "Show" "host name, time zone, clock, addresses, Wi-Fi"
+        menu_item 2 "Set the time zone" "for example America/Toronto"
+        menu_item 3 "Change the host name" "asks first"
+        menu_item 0 "Back" ""
+        menu_read "Choose:" || return 0
+        case "$REPLY_MENU" in
+            1) menu_sub --system ;;
+            2) local z; read -r -p "  Time zone (for example America/Toronto): " z || z=""; [ -n "$z" ] && menu_sub --system "tz:$z" ;;
+            3) local n; read -r -p "  New host name: " n || n=""; [ -n "$n" ] && menu_sub --system "host:$n" ;;
+            0|"") return 0 ;; *) echo "  Choose a number from the list." ;;
+        esac
+    done
+}
 menu_main() {
     [ -t 0 ] || [ "$TESTING" = 1 ] || die_with_fix "the menu needs a terminal." "run it in an ssh session, or use the options (--help)."
-    local drv=modesetting dry=""
     while true; do
         echo; echo -e "${BLUE}KlipperScreen on the WonderMaker screen board${NC}"
         echo "  Mode: $([ -f "$BK/board_mode" ] && echo "KlipperScreen" || echo factory)"
         menu_item 1 "Install KlipperScreen + ZR Tools" "asks for the Pi address, shows the plan, then asks"
-        menu_item 2 "Status" "read-only"
-        menu_item 3 "Change the Pi address" "for an installed KlipperScreen"
-        menu_item 4 "Change the screen driver" "modesetting or fbdev"
-        menu_item 5 "Back to factory mode" "removes KlipperScreen, factory services return, reboot"
-        menu_item 6 "Board report (read-only)" "writes /tmp/screen_board_report.txt to send for help"
-        menu_item 7 "Pre-check (READY / NOT READY)" "read-only"
-        menu_item 8 "Dry run of the install" "shows what would happen, changes nothing"
+        menu_item 2 "Update" "newest ZR Tools screen files from GitHub (backup first)"
+        menu_item 3 "Check and fix" "doctor, status, logs, restart the screen, board report"
+        menu_item 4 "Backup and restore" "screen settings"
+        menu_item 5 "Settings" "Pi address, screen driver, network and system"
+        menu_item 6 "Support bundle" "scrubbed .tgz of logs and config to share when asking for help"
+        menu_item 7 "Dry run of the install" "shows what would happen, changes nothing"
+        menu_item 8 "Back to factory mode" "removes KlipperScreen, factory services return, reboot"
         menu_item 0 "Exit" ""
         menu_read "Choose:" || return 0
         case "$REPLY_MENU" in
             1) menu_ask_pi || return 0; menu_sub --pi "$PI_HOST" ;;
-            2) menu_sub --status ;;
-            3) menu_ask_pi || return 0; menu_sub --set-pi "$PI_HOST" ;;
-            4) menu_driver ;;
-            5) menu_sub --factory-restore ;;
-            6) menu_sub_script screen_board_inspect.sh ;;
-            7) menu_sub_script screen_board_precheck.sh --local-test ;;
-            8) menu_ask_pi || return 0; menu_sub --pi "$PI_HOST" --dry-run ;;
+            2) menu_sub --update ;;
+            3) menu_fix ;;
+            4) menu_backup ;;
+            5) menu_settings ;;
+            6) menu_sub --support-bundle ;;
+            7) menu_ask_pi || return 0; menu_sub --pi "$PI_HOST" --dry-run ;;
+            8) menu_sub --factory-restore ;;
             0|"") return 0 ;;
             *) echo "  Choose a number from the list." ;;
         esac
     done
 }
-menu_sub_script() { local f="$1"; shift; echo; bash "$SCRIPT_DIR/$f" "$@"; echo; [ -t 0 ] && read -r -p "  Press Enter to go back to the menu " _ || true; }
 
 case "$MODE" in
     menu) menu_main ;;
     setdriver) do_setdriver ;;
+    update) do_update_board ;;
+    doctor) do_doctor_board ;;
+    backup) do_backup_board ;;
+    restorebk) do_restore_board ;;
+    bundle) do_bundle_board ;;
+    log) do_log_board ;;
+    restartks) do_restartks ;;
+    system) do_system_board ;;
     install) do_install ;;
     status) do_status ;;
     setpi) do_setpi ;;

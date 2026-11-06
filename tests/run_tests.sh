@@ -731,12 +731,27 @@ check "--remove spoolman removes it, drops its config sections, keeps the databa
 echo "== screen board menu"
 MB="$T/mb"; mkdir -p "$MB"
 mb() { local in="$1"; shift; printf "$in" | WM_TEST_SERVICES="makerbase-client klipper moonraker nginx" WM_HOME="$MB" WM_INSTALLER_TEST=1 bash "$SB" "$@" 2>&1; }
-check "board menu: lists every entry and exits with 0" "mb '0\n' --menu | grep -q 'Install KlipperScreen' && mb '0\n' --menu | grep -q 'Change the screen driver' && mb '0\n' --menu | grep -q 'Dry run'"
+check "board menu: lists every entry and exits with 0" "mb '0\n' --menu | grep -q 'Install KlipperScreen' && mb '0\n' --menu | grep -q 'Backup and restore' && mb '0\n' --menu | grep -q 'Dry run'"
+check "board menu: settings page has the driver and network entries" "mb '5\n0\n0\n' --menu | grep -q 'Change the screen driver' && mb '5\n0\n0\n' --menu | grep -q 'Network and system'"
+check "board menu: check and fix page" "mb '3\n0\n0\n' --menu | grep -q 'Fix everything' && mb '3\n0\n0\n' --menu | grep -q 'Restart the screen'"
 check "board menu: a wrong choice is explained" "mb 'x\n0\n' --menu | grep -q 'Choose a number'"
-check "board menu: status is read-only" "mb '2\n0\n' --menu | grep -q 'Screen board status' && [ ! -e $MB/.sudo.log ]"
-check "board menu: dry run changes nothing" "mb '8\n192.0.2.10\n\n0\n' --menu | grep -q 'DRY RUN' && [ ! -e $MB/wm-screen-backup/disabled.list ]"
+check "board menu: status is read-only" "mb '3\n3\n0\n0\n' --menu | grep -q 'Screen board status' && [ ! -e $MB/.sudo.log ]"
+check "board menu: dry run changes nothing" "mb '7\n192.0.2.10\n\n0\n' --menu | grep -q 'DRY RUN' && [ ! -e $MB/wm-screen-backup/disabled.list ]"
 check "board menu: install from the menu asks for the Pi address" "mb '1\n192.0.2.10\n\n0\n' --menu | grep -q 'Connects to: http://192.0.2.10:7125'"
 check "board --set-driver fbdev and back" "mb '' --set-driver fbdev | grep -q 'driver is now fbdev' && [ -e $MB/.fbdev ] && mb '' --set-driver modesetting | grep -q 'driver is now modesetting' && [ ! -e $MB/.fbdev ]"
 check "board --set-driver refuses a wrong name" "! mb '' --set-driver nope"
+
+MY="$T/my"; mkdir -p "$MY/printer_data/config"
+myb() { WM_ASSUME_YES=1 WM_TEST_SERVICES="makerbase-client klipper moonraker nginx" WM_HOME="$MY" WM_INSTALLER_TEST=1 bash "$SB" "$@" 2>&1 </dev/null; }
+myb --pi 192.0.2.10 --no-reboot >/dev/null
+check "board --doctor passes on a fresh install" "myb --doctor | grep -q 'No problems found'"
+check "board --doctor finds a missing ZR Tools file" "rm -f $MY/KlipperScreen/panels/zr_tools.py; myb --doctor | grep -q 'ZR Tools file missing'"
+check "board --backup writes a tgz with the config and the service list" "myb --backup | grep -q Saved && tar tzf \$(ls $MY/wm-screen-backups/*.tgz | head -1) | grep -q KlipperScreen.conf && tar tzf \$(ls $MY/wm-screen-backups/*.tgz | head -1) | grep -q disabled.list"
+check "board --restore-backup restores and makes a safety copy" "echo changed > $MY/printer_data/config/zr_screen.conf; myb --restore-backup 1 | grep -q 'Settings restored' && ! grep -q changed $MY/printer_data/config/zr_screen.conf && [ \$(ls $MY/wm-screen-backups/*.tgz | wc -l) -ge 2 ]"
+check "board --support-bundle has the config and a system page" "myb --support-bundle | grep -q Saved && tar tzf \$(ls $MY/wm-screen-support-*.tgz | head -1) | grep -q KlipperScreen.conf && tar tzf \$(ls $MY/wm-screen-support-*.tgz | head -1) | grep -q system.txt"
+UPD="$T/upd"; mkdir -p "$UPD/zr_tools" "$UPD/scripts"; echo 99.0.0 > "$UPD/VERSION"; for f in zr_tools zr_views zr_logic pi_address_panel; do echo new > "$UPD/zr_tools/$f.py"; done; cp "$SB" "$UPD/scripts/"
+check "board --update copies the new panels after a backup" "WM_TEST_UPDATE_DIR=$UPD myb --update | grep -q 'Updated to 99.0.0' && grep -q new $MY/KlipperScreen/panels/zr_views.py"
+check "board --system shows host name and sets a time zone" "myb --system | grep -q 'Host name' && myb --system tz:America/Toronto | grep -q 'Time zone is America/Toronto' && ! myb --system tz:'bad zone!'"
+check "board --log and --restart-screen run" "myb --log | grep -q 'Last log' && myb --restart-screen | grep -q restarted"
 
 echo; echo "passed: $PASS  failed: $FAIL"; [ "$FAIL" = 0 ]
