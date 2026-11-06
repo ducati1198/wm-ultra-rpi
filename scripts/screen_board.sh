@@ -7,6 +7,7 @@
 #   bash scripts/screen_board.sh                            install (asks for the Pi IP address)
 #
 # bash scripts/screen_board.sh --pi HOST [--screen-driver modesetting|fbdev] [--dry-run] [--yes]   install
+# bash scripts/screen_board.sh --menu                        numbered menu: install, status, change Pi address or screen driver, factory restore, checks, dry run
 # bash scripts/screen_board.sh --status                      read-only: what is installed / disabled
 # bash scripts/screen_board.sh --uninstall-klipperscreen     same as --factory-restore (KlipperScreen is never removed without turning the factory services back on)
 # bash scripts/screen_board.sh --factory-restore             remove KlipperScreen, turn the factory services back on, reboot
@@ -66,6 +67,8 @@ while [ $# -gt 0 ]; do
         --pi) PI_HOST="${2:-}"; shift ;;
         --screen-driver) case "${2:-}" in modesetting|fbdev) DRIVER="$2" ;; *) print_error "--screen-driver needs modesetting or fbdev"; exit 1 ;; esac; shift ;;
         --set-pi) MODE=setpi; PI_HOST="${2:-}"; shift ;;
+        --menu) MODE=menu ;;
+        --set-driver) MODE=setdriver; case "${2:-}" in modesetting|fbdev) DRIVER="$2" ;; *) print_error "--set-driver needs modesetting or fbdev"; exit 1 ;; esac; shift ;;
         --status) MODE=status ;;
         --uninstall-klipperscreen) MODE=uninstall ;;
         --factory-restore) MODE=restore ;;
@@ -547,7 +550,74 @@ do_status() {
     [ -f "$BK/disabled.list" ] && echo "  Saved list for restore: $BK/disabled.list ($(wc -l < "$BK/disabled.list") services)"
 }
 
+do_setdriver() {   # switch the graphics driver of an installed KlipperScreen without reinstalling
+    [ -d "$KS_DIR" ] || [ "$TESTING" = 1 ] || die_with_fix "KlipperScreen is not installed here." "run the installer first."
+    guard_printing
+    if [ "$DRIVER" = fbdev ]; then use_fbdev
+    elif [ "$DRY" = 1 ]; then echo -e "  ${DIM}would switch X back to the modesetting driver${NC}"
+    elif [ "$TESTING" = 1 ]; then echo "[test] modesetting driver" >> "$HOME_DIR/.sudo.log"; rm -f "$HOME_DIR/.fbdev"
+    else
+        [ -f "$XDIR/10-wm-fbdev.conf" ] && sudo rm -f "$XDIR/10-wm-fbdev.conf"
+        [ -f "$XDIR/20-modesetting.conf.wm-disabled" ] && sudo mv "$XDIR/20-modesetting.conf.wm-disabled" "$XDIR/20-modesetting.conf"
+    fi
+    SUDO systemctl restart KlipperScreen
+    print_success "Graphics driver is now $DRIVER. If the screen stays black, switch back: bash scripts/screen_board.sh --set-driver $([ "$DRIVER" = fbdev ] && echo modesetting || echo fbdev)"
+}
+guard_printing() { [ "$FORCE" = 1 ] || ! printing_now || die_with_fix "a print is running on this board." "wait for it to finish, or add --force."; }
+
+menu_item() { printf '   %s) %-34s %b%s%b\n' "$1" "$2" "$DIM" "$3" "$NC"; }
+menu_sub() {   # run this script again with options; pause so the output can be read
+    echo; bash "$0" "$@"; local rc=$?; echo; [ -t 0 ] && read -r -p "  Press Enter to go back to the menu " _ || true; return $rc
+}
+menu_read() { local a; read -r -p "  $1 " a || return 1; REPLY_MENU="$(echo "$a" | tr -d '[:space:]')"; return 0; }
+menu_ask_pi() {   # sets PI_HOST (keeps a known one when Enter is pressed)
+    local cur="$PI_HOST"; [ -z "$cur" ] && [ -f "$CFG_DIR/KlipperScreen.conf" ] && cur="$(sed -n 's/^moonraker_host: *//p' "$CFG_DIR/KlipperScreen.conf" | head -1)"
+    local a; while :; do read -r -p "  IP address of your Raspberry Pi${cur:+ [$cur]}: " a || return 1
+        a="${a:-$cur}"; valid_host "$a" && { PI_HOST="$a"; return 0; }; echo "  Type the Pi's IP address, for example 192.168.0.50."; done
+}
+menu_driver() {
+    echo; echo "  Screen driver"
+    menu_item 1 "modesetting" "Rockchip driver (default)"
+    menu_item 2 "fbdev" "plain framebuffer, use it when the screen stays black"
+    menu_item 0 "Back" ""
+    menu_read "Choose:" || return 0
+    case "$REPLY_MENU" in 1) menu_sub --set-driver modesetting ;; 2) menu_sub --set-driver fbdev ;; esac
+}
+menu_main() {
+    [ -t 0 ] || [ "$TESTING" = 1 ] || die_with_fix "the menu needs a terminal." "run it in an ssh session, or use the options (--help)."
+    local drv=modesetting dry=""
+    while true; do
+        echo; echo -e "${BLUE}KlipperScreen on the WonderMaker screen board${NC}"
+        echo "  Mode: $([ -f "$BK/board_mode" ] && echo "KlipperScreen" || echo factory)"
+        menu_item 1 "Install KlipperScreen + ZR Tools" "asks for the Pi address, shows the plan, then asks"
+        menu_item 2 "Status" "read-only"
+        menu_item 3 "Change the Pi address" "for an installed KlipperScreen"
+        menu_item 4 "Change the screen driver" "modesetting or fbdev"
+        menu_item 5 "Back to factory mode" "removes KlipperScreen, factory services return, reboot"
+        menu_item 6 "Board report (read-only)" "writes /tmp/screen_board_report.txt to send for help"
+        menu_item 7 "Pre-check (READY / NOT READY)" "read-only"
+        menu_item 8 "Dry run of the install" "shows what would happen, changes nothing"
+        menu_item 0 "Exit" ""
+        menu_read "Choose:" || return 0
+        case "$REPLY_MENU" in
+            1) menu_ask_pi || return 0; menu_sub --pi "$PI_HOST" ;;
+            2) menu_sub --status ;;
+            3) menu_ask_pi || return 0; menu_sub --set-pi "$PI_HOST" ;;
+            4) menu_driver ;;
+            5) menu_sub --factory-restore ;;
+            6) menu_sub_script screen_board_inspect.sh ;;
+            7) menu_sub_script screen_board_precheck.sh --local-test ;;
+            8) menu_ask_pi || return 0; menu_sub --pi "$PI_HOST" --dry-run ;;
+            0|"") return 0 ;;
+            *) echo "  Choose a number from the list." ;;
+        esac
+    done
+}
+menu_sub_script() { local f="$1"; shift; echo; bash "$SCRIPT_DIR/$f" "$@"; echo; [ -t 0 ] && read -r -p "  Press Enter to go back to the menu " _ || true; }
+
 case "$MODE" in
+    menu) menu_main ;;
+    setdriver) do_setdriver ;;
     install) do_install ;;
     status) do_status ;;
     setpi) do_setpi ;;

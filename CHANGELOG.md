@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.16.0
+
+- **Menu for the screen board:** `bash scripts/screen_board.sh --menu` has numbered entries for install, status, changing the Pi address, changing the screen driver, back to factory mode, a read-only board report, the pre-check and a dry run. New option `--set-driver modesetting|fbdev` switches the driver without reinstalling. Not yet tried on the real screen board.
+
 ## 1.15.1
 
 Fixes from a full test on a real Raspberry Pi (install, every section, uninstall one by one).

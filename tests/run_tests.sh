@@ -728,4 +728,15 @@ mkdir -p "$NS/.local/share/spoolman"; echo db > "$NS/.local/share/spoolman/spool
 check "--remove spoolman asks first and keeps everything on no" "M 'n\n' $NS --remove spoolman | grep -q 'Nothing changed' && [ -d $NS/Spoolman ]"
 check "--remove spoolman removes it, drops its config sections, keeps the database" "M 'y\nn\n' $NS --remove spoolman | grep -q 'Spoolman removed' && [ ! -e $NS/Spoolman ] && ! grep -q 'spoolman' $NS/printer_data/config/moonraker.conf && ! grep -qx Spoolman $NS/printer_data/moonraker.asvc && [ -f $NS/.local/share/spoolman/spoolman.db ]"
 
+echo "== screen board menu"
+MB="$T/mb"; mkdir -p "$MB"
+mb() { local in="$1"; shift; printf "$in" | WM_TEST_SERVICES="makerbase-client klipper moonraker nginx" WM_HOME="$MB" WM_INSTALLER_TEST=1 bash "$SB" "$@" 2>&1; }
+check "board menu: lists every entry and exits with 0" "mb '0\n' --menu | grep -q 'Install KlipperScreen' && mb '0\n' --menu | grep -q 'Change the screen driver' && mb '0\n' --menu | grep -q 'Dry run'"
+check "board menu: a wrong choice is explained" "mb 'x\n0\n' --menu | grep -q 'Choose a number'"
+check "board menu: status is read-only" "mb '2\n0\n' --menu | grep -q 'Screen board status' && [ ! -e $MB/.sudo.log ]"
+check "board menu: dry run changes nothing" "mb '8\n192.0.2.10\n\n0\n' --menu | grep -q 'DRY RUN' && [ ! -e $MB/wm-screen-backup/disabled.list ]"
+check "board menu: install from the menu asks for the Pi address" "mb '1\n192.0.2.10\n\n0\n' --menu | grep -q 'Connects to: http://192.0.2.10:7125'"
+check "board --set-driver fbdev and back" "mb '' --set-driver fbdev | grep -q 'driver is now fbdev' && [ -e $MB/.fbdev ] && mb '' --set-driver modesetting | grep -q 'driver is now modesetting' && [ ! -e $MB/.fbdev ]"
+check "board --set-driver refuses a wrong name" "! mb '' --set-driver nope"
+
 echo; echo "passed: $PASS  failed: $FAIL"; [ "$FAIL" = 0 ]

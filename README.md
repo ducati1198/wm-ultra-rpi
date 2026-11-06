@@ -424,6 +424,7 @@ Then, inside the folder you just downloaded (you are already in it after Option 
 ```bash
 bash scripts/screen_board.sh --dry-run     # shows every change, changes nothing (it asks for the Pi's IP address)
 bash scripts/screen_board.sh               # asks for your Pi's IP address, then installs
+bash scripts/screen_board.sh --menu        # numbered menu: install, status, Pi address, screen driver, factory mode, checks
 ```
 
 **To uninstall KlipperScreen and go back to the factory screen** (over SSH, as `t13dp`):
