@@ -559,13 +559,11 @@ Three optional services that let you watch and control the printer from outside 
 
 | Add-on | Installed with | Link it to your account |
 |---|---|---|
-| **Obico** (Obico's website, or your own self-hosted server: the installer asks which) | `git clone` of moonraker-obico, then its `install.sh` with this Pi's Moonraker details (127.0.0.1, the port from `moonraker.conf`) and the server you chose, no linking | `~/moonraker-obico/scripts/link.sh -c ~/printer_data/config/moonraker-obico.cfg` shows a 6-digit code to type at app.obico.io. Restart Klipper after (Obico adds `[include moonraker_obico_macros.cfg]` to `printer.cfg`; a copy of `printer.cfg` is saved first) |
+| **Obico** | `git clone` of moonraker-obico, then its own plain `./install.sh`. Obico asks you itself which server to use (app.obico.io or your own) and links the printer | its installer shows the 6-digit code |
 | **OctoApp** | OctoApp's own method 1c: `git clone` then `./install.sh <moonraker.conf> moonraker.service` | open the OctoApp phone app on the same network; it registers by itself |
 | **OctoEverywhere** | `git clone` then `./install.sh <moonraker.conf> moonraker.service` | its installer prints a link to open in a browser |
 
-**Obico server:** when you choose Obico the installer asks *Obico's website (app.obico.io, free account)* or *my own self-hosted Obico server* (you type its address, for example `http://obico.local:3334`). The answer is saved. You can also give it up front: `./installer.sh --update --obico on --obico-server https://app.obico.io`. With `--yes` it uses app.obico.io.
-
-**Obico remembers the server you chose.** Obico's own installer keeps an existing `moonraker-obico.cfg` and then ignores the server you give it, so an old file (for example one made when you picked the website) would silently keep that server. The installer now compares the server in that file with your choice. If they differ it resets the file (Obico keeps a dated copy) and tells you, and you link the printer again on the new server. To change the server of an Obico that is already installed: `./installer.sh --update --obico-server https://your-server:3334`. It rewrites the address, keeps a copy of the old file, restarts the service, and shows the link command (`~/moonraker-obico/scripts/link.sh -c ~/printer_data/config/moonraker-obico.cfg`). Removing Obico sets its settings file aside (`moonraker-obico.cfg.wm-removed-...`), so the next install asks for the server again.
+Obico, like OctoApp and OctoEverywhere, asks its own questions, so the installer only starts it when you run it in a terminal without `--yes`. Otherwise it downloads it and prints the command to finish: `cd ~/moonraker-obico && ./install.sh`.
 
 OctoApp and OctoEverywhere ask questions while they install, so the installer only starts them when you run it in a terminal without `--yes`. Otherwise it downloads them and prints the exact command to finish (`cd ~/octoapp && ./install.sh ~/printer_data/config/moonraker.conf moonraker.service`).
 

@@ -32,7 +32,6 @@
 # ./installer.sh --install             the normal install (skips the menu)
 # ./installer.sh --remove NAME         remove something after asking: screen, network-manager, webcam, timelapse, shell-command, shaketune, obico, octoapp, octoeverywhere, fluidd, moonraker, klipper, data, system, cleanup (installer files: old backups, support bundles, saved copies, the installer folder), all (every program; keeps your printer data, backups and installer files) or erase (everything, including your printer data and backups; keeps only the installer folder)
 # ./installer.sh --webcam on|off       crowsnest webcam service;  --timelapse on|off   Moonraker timelapse (both used with --update)
-# ./installer.sh --obico-server URL    which Obico to connect to: https://app.obico.io (Obico's website, the default) or your own self-hosted server. Asked when you choose Obico
 # ./installer.sh --network-manager on|off   NetworkManager for KlipperScreen's Network panel (default off: it can drop the network connection until the Pi is restarted). Add it later with: ./installer.sh --update --network-manager on
 # ./installer.sh --shaketune on|off    Klippain Shake&Tune (input shaper and vibration graphs, by Frix-x). Add-on only: not asked during the install
 # ./installer.sh --obico on|off        optional remote access: Obico for Klipper (moonraker-obico). Also --octoapp on|off and --octoeverywhere on|off. Each is asked (default no)
@@ -68,7 +67,7 @@ TESTING="${WM_INSTALLER_TEST:-0}"        # 1 = no sudo, no apt, no systemctl, no
 MODE="install"
 DRY=0
 SRC_KIND=""; SRC_ARG=""; MODEL="ultra-s"; MODULES_DIR=""; FROM_FACTORY=0
-WANT_PANEL=1; WANT_SCREEN=ask; WANT_TIMELAPSE=1; WANT_CROWSNEST=1; CLI_REMOTE=""; ONLY_ADDON=""; WANT_SHELLCMD=1; OBICO_SERVER=""; CLI_OBICO_SERVER=""; WANT_OBICO=ask; WANT_OCTOAPP=ask; WANT_OCTOEVERYWHERE=ask; WANT_NETMGR=ask; WANT_SHAKETUNE=0
+WANT_PANEL=1; WANT_SCREEN=ask; WANT_TIMELAPSE=1; WANT_CROWSNEST=1; CLI_REMOTE=""; ONLY_ADDON=""; WANT_SHELLCMD=1; OBICO_SERVER=""; WANT_OBICO=ask; WANT_OCTOAPP=ask; WANT_OCTOEVERYWHERE=ask; WANT_NETMGR=ask; WANT_SHAKETUNE=0
 SCREEN_LAYOUT=""; SCREEN_BACKEND="x11"; REPO_DIR="$SCRIPT_DIR"
 STAMP="$(date +%Y%m%d-%H%M%S)"
 BACKUP_ROOT="$HOME_DIR/wm-rpi-backup"
@@ -139,7 +138,6 @@ while [ $# -gt 0 ]; do
         --restore)      MODE=restore; ARG1="${2:-}"; shift ;;
         --support-bundle) MODE=bundle ;;
         --show-log)     MODE=showlog ;;
-        --obico-server) case "${2:-}" in http://*|https://*) OBICO_SERVER="${2%/}"; CLI_OBICO_SERVER="$OBICO_SERVER" ;; *) print_error "--obico-server needs a web address such as https://app.obico.io or http://obico.local:3334"; exit 1 ;; esac; shift ;;
         --shell-command) case "${2:-}" in on|yes|1) WANT_SHELLCMD=1 ;; off|no|0) WANT_SHELLCMD=0 ;; *) print_error "--shell-command needs on or off"; exit 1 ;; esac; CLI_SHELLCMD="$WANT_SHELLCMD"; shift ;;
         --obico)        case "${2:-}" in on|yes|1) WANT_OBICO=1 ;; off|no|0) WANT_OBICO=0 ;; *) print_error "--obico needs on or off"; exit 1 ;; esac; CLI_REMOTE="$CLI_REMOTE obico"; CLI_OBICO="$WANT_OBICO"; shift ;;
         --octoapp)      case "${2:-}" in on|yes|1) WANT_OCTOAPP=1 ;; off|no|0) WANT_OCTOAPP=0 ;; *) print_error "--octoapp needs on or off"; exit 1 ;; esac; CLI_REMOTE="$CLI_REMOTE octoapp"; CLI_OCTOAPP="$WANT_OCTOAPP"; shift ;;
@@ -810,74 +808,27 @@ remote_note_update_manager() {
     print_info "The add-on adds an [update_manager ...] section to moonraker.conf so Fluidd can update it. Fluidd may then also list Klipper and Moonraker as not updatable (they are not git clones here): do not press update on those two; use ./installer.sh --update."
 }
 
-obico_choose_server() {   # Obico's website or your own server; asked once and remembered
-    [ -n "$OBICO_SERVER" ] && return 0
-    OBICO_SERVER="https://app.obico.io"
-    [ "${WM_ASSUME_YES:-0}" = 1 ] && return 0
-    echo "  Obico can connect to:"
-    echo "    1) Obico's own website (app.obico.io, free account)   <- default"
-    echo "    2) My own self-hosted Obico server"
-    local c u tries=0; read -r -p "$(echo -e "${YELLOW}?${NC} Choose 1 or 2 [1]: ")" c || c=1
-    [ "$c" = 2 ] || { print_success "Obico: app.obico.io"; return 0; }
-    while [ "$tries" -lt 3 ]; do
-        read -r -p "  Address of your Obico server (for example http://obico.local:3334): " u || break
-        u="${u%/}"
-        case "$u" in http://?*|https://?*) case "$u" in *" "*) ;; *) OBICO_SERVER="$u"; print_success "Obico server: $OBICO_SERVER"; return 0 ;; esac ;; esac
-        print_warning "That is not a web address (it must start with http:// or https:// and have no spaces)."; tries=$((tries+1))
-    done
-    print_warning "No valid server address given: using app.obico.io. To change it later: ./installer.sh --remove obico, then ./installer.sh --update --obico on --obico-server <address>"
-}
-
-obico_cfg_url() {   # the server written in moonraker-obico.cfg ([server] url), without a trailing slash
-    sed -n '/^\[server\]/,/^\[/{s/^url *= *//p}' "$HOME_DIR/printer_data/config/moonraker-obico.cfg" 2>/dev/null | head -n1 | tr -d '[:space:]' | sed 's#/*$##'
-}
-obico_set_server() {   # point an installed Obico at $OBICO_SERVER (the printer has to be linked again on the new server)
-    local f="$HOME_DIR/printer_data/config/moonraker-obico.cfg" have; have="$(obico_cfg_url)"
-    [ -f "$f" ] || return 0
-    [ "$have" = "$OBICO_SERVER" ] && return 0
-    cp "$f" "$f.wm-before-server-change-$STAMP"
-    python3 - "$f" "$OBICO_SERVER" <<'PY'
-import sys, re
-p, url = sys.argv[1], sys.argv[2]
-lines = open(p).read().split("\n"); out = []; sect = ""; done = False
-for l in lines:
-    m = re.match(r"\s*\[(.+?)\]", l)
-    if m: sect = m.group(1)
-    if sect == "server" and re.match(r"\s*url\s*=", l) and not done: l = "url = " + url; done = True
-    elif sect == "server" and re.match(r"\s*auth_token\s*=", l): l = "# " + l + "   # linked to the previous server"
-    out.append(l)
-open(p, "w").write("\n".join(out))
-PY
-    SUDO systemctl restart moonraker-obico
-    print_success "Obico now points to $OBICO_SERVER (was: ${have:-unknown}). A copy of the old settings: $(basename "$f").wm-before-server-change-$STAMP"
-    echo "    Link the printer again on the new server (a 6-digit code):  ~/moonraker-obico/scripts/link.sh -c ~/printer_data/config/moonraker-obico.cfg"
-}
 step_obico() {
     [ "$WANT_OBICO" = 1 ] || return 0
     print_header "Step 12c: Obico for Klipper"
-    why "moonraker-obico connects Moonraker to Obico (app.obico.io, or your own Obico server): remote view, notifications and failure detection. It uses WonderMaker's [pause_resume], PAUSE/RESUME/CANCEL_PRINT and [exclude_object], which are already in printer.cfg."
+    why "Obico's own installer (git clone + ./install.sh, as on its wiki) is run as it is. It asks you itself which Obico to use (app.obico.io or your own server) and links the printer."
     remote_precheck || return 0
-    obico_choose_server
-    local dir="$HOME_DIR/moonraker-obico" conf="$HOME_DIR/printer_data/config" port fflag="" have; port="$(remote_moonraker_port)"
-    # Obico's installer keeps an existing moonraker-obico.cfg and ignores -S then, so an old file would silently keep the old server.
-    if [ -f "$conf/moonraker-obico.cfg" ]; then
-        have="$(obico_cfg_url)"
-        if [ "$have" != "$OBICO_SERVER" ]; then fflag="-f"; print_warning "An older Obico settings file points to ${have:-an unknown server}. It is reset to $OBICO_SERVER (Obico keeps a dated copy) and you link the printer again."; fi
-    fi
+    local dir="$HOME_DIR/moonraker-obico" conf="$HOME_DIR/printer_data/config"
     remote_clone https://github.com/TheSpaghettiDetective/moonraker-obico.git "$dir" || { warn_later "Could not download moonraker-obico (network?)."; return 0; }
-    if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would run: $dir/install.sh -H 127.0.0.1 -p $port -C $conf/moonraker.conf -l ~/printer_data/logs -S $OBICO_SERVER -L${fflag:+ $fflag}${NC}"
-    elif [ "$TESTING" = 1 ]; then echo "[test] obico install.sh -H 127.0.0.1 -p $port -C $conf/moonraker.conf -S $OBICO_SERVER -L${fflag:+ $fflag}" >> "$HOME_DIR/.sudo.log"
-    else
+    if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would run: cd $dir && ./install.sh${NC}"; return 0
+    elif [ "$TESTING" = 1 ]; then echo "[test] obico install.sh" >> "$HOME_DIR/.sudo.log"
+    elif remote_interactive; then
         [ -f "$conf/printer.cfg" ] && cp "$conf/printer.cfg" "$conf/printer.cfg.wm-before-obico-$STAMP" && print_info "Obico adds one include line to printer.cfg. A copy was saved as printer.cfg.wm-before-obico-$STAMP"
-        ( cd "$dir" && bash ./install.sh -H 127.0.0.1 -p "$port" -C "$conf/moonraker.conf" -l "$HOME_DIR/printer_data/logs" -S "$OBICO_SERVER" -L $fflag ) \
-            || { warn_later "The Obico installer failed (see the output above). Run it again later: cd ~/moonraker-obico && ./install.sh"; return 0; }
+        echo "  Obico's installer asks its own questions (including which server to use); answer them on screen."
+        ( cd "$dir" && bash ./install.sh ) || { warn_later "The Obico installer did not finish. Run it again: cd ~/moonraker-obico && ./install.sh"; return 0; }
+    else
+        print_info "Obico's installer asks questions, so it was not started. It is downloaded; finish it in a terminal:"
+        echo "      cd ~/moonraker-obico && ./install.sh"
+        return 0
     fi
     record "HOMEDIR moonraker-obico"
-    if [ "$DRY" != 1 ] && [ "$TESTING" != 1 ] && [ "$(obico_cfg_url)" != "$OBICO_SERVER" ]; then obico_set_server; fi
     remote_note_update_manager
-    print_success "Obico installed (server: $OBICO_SERVER). Link your printer to your account (it shows a 6-digit code to type at $OBICO_SERVER):"
-    echo "      ~/moonraker-obico/scripts/link.sh -c ~/printer_data/config/moonraker-obico.cfg"
-    echo "    Then restart Klipper from Fluidd (it adds moonraker_obico_macros.cfg to printer.cfg)."
+    print_success "Obico installed. Then restart Klipper from Fluidd (it adds moonraker_obico_macros.cfg to printer.cfg)."
 }
 
 step_octoapp() {
@@ -934,7 +885,6 @@ step_remote_update() {   # --update: never run the makers' installers again for 
         upd_wants "$name" || continue
         if [ -d "$HOME_DIR/$dir" ]; then
             print_success "$name is already installed (update it from Fluidd's update manager, or: cd ~/$dir && git pull)"
-            [ "$name" = obico ] && [ -n "$OBICO_SERVER" ] && obico_set_server
         else "step_${name}"; fi
     done
 }
@@ -979,8 +929,7 @@ questions() {
     if [ "$WANT_OBICO$WANT_OCTOAPP$WANT_OCTOEVERYWHERE" = 000 ] && [ "${WM_ASSUME_YES:-0}" != 1 ]; then
         print_info "Obico, OctoApp, OctoEverywhere and Shake&Tune are not part of this install. Add them any time: ./installer.sh, then Add-ons."
     fi
-    [ "$WANT_OBICO" = 1 ] && obico_choose_server
-    if [ "$WANT_SCREEN" = ask ]; then
+        if [ "$WANT_SCREEN" = ask ]; then
         local r t; read -r r t < <(detect_screen)
         [ -n "$r" ] && print_info "A screen is connected: $r"
         if ask_yn "Add a touchscreen (KlipperScreen with the ZR Tools page) on this Pi?" y; then WANT_SCREEN=1
@@ -1130,7 +1079,6 @@ KS_PIN=$(addon_pin klipperscreen | cut -d'|' -f2)
 WANT_TIMELAPSE=$WANT_TIMELAPSE
 WANT_CROWSNEST=$WANT_CROWSNEST
 WANT_SHELLCMD=$WANT_SHELLCMD
-OBICO_SERVER=$OBICO_SERVER
 WANT_OBICO=$WANT_OBICO
 WANT_OCTOAPP=$WANT_OCTOAPP
 WANT_OCTOEVERYWHERE=$WANT_OCTOEVERYWHERE
@@ -1153,7 +1101,6 @@ load_answers() {
         esac
     done < "$CONF"
     local r; for r in ${CLI_REMOTE:-}; do case "$r" in obico) WANT_OBICO="$CLI_OBICO" ;; octoapp) WANT_OCTOAPP="$CLI_OCTOAPP" ;; octoeverywhere) WANT_OCTOEVERYWHERE="$CLI_OCTOEVERYWHERE" ;; netmgr) WANT_NETMGR="$CLI_NETMGR" ;; shaketune) WANT_SHAKETUNE="$CLI_SHAKETUNE" ;; webcam) WANT_CROWSNEST="$CLI_WEBCAM" ;; timelapse) WANT_TIMELAPSE="$CLI_TIMELAPSE" ;; esac; done
-    [ -n "${CLI_OBICO_SERVER:-}" ] && OBICO_SERVER="$CLI_OBICO_SERVER"
     [ -n "${CLI_SHELLCMD:-}" ] && WANT_SHELLCMD="$CLI_SHELLCMD"    # --shell-command on|off given now wins over the saved answer
     return 0
 }
@@ -1185,7 +1132,6 @@ show_plan() {
         case "$val" in
             1) val=yes ;; macros) val="only the ZR Tools macros" ;; ask) val="not chosen" ;; *) val=no ;;
         esac
-        [ "$var" = WANT_OBICO ] && [ "$val" = yes ] && val="yes (server: ${OBICO_SERVER:-https://app.obico.io})"
         case "$var:$val" in WANT_OBICO:no|WANT_OCTOAPP:no|WANT_OCTOEVERYWHERE:no|WANT_SHAKETUNE:no) val="no (add later: menu, Add-ons)" ;; esac
         printf '      %-16s %s\n' "$name" "$val"
     done

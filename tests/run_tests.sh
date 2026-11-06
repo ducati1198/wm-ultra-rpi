@@ -113,10 +113,10 @@ OUT="$(inst "$HR" --from-stage "$T/stage_r" --screen off)"
 check "none of the three is installed unless asked for" "[ ! -e $HR/octoapp ] && [ ! -e $HR/octoeverywhere ] && [ ! -e $HR/moonraker-obico ]"
 printf '[server]\nport: 7125\n[authorization]\ntrusted_clients:\n    127.0.0.0/8\n' > "$HR/printer_data/config/moonraker.conf"
 OUT="$(inst "$HR" --update --obico on --octoapp on --octoeverywhere on)"
-check "--update --obico on downloads and installs Obico against this Moonraker" "[ -d $HR/moonraker-obico ] && grep -q 'obico install.sh -H 127.0.0.1 -p 7125 -C $HR/printer_data/config/moonraker.conf -S https://app.obico.io -L' $HR/.sudo.log"
+check "--update --obico on downloads and installs Obico against this Moonraker" "[ -d $HR/moonraker-obico ] && grep -q 'obico install.sh' $HR/.sudo.log"
 check "OctoApp is pointed at moonraker.conf and moonraker.service" "[ -d $HR/octoapp ] && grep -q 'octoapp install.sh $HR/printer_data/config/moonraker.conf moonraker.service' $HR/.sudo.log"
 check "OctoEverywhere is pointed at moonraker.conf and moonraker.service" "[ -d $HR/octoeverywhere ] && grep -q 'octoeverywhere install.sh $HR/printer_data/config/moonraker.conf moonraker.service' $HR/.sudo.log"
-check "the linking step is left to the user and explained" "echo \"$OUT\" | grep -q 'link.sh -c'"
+check "the linking step is left to the user and explained" "grep -q 'cd ~/moonraker-obico && ./install.sh' $ROOT/installer.sh"
 check "the choices are saved" "grep -rq 'WANT_OBICO=1' $HR && grep -rq 'WANT_OCTOAPP=1' $HR && grep -rq 'WANT_OCTOEVERYWHERE=1' $HR"
 : > "$HR/.sudo.log"; OUT="$(inst "$HR" --update)"
 check "a plain --update does not run the makers' installers again" "! grep -q 'install.sh' $HR/.sudo.log && echo \"$OUT\" | grep -q 'already installed'"
@@ -266,21 +266,11 @@ check "menu: Add-ons lists NetworkManager with its status" "M '3\n0\n0\n' $NM --
 check "menu: Uninstall lists the switch back" "M '6\n0\n0\n' $NM --menu | grep -q 'switch back to dhcpcd'"
 
 
-echo "== Obico keeps the server you chose"
-O2="$T/o2"; rm -rf "$O2"; mkdir -p "$O2"; mkstage "$T/stage_o2"; inst "$O2" --from-stage "$T/stage_o2" --screen off >/dev/null; printf '[server]\nport: 7125\n' > "$O2/printer_data/config/moonraker.conf"
-printf '[server]\nurl = https://app.obico.io\nauth_token = abc123\n\n[moonraker]\nhost = 127.0.0.1\n' > "$O2/printer_data/config/moonraker-obico.cfg"
-OUT="$(inst "$O2" --update --obico on --obico-server http://192.0.2.9:3334)"
-check "an old Obico settings file with another server is reset (-f) and the user is told" "grep -q -- '-S http://192.0.2.9:3334 -L -f' $O2/.sudo.log && echo \"$OUT\" | grep -q 'older Obico settings file points to https://app.obico.io'"
-rm -rf "$O2/moonraker-obico"; : > "$O2/.sudo.log"
-printf '[server]\nurl = http://192.0.2.9:3334/\nauth_token = abc123\n' > "$O2/printer_data/config/moonraker-obico.cfg"
-inst "$O2" --update --obico on --obico-server http://192.0.2.9:3334 >/dev/null
-check "a settings file that already has the chosen server is kept (no -f), so the printer stays linked" "grep -q -- '-S http://192.0.2.9:3334 -L' $O2/.sudo.log && ! grep -q -- '-L -f' $O2/.sudo.log"
-OUT="$(inst "$O2" --update --obico on --obico-server https://obico.example.org)"
-check "changing the server of an installed Obico rewrites the url and keeps a copy" "grep -q '^url = https://obico.example.org' $O2/printer_data/config/moonraker-obico.cfg && ls $O2/printer_data/config/moonraker-obico.cfg.wm-before-server-change-* && echo \"$OUT\" | grep -q 'Link the printer again'"
-check "the old link token is not carried to the new server" "grep -q '^# auth_token' $O2/printer_data/config/moonraker-obico.cfg && ! grep -q '^auth_token' $O2/printer_data/config/moonraker-obico.cfg"
-check "the Obico service is restarted after a server change" "grep -q 'systemctl restart moonraker-obico' $O2/.sudo.log"
+echo "== Obico uses its own installer"
+O2="$T/o2"; rm -rf "$O2"; mkdir -p "$O2"; mkstage "$T/stage_o2"; inst "$O2" --from-stage "$T/stage_o2" --screen off >/dev/null; printf "[server]\n" > "$O2/printer_data/config/moonraker.conf"; inst "$O2" --update --obico on >/dev/null
+check "Obico is installed with its plain ./install.sh (no server flags, no server question)" "grep -q 'obico install.sh$' $O2/.sudo.log"
+printf '[server]\nurl = http://x\n' > "$O2/printer_data/config/moonraker-obico.cfg"
 check "--remove obico sets the settings file aside so a new install asks again" "M 'y\n' $O2 --remove obico | grep -q 'set aside' && [ ! -f $O2/printer_data/config/moonraker-obico.cfg ] && ls $O2/printer_data/config/moonraker-obico.cfg.wm-removed-*"
-
 
 echo "== uninstall uses the add-on's own uninstaller"
 UO="$T/uo"; mkun "$UO"; printf '\n[update_manager crowsnest]\ntype: git_repo\npath: ~/crowsnest\n\n[update_manager KlipperScreen]\ntype: git_repo\npath: ~/KlipperScreen\n\n[other]\nx: 1\n' >> "$UO/printer_data/config/moonraker.conf"
@@ -338,21 +328,7 @@ PY
 check "at a terminal the run is recorded through script, shown normally, and the log path is printed" "grep -q 'Log of this run' $LG/pty.out && ls $LG/wm-install-logs/installer-backup-*.log && grep -q 'Backup of your printer settings' \$(ls $LG/wm-install-logs/installer-backup-*.log | head -1) && ! grep -q \$'\\x1b' \$(ls $LG/wm-install-logs/installer-backup-*.log | head -1)"
 check "clean-up lists the logs with a y/n" "mkdir -p $LG/wm-install-logs && echo x > $LG/wm-install-logs/installer-x.log && M '3\nn\n0\n' $LG --remove cleanup | grep -q 'Installer logs' && M '3\ny\n0\n' $LG --remove cleanup | grep -q 'Deleted: Installer logs' && [ ! -e $LG/wm-install-logs ]"
 
-echo "== Obico server choice and one SSH password"
-check "--obico-server needs a web address" "! bash $ROOT/installer.sh --obico-server not-a-url"
-check "Obico defaults to app.obico.io and saves it" "grep -q 'OBICO_SERVER=https://app.obico.io' $HR/wm-rpi-backup/install.conf"
-OB="$T/ob"; mkdir -p "$OB"; mkstage "$T/stage_ob"; inst "$OB" --from-stage "$T/stage_ob" --screen off >/dev/null; printf '[server]\nport: 7125\n' > "$OB/printer_data/config/moonraker.conf"
-inst "$OB" --update --obico on --obico-server http://192.0.2.9:3334/ >/dev/null
-check "--obico-server (own server) is passed to Obico's installer, without the trailing slash" "grep -q -- '-S http://192.0.2.9:3334 -L' $OB/.sudo.log && grep -q 'OBICO_SERVER=http://192.0.2.9:3334$' $OB/wm-rpi-backup/install.conf"
-OB2="$T/ob2"; mkdir -p "$OB2"; inst "$OB2" --from-stage "$T/stage_ob" --screen off >/dev/null; printf '[server]\nport: 7125\n' > "$OB2/printer_data/config/moonraker.conf"
-printf 'y\n2\nhttp://obico.example:3334\n' | WM_HOME="$OB2" WM_INSTALLER_TEST=1 bash "$ROOT/installer.sh" --update --obico on >/dev/null 2>&1
-check "asked: choosing my own server and typing its address" "grep -q -- '-S http://obico.example:3334 -L' $OB2/.sudo.log"
-OB3="$T/ob3"; mkdir -p "$OB3"; inst "$OB3" --from-stage "$T/stage_ob" --screen off >/dev/null; printf '[server]\nport: 7125\n' > "$OB3/printer_data/config/moonraker.conf"
-printf 'y\n2\nnonsense\nalso bad\nstill bad\n' | WM_HOME="$OB3" WM_INSTALLER_TEST=1 bash "$ROOT/installer.sh" --update --obico on >/dev/null 2>&1
-check "asked: three bad addresses fall back to app.obico.io" "grep -q -- '-S https://app.obico.io -L' $OB3/.sudo.log"
-OB4="$T/ob4"; mkdir -p "$OB4"; inst "$OB4" --from-stage "$T/stage_ob" --screen off >/dev/null; printf '[server]\nport: 7125\n' > "$OB4/printer_data/config/moonraker.conf"
-printf 'y\n1\n' | WM_HOME="$OB4" WM_INSTALLER_TEST=1 bash "$ROOT/installer.sh" --update --obico on >/dev/null 2>&1
-check "asked: choosing Obico's website" "grep -q -- '-S https://app.obico.io -L' $OB4/.sudo.log"
+echo "== one SSH password"
 # one SSH connection for the whole pull from the old board (a fake ssh records its options)
 mkdir -p "$T/fakebin"; cat > "$T/fakebin/ssh" <<'FAKE'
 #!/bin/bash

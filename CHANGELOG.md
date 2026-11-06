@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.14.0
+
+- **Obico is installed with its own plain installer** (`git clone` then `./install.sh`, as on Obico's wiki). The installer no longer asks for the Obico server and no longer passes server or Moonraker flags: Obico's installer asks that itself. `--obico-server` is removed. Like OctoApp and OctoEverywhere, it starts only in a terminal without `--yes`; otherwise it is downloaded and the command to finish is printed (`cd ~/moonraker-obico && ./install.sh`).
+
 ## 1.13.2
 
 - **Installing an add-on from the menu no longer updates the whole system.** Menu → Add-ons used a full update, which also refreshed system packages, services, nginx, the can0 rule, Python packages and the Fluidd panel (and restarted nginx). It now installs only the add-on you picked (`./installer.sh --update --only-addon NAME --NAME on`). A plain `./installer.sh --update` still updates everything.
