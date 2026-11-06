@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.19.1
+
+- **Damaged repository copy is repaired, not a dead end.** When the install uses the factory files of this repository and some of them are missing or changed (for example after a wipe of the home folder), the installer now says so and offers `git checkout -- factory` instead of stopping with "Checksum of the factory files does not match". The error message also names that command.
+
 ## 1.19.0
 
 - **Update works without git** (like the screen board): `--get-latest` and menu → Update → Update now show your version and GitHub's, then download the newest installer folder (git pull in a clone, the GitHub tarball otherwise) before running the update. `--check-updates` now also works in a folder that came from a tar download.

@@ -248,7 +248,8 @@ choose_source() {
             case "$MODEL" in ultra|ultra-s) ;; *) die_with_fix "unknown model '$MODEL'." "use --model ultra or --model ultra-s." ;; esac
             print_info "Using the factory files of the $MODEL in this repository (Klipper and Moonraker are GPL; see factory/README.md)."
             echo "  The repository includes WonderMaker's 5 compiled modules (heaters, load cells, calibration), checked against factory checksums."
-            run bash "$SCRIPT_DIR/scripts/stage_from_repo.sh" "$MODEL" "$STAGE" $MODULES_DIR || die_with_fix "could not build the factory stage." "see the message above. A modules folder must hold the unmodified factory *.so files." ;;
+            repair_factory_files
+            run bash "$SCRIPT_DIR/scripts/stage_from_repo.sh" "$MODEL" "$STAGE" $MODULES_DIR || die_with_fix "could not build the factory stage." "see the message above. If files are missing: cd $SCRIPT_DIR && git checkout -- factory   (or download the installer again). A modules folder must hold the unmodified factory *.so files." ;;
         stage)   # not documented: used by the tests
             [ -d "$SRC_ARG" ] || die_with_fix "stage folder not found: $SRC_ARG" "give the full path."
             STAGE="$SRC_ARG" ;;
@@ -1484,6 +1485,16 @@ do_check_updates() {   # read-only: compares this copy of the repository with Gi
     if [ -n "$("${g[@]}" status --porcelain 2>/dev/null)" ]; then print_warning "You have local changes in $REPO_DIR; git pull may refuse until you save or discard them."; fi
     echo "  To update:   cd $REPO_DIR && git pull && ./installer.sh --update"
     return 0
+}
+repair_factory_files() {   # a git clone whose factory/ files were deleted or changed (for example by a wipe of the home folder): offer to restore them
+    [ "$DRY" = 1 ] && return 0
+    [ -d "$REPO_DIR/.git" ] && command -v git >/dev/null 2>&1 || return 0
+    local n; n="$(git -C "$REPO_DIR" status --porcelain -- factory 2>/dev/null | wc -l)"
+    [ "${n:-0}" -gt 0 ] || return 0
+    print_warning "$n factory file(s) in $REPO_DIR are missing or changed (the copy is damaged)."
+    if ask_yn "Restore them from the downloaded version (git checkout -- factory)? Your own changes in factory/ are lost." y; then
+        git -C "$REPO_DIR" checkout -- factory && print_success "Factory files restored." || warn_later "Could not restore the factory files. Try: cd $REPO_DIR && git checkout -- factory"
+    fi
 }
 do_get_latest() {   # download the newest version of this installer folder; git pull in a clone, the GitHub tarball otherwise (no git needed)
     print_header "Get the newest installer"

@@ -783,4 +783,10 @@ check "--check-updates works without git (version compare)" "WM_TEST_NEW_VERSION
 check "menu: main page has Dry run of the install" "M '0\n' $HR --menu | grep -q 'Dry run of the install'"
 check "menu: dry run entry shows the plan and changes nothing" "rm -rf $T/dr; mkdir -p $T/dr; M '8\n\n0\n' $T/dr --menu | grep -q 'DRY RUN' && [ ! -d $T/dr/klipper ]"
 
+echo "== damaged factory files"
+RF="$T/rf"; rm -rf "$RF"; mkdir -p "$RF"; git clone -q "$ROOT" "$RF" 2>/dev/null && cp "$ROOT/installer.sh" "$RF/installer.sh" 2>/dev/null
+rm -f "$RF"/factory/ultra-s/klipper/klippy/extras/air.py
+RFH="$T/rfh"; mkdir -p "$RFH"
+check "install notices missing factory files, restores them and goes on" "WM_ASSUME_YES=1 WM_HOME=$RFH WM_INSTALLER_TEST=1 bash $RF/installer.sh --from-github --model ultra-s </dev/null 2>&1 | grep -q 'Factory files restored' && [ -f $RF/factory/ultra-s/klipper/klippy/extras/air.py ]"
+
 echo; echo "passed: $PASS  failed: $FAIL"; [ "$FAIL" = 0 ]
