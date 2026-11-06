@@ -11,6 +11,10 @@ STAMP=$(date +%Y%m%d_%H%M%S)
 [ -f "$CFG/printer.cfg" ] || { echo "No $CFG/printer.cfg - is this the printer host?"; exit 1; }
 
 echo "1) Klipper macros"
+if [ -f "$CFG/zr_tools.cfg" ] && ! cmp -s "$HERE/zr_tools.cfg" "$CFG/zr_tools.cfg"; then   # you may have edited it: keep a copy before it is replaced
+  cp "$CFG/zr_tools.cfg" "$CFG/zr_tools.cfg.zrbak_$STAMP"
+  echo "   zr_tools.cfg changed: your old copy is kept as zr_tools.cfg.zrbak_$STAMP"
+fi
 cp "$HERE/zr_tools.cfg" "$CFG/zr_tools.cfg"
 if ! grep -q '^\[include zr_tools.cfg\]' "$CFG/printer.cfg"; then
   cp "$CFG/printer.cfg" "$CFG/printer.cfg.zrbak_$STAMP"

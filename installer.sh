@@ -17,6 +17,7 @@
 # ./installer.sh --doctor              find problems, explain them, offer a fix for each (asks first)
 # ./installer.sh --repair              put back services, nginx files, can0 rule and groups (data untouched)
 # ./installer.sh --update              update after you pulled a new version of this repository (your printer_data is not touched)
+# ./installer.sh --check-updates       read-only: list what is new on GitHub since your copy of this repository (then: git pull, ./installer.sh --update)
 # ./installer.sh --undo [DIR]          put back the folders the installer moved aside (latest, or DIR)
 # ./installer.sh --backup [DIR]        save your config, calibration and database to a .tgz (only when you run it)
 # ./installer.sh --restore FILE        restore such a backup (a safety copy is made first)
@@ -114,6 +115,7 @@ while [ $# -gt 0 ]; do
         --doctor)       MODE=doctor ;;
         --repair)       MODE=repair ;;
         --update)       MODE=update ;;
+        --check-updates) MODE=checkupdates ;;
         --undo)         MODE=undo; case "${2:-}" in ""|--*) ;; *) ARG1="$2"; shift ;; esac ;;
         --backup)       MODE=backup; case "${2:-}" in ""|--*) ;; *) ARG1="$2"; shift ;; esac ;;
         --restore)      MODE=restore; ARG1="${2:-}"; shift ;;
@@ -950,6 +952,30 @@ do_update() {
     self_test
     print_success "Update finished (installer $VERSION)."
 }
+do_check_updates() {   # read-only: compares this copy of the repository with GitHub
+    print_header "Check for updates (read-only, changes nothing)"
+    command -v git >/dev/null 2>&1 || die_with_fix "git is not installed." "sudo apt-get install git"
+    [ -d "$REPO_DIR/.git" ] || die_with_fix "this folder is not a git clone, so it cannot be compared with GitHub." "download the new version again, or clone it: git clone https://github.com/ducati1198/wm-ultra-rpi"
+    local g=(git -C "$REPO_DIR") up
+    if [ -n "${WM_TEST_NO_FETCH:-}" ]; then :; else
+        timeout 60 "${g[@]}" fetch --quiet 2>/dev/null || die_with_fix "could not reach GitHub." "connect the Pi to the internet and try again."
+    fi
+    up="$("${g[@]}" rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null)"
+    [ -n "$up" ] || up="origin/main"
+    "${g[@]}" rev-parse --verify -q "$up" >/dev/null || die_with_fix "no remote branch '$up' to compare with." "git -C $REPO_DIR remote -v"
+    local behind newv
+    behind="$("${g[@]}" rev-list --count "HEAD..$up" 2>/dev/null)"
+    newv="$("${g[@]}" show "$up:VERSION" 2>/dev/null | head -1)"
+    echo "  Your copy:   installer $VERSION"
+    [ -n "$newv" ] && echo "  On GitHub:   installer $newv"
+    if [ "${behind:-0}" = 0 ]; then print_success "You have the latest version."; return 0; fi
+    print_info "$behind new change(s) on GitHub:"
+    "${g[@]}" --no-pager log --no-color --format='    %h  %s' -n 15 "HEAD..$up"
+    [ "$behind" -gt 15 ] && echo "    ... and $((behind - 15)) more"
+    if [ -n "$("${g[@]}" status --porcelain 2>/dev/null)" ]; then print_warning "You have local changes in $REPO_DIR; git pull may refuse until you save or discard them."; fi
+    echo "  To update:   cd $REPO_DIR && git pull && ./installer.sh --update"
+    return 0
+}
 do_repair() {
     print_header "Repair"
     why "Restores groups, service files, nginx and the can0 rule. Your data and the enabled/disabled state of Klipper are not touched."
@@ -1149,6 +1175,7 @@ case "$MODE" in
     doctor)     do_doctor; exit $? ;;
     repair)     do_repair; exit 0 ;;
     update)     do_update; exit 0 ;;
+    checkupdates) do_check_updates; exit $? ;;
     undo)       do_undo; exit 0 ;;
     backup)     do_backup; exit 0 ;;
     restore)    do_restore; exit 0 ;;

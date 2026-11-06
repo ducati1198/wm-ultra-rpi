@@ -83,6 +83,21 @@ check "nginx step lets nginx reach the home folder (Fluidd 403 fix)" "grep -q 'c
 check "polkit rule step runs (Fluidd PolKit warning fix)" "grep -q 'polkit rules' $H7/.sudo.log"
 check "screen: bad value fails" "! bash $ROOT/installer.sh --screen maybe"
 check "--screen-test is read-only" "WM_TEST_SCREEN=800x480 WM_TEST_TOUCH=0 bash $ROOT/installer.sh --screen-test | grep -q 'compact'"
+echo "== check-updates and zr_tools.cfg backup"
+mkdir -p "$T/cu"; ( cd "$T/cu" && git init -q --bare origin.git && git clone -q origin.git work 2>/dev/null && cd work && git config user.email t@t && git config user.name t && echo 1.0.0 > VERSION && git add -A && git commit -q -m first && git push -q origin HEAD:main 2>/dev/null; git branch -q -M main; git push -q -u origin main 2>/dev/null; cd .. && git clone -q origin.git copy && cd copy && git checkout -q main 2>/dev/null; cd ../work && echo 1.1.0 > VERSION && git commit -q -am "new thing" && git push -q origin main )
+cp "$ROOT/installer.sh" "$T/cu/copy/installer.sh"
+check "--check-updates lists new changes" "bash $T/cu/copy/installer.sh --check-updates | grep -q 'new thing'"
+check "--check-updates shows the new version" "bash $T/cu/copy/installer.sh --check-updates | grep -q '1.1.0'"
+( cd "$T/cu/copy" && git pull -q origin main 2>/dev/null; git checkout -q -- installer.sh 2>/dev/null; true )
+check "--check-updates says latest when level" "cp $ROOT/installer.sh $T/cu/copy/installer.sh; bash $T/cu/copy/installer.sh --check-updates | grep -q 'latest version'"
+check "--check-updates outside a git clone fails clearly" "mkdir -p $T/nogit && cp $ROOT/installer.sh $T/nogit/ && ! bash $T/nogit/installer.sh --check-updates"
+ZH="$T/zrhome"; mkdir -p "$ZH/printer_data/config"; echo "[mcu]" > "$ZH/printer_data/config/printer.cfg"
+HOME="$ZH" ZR_NO_RESTART=1 bash "$ROOT/zr_tools/install_zr_tools.sh" >/dev/null 2>&1
+echo "# my edit" >> "$ZH/printer_data/config/zr_tools.cfg"
+HOME="$ZH" ZR_NO_RESTART=1 bash "$ROOT/zr_tools/install_zr_tools.sh" >/dev/null 2>&1
+check "an edited zr_tools.cfg is kept as a backup before being replaced" "grep -q 'my edit' $ZH/printer_data/config/zr_tools.cfg.zrbak_* && ! grep -q 'my edit' $ZH/printer_data/config/zr_tools.cfg"
+HOME="$ZH" ZR_NO_RESTART=1 bash "$ROOT/zr_tools/install_zr_tools.sh" >/dev/null 2>&1
+check "no extra backup when zr_tools.cfg is unchanged" "[ \$(ls $ZH/printer_data/config/zr_tools.cfg.zrbak_* | wc -l) = 1 ]"
 check "bad --screen-layout value fails" "! bash $ROOT/installer.sh --screen-layout round"
 check "screen python tests" "python3 -I -W ignore $ROOT/tests/test_screen.py"
 check "python files compile" "for f in $ROOT/zr_tools/*.py; do python3 -I -m py_compile \$f || exit 1; done"

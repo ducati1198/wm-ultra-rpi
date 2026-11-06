@@ -42,6 +42,7 @@ Run these in `~/wm-ultra-rpi` on the Pi.
 | I want to... | Run | What happens to my data |
 |---|---|---|
 | **Check** that everything is fine | `./installer.sh --doctor` | Nothing changes unless you accept a fix |
+| See what is new first | `./installer.sh --check-updates` | Nothing is changed |
 | **Update** to the latest version | `git pull && ./installer.sh --update` | Kept: `printer_data`, calibration, settings |
 | **Repair** a broken service, nginx or can0 rule | `./installer.sh --repair` | Kept |
 | **Back up** my settings | `./installer.sh --backup` | Saved to `~/wm-backups/` as a private `.tgz`. Copy it off the Pi. |
@@ -222,7 +223,8 @@ The installer first asks **which printer you have** (ZR Ultra or ZR Ultra-S; or 
 | `./installer.sh --hw-test` | read-only live test: USB bridge, can0, CAN devices, camera picture, services |
 | `./installer.sh --doctor` | finds problems, explains them, offers a fix for each (asks first) |
 | `./installer.sh --repair` | puts back services, nginx files, can0 rule, groups; your data is untouched |
-| `./installer.sh --update` | after `git pull`: refreshes services, packages, panel, add-ons; shows what changed; keeps `printer_data` |
+| `./installer.sh --check-updates` | read-only: lists what is new on GitHub since your copy, and says how to update |
+| `./installer.sh --update` | after `git pull`: refreshes services, packages, panel, add-ons; shows what changed; keeps `printer_data` (an edited `zr_tools.cfg` is saved as `zr_tools.cfg.zrbak_<date>` before it is replaced) |
 | `./installer.sh --undo [DIR]` | puts back the folders the installer moved aside (latest by default) |
 | `./installer.sh --backup [DIR]` | saves config, calibration and database to a private `.tgz` (only when you run it) |
 | `./installer.sh --restore FILE` | restores such a backup after making a safety copy |

@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.3.0
+
+- New `./installer.sh --check-updates`: read-only, lists the changes on GitHub that your copy does not have yet and the new version number, then says how to update.
+- `--update` and the ZR Tools install script now keep your old `zr_tools.cfg` as `zr_tools.cfg.zrbak_<date>` when it differs from the new one, instead of replacing it silently. Nothing else in `printer_data` is touched.
+
 ## 1.2.0
 
 - KlipperScreen / ZR Tools now fits 5 inch (800x480, 480x800) and 7 inch (1024x600, 600x1024, 800x480) screens, wide and tall. On a tall screen the toolhead cards sit 2 x 2, the toolhead page stacks, and the mapping and tabs use short labels.
