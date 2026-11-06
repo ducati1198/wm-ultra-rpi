@@ -199,6 +199,7 @@ The installer first asks **which printer you have** (ZR Ultra or ZR Ultra-S; or 
 | Fluidd panel | optional, see 5. The panel is **downloaded from [wm-ultra-fluidd-acepro-panel](https://github.com/ducati1198/wm-ultra-fluidd-acepro-panel) every time** (so you always get its latest), checked against the checksum published next to it. It needs internet (no copy is kept in this repo); if the download fails the web page is skipped with a warning and `--update` retries. `--update` installs a newer panel when there is one |
 | Timelapse | `ffmpeg` and `moonraker-timelapse` at a pinned commit (see `config/pins/addons.txt`), downloaded from mainsail-crew on GitHub and checked |
 | Klipper gcode shell command (optional, asked, default no) | `config/gcode_shell_command.py`, copied into `~/klipper/klippy/extras/`. It is the module by Arksine (GPLv3, the same one KIAUH installs) and is kept in this repository, so no download is needed |
+| Obico, OctoApp, OctoEverywhere (optional, each asked, default no) | the makers' own projects, cloned from GitHub into `~/moonraker-obico`, `~/octoapp`, `~/octoeverywhere` and installed with their own installers, pointed at this Pi's Moonraker. See "Remote access add-ons" below |
 | Webcams | `crowsnest` at a pinned commit (see `config/pins/addons.txt`), installed unattended (builds `ustreamer`); your camera goes in `~/printer_data/config/crowsnest.conf` |
 
 ### 3.3 Safety checks
@@ -220,6 +221,7 @@ The installer first asks **which printer you have** (ZR Ultra or ZR Ultra-S; or 
 | `./installer.sh --check` | report problems, change nothing |
 | `./installer.sh --dry-run` | show the plan and what would change |
 | `./installer.sh --shell-command on` | with `--update` or a first install: adds the Klipper gcode shell command extension (`off` stops updating it; the file stays) |
+| `./installer.sh --obico on` / `--octoapp on` / `--octoeverywhere on` | with `--update` or a first install: adds that remote-access add-on (see below) |
 | `./installer.sh --screen-remove` | removes KlipperScreen from the Pi (Klipper, Moonraker, Fluidd stay) |
 | `./installer.sh --first-start` | checks with the main board connected, fixes `canbus_uuid` (asks, keeps a copy), then enables and starts Klipper and the other services |
 | `./installer.sh --hw-test` | read-only live test: USB bridge, can0, CAN devices, camera picture, services |
@@ -541,3 +543,27 @@ verbose: True
 ```
 
 Run it with `RUN_SHELL_COMMAND CMD=hello`; extra words go in `PARAMS="a b"`. Commands run as the Pi user `t13dp` and are stopped after `timeout` seconds. Only add commands you trust, since anything that can send G-code to the printer (Fluidd console, a sliced file) can start them. If you remove the extension while `printer.cfg` still has a `[gcode_shell_command ...]` section, Klipper will not start. `--doctor` checks that the file is in place, and `--uninstall` removes it.
+
+## Remote access add-ons: Obico, OctoApp, OctoEverywhere (optional)
+
+Three optional services that let you watch and control the printer from outside the house, from a phone app, and get notifications. Each is made by someone else, needs an account of yours, and sends data to its own service: install only what you want. The installer asks about each one (default no), or use `--obico on`, `--octoapp on`, `--octoeverywhere on` (`off` to skip). All three are installed **next to** WonderMaker's Klipper and Moonraker: each gets its own Python environment, so the Python 3.9 environments used by Klipper and Moonraker are not touched.
+
+| Add-on | Installed with | Link it to your account |
+|---|---|---|
+| **Obico** (app.obico.io or your own server) | `git clone` of moonraker-obico, then its `install.sh` with this Pi's Moonraker details (127.0.0.1, the port from `moonraker.conf`, no linking) | `~/moonraker-obico/scripts/link.sh -c ~/printer_data/config/moonraker-obico.cfg` shows a 6-digit code to type at app.obico.io. Restart Klipper after (Obico adds `[include moonraker_obico_macros.cfg]` to `printer.cfg`; a copy of `printer.cfg` is saved first) |
+| **OctoApp** | OctoApp's own method 1c: `git clone` then `./install.sh <moonraker.conf> moonraker.service` | open the OctoApp phone app on the same network; it registers by itself |
+| **OctoEverywhere** | `git clone` then `./install.sh <moonraker.conf> moonraker.service` | its installer prints a link to open in a browser |
+
+OctoApp and OctoEverywhere ask questions while they install, so the installer only starts them when you run it in a terminal without `--yes`. Otherwise it downloads them and prints the exact command to finish (`cd ~/octoapp && ./install.sh ~/printer_data/config/moonraker.conf moonraker.service`).
+
+**Why these work with WonderMaker's Klipper and Moonraker.** The checks I could do without a printer:
+- OctoApp's and OctoEverywhere's code that finds Moonraker (it reads `moonraker.service` and its `moonraker.env`) was run against this repository's `moonraker.service`, and finds `~/printer_data/config/moonraker.conf`.
+- WonderMaker's `printer.cfg` already has what Obico's macros use: `[pause_resume]`, `[respond]`, `[virtual_sdcard]`, `[display_status]`, `[exclude_object]`, and the `PAUSE`, `RESUME` and `CANCEL_PRINT` macros. WonderMaker's Klipper supports `action_call_remote_method`.
+- WonderMaker's `moonraker.conf` trusts `127.0.0.0/8`, which is where the add-ons connect from.
+
+**Not tested on a real Pi:** nobody has run these three installers on a Pi with this repository. Their downloads and account steps could not be tried from the build environment.
+
+**Things to know**
+- Each add-on adds an `[update_manager ...]` section to `moonraker.conf`. WonderMaker's Klipper and Moonraker are not git clones, so Fluidd may list them as not updatable or invalid. Do not press update on those two; use `./installer.sh --update`.
+- `./installer.sh --update` does not run these installers again once installed; update them from Fluidd or with `git pull` in their folder. `--doctor` checks they are downloaded and running.
+- `./installer.sh --uninstall` does not remove them (they are linked to your accounts). Use `cd ~/octoapp && ./uninstall.sh`, `cd ~/octoeverywhere && ./uninstall.sh`, or the Uninstall steps in `~/moonraker-obico/README.md`.

@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.5.0
+
+- New optional remote-access add-ons, each asked during install (default no): Obico for Klipper (`--obico on`), OctoApp (`--octoapp on`, its method 1c: git clone + install.sh) and OctoEverywhere (`--octoeverywhere on`). They are installed with the makers' own installers, pointed at this Pi's Moonraker, in their own Python environments. Linking to your account is left to you and explained on screen. `printer.cfg` is copied before Obico adds its include line.
+- `--update` does not re-run them once installed; `--doctor` checks them; `--uninstall` leaves them and tells you how to remove them.
+- Not yet run on a real Pi.
+
 ## 1.4.0
 
 - New optional add-on: the Klipper gcode shell command extension (`RUN_SHELL_COMMAND CMD=name`, module by Arksine, GPLv3, bundled as `config/gcode_shell_command.py`). Asked during install (default no), or `./installer.sh --shell-command on|off`. It is copied into `~/klipper/klippy/extras/`, put back by `--update`, checked by `--doctor` and removed by `--uninstall`. It does nothing until you add a `[gcode_shell_command ...]` section to `printer.cfg`.

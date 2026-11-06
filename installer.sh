@@ -26,6 +26,7 @@
 # ./installer.sh --disable-klipper     stop Klipper and stop it from starting at boot
 # ./installer.sh --uninstall           remove what the installer added to the system (your files in ~ stay)
 # ./installer.sh --shell-command on|off   optional Klipper "gcode shell command" extension: RUN_SHELL_COMMAND CMD=name runs a Linux command from G-code (asked if not given; default no)
+# ./installer.sh --obico on|off        optional remote access: Obico for Klipper (moonraker-obico). Also --octoapp on|off and --octoeverywhere on|off. Each is asked (default no)
 # ./installer.sh --screen on|off|macros   KlipperScreen on the Pi (on), nothing (off), or only the ZR Tools macros (macros: for the WonderMaker screen board). Asked if not given; default on
 # ./installer.sh --screen-layout tabs|grid   touch layout: tabs = big buttons + bottom tabs (default), grid = card grid
 # ./installer.sh --screen-backend x11|weston|cage   graphics stack for KlipperScreen (default x11)
@@ -58,7 +59,7 @@ TESTING="${WM_INSTALLER_TEST:-0}"        # 1 = no sudo, no apt, no systemctl, no
 MODE="install"
 DRY=0
 SRC_KIND=""; SRC_ARG=""; MODEL="ultra-s"; MODULES_DIR=""; FROM_FACTORY=0
-WANT_PANEL=1; WANT_SCREEN=ask; WANT_TIMELAPSE=1; WANT_CROWSNEST=1; WANT_SHELLCMD=ask
+WANT_PANEL=1; WANT_SCREEN=ask; WANT_TIMELAPSE=1; WANT_CROWSNEST=1; CLI_REMOTE=""; WANT_SHELLCMD=ask; WANT_OBICO=ask; WANT_OCTOAPP=ask; WANT_OCTOEVERYWHERE=ask
 SCREEN_LAYOUT=""; SCREEN_BACKEND="x11"; REPO_DIR="$SCRIPT_DIR"
 STAMP="$(date +%Y%m%d-%H%M%S)"
 BACKUP_ROOT="$HOME_DIR/wm-rpi-backup"
@@ -122,6 +123,9 @@ while [ $# -gt 0 ]; do
         --restore)      MODE=restore; ARG1="${2:-}"; shift ;;
         --support-bundle) MODE=bundle ;;
         --shell-command) case "${2:-}" in on|yes|1) WANT_SHELLCMD=1 ;; off|no|0) WANT_SHELLCMD=0 ;; *) print_error "--shell-command needs on or off"; exit 1 ;; esac; CLI_SHELLCMD="$WANT_SHELLCMD"; shift ;;
+        --obico)        case "${2:-}" in on|yes|1) WANT_OBICO=1 ;; off|no|0) WANT_OBICO=0 ;; *) print_error "--obico needs on or off"; exit 1 ;; esac; CLI_REMOTE="$CLI_REMOTE obico"; CLI_OBICO="$WANT_OBICO"; shift ;;
+        --octoapp)      case "${2:-}" in on|yes|1) WANT_OCTOAPP=1 ;; off|no|0) WANT_OCTOAPP=0 ;; *) print_error "--octoapp needs on or off"; exit 1 ;; esac; CLI_REMOTE="$CLI_REMOTE octoapp"; CLI_OCTOAPP="$WANT_OCTOAPP"; shift ;;
+        --octoeverywhere) case "${2:-}" in on|yes|1) WANT_OCTOEVERYWHERE=1 ;; off|no|0) WANT_OCTOEVERYWHERE=0 ;; *) print_error "--octoeverywhere needs on or off"; exit 1 ;; esac; CLI_REMOTE="$CLI_REMOTE octoeverywhere"; CLI_OCTOEVERYWHERE="$WANT_OCTOEVERYWHERE"; shift ;;
         --screen)       case "${2:-}" in on|yes|1) WANT_SCREEN=1 ;; off|no|0) WANT_SCREEN=0 ;; macros) WANT_SCREEN=macros ;; *) print_error "--screen needs on, off or macros"; exit 1 ;; esac; shift ;;
         --screen-layout) case "${2:-}" in tabs|grid) SCREEN_LAYOUT="$2" ;; *) print_error "--screen-layout needs tabs or grid"; exit 1 ;; esac; shift ;;
         --screen-backend) case "${2:-}" in x11|weston|cage) SCREEN_BACKEND="$2" ;; *) print_error "--screen-backend needs x11, weston or cage"; exit 1 ;; esac; shift ;;
@@ -595,6 +599,112 @@ step_shellcmd() {   # Arksine's gcode_shell_command module (GPLv3), copied from 
     echo "    and run it with:  RUN_SHELL_COMMAND CMD=hello   (extra words: PARAMS=\"a b\")"
 }
 
+# ---------------------------------------------------------------------------
+# Remote access add-ons: Obico, OctoApp, OctoEverywhere. Each is the maker's own project, cloned into ~ and installed with
+# the maker's own installer, pointed at WonderMaker's Moonraker (127.0.0.1:7125, ~/printer_data/config/moonraker.conf, moonraker.service).
+# Linking to your account always needs you (a code or a link shown on screen), so that last step is left to you.
+# ---------------------------------------------------------------------------
+remote_interactive() { [ "${WM_ASSUME_YES:-0}" != 1 ] && [ -t 0 ] && [ -t 1 ] && [ "$TESTING" != 1 ]; }
+remote_moonraker_port() { local p; p="$(awk -F'[: ]+' '/^\[server\]/{s=1;next} /^\[/{s=0} s&&$1=="port"{print $2; exit}' "$HOME_DIR/printer_data/config/moonraker.conf" 2>/dev/null)"; echo "${p:-7125}"; }
+
+remote_clone() {   # url dir : clone once; later runs only fast-forward
+    local url="$1" dir="$2"
+    [ "$DRY" = 1 ] && { echo -e "  ${DIM}would run: git clone $url $dir${NC}"; return 0; }
+    if [ "$TESTING" = 1 ]; then mkdir -p "$dir"; : > "$dir/install.sh"; echo "[test] clone $url" >> "$HOME_DIR/.sudo.log"; return 0; fi
+    if [ -d "$dir/.git" ]; then git -C "$dir" pull -q --ff-only 2>/dev/null || print_warning "Could not update $dir (kept as it is)."; return 0; fi
+    git clone -q "$url" "$dir"
+}
+
+remote_precheck() {   # the facts these add-ons need from WonderMaker's Moonraker; returns 1 and says why when something is missing
+    local conf="$HOME_DIR/printer_data/config/moonraker.conf" ok=0
+    [ "$DRY" = 1 ] && return 0
+    [ -f "$conf" ] || { warn_later "Remote access add-ons need $conf. Run ./installer.sh first."; ok=1; }
+    [ "$TESTING" = 1 ] || [ -f /etc/systemd/system/moonraker.service ] || { warn_later "Remote access add-ons need /etc/systemd/system/moonraker.service. Run ./installer.sh --repair."; ok=1; }
+    command -v git >/dev/null 2>&1 || [ "$TESTING" = 1 ] || { warn_later "git is missing: sudo apt-get install git"; ok=1; }
+    grep -q '^\[authorization\]' "$conf" 2>/dev/null && ! grep -q '127\.0\.0\.' "$conf" && print_warning "moonraker.conf has an [authorization] section without 127.0.0.0/8 in trusted_clients: the add-ons connect from this Pi and may be refused."
+    return $ok
+}
+
+remote_note_update_manager() {
+    print_info "The add-on adds an [update_manager ...] section to moonraker.conf so Fluidd can update it. Fluidd may then also list Klipper and Moonraker as not updatable (they are not git clones here): do not press update on those two; use ./installer.sh --update."
+}
+
+step_obico() {
+    [ "$WANT_OBICO" = 1 ] || return 0
+    print_header "Step 12c: Obico for Klipper"
+    why "moonraker-obico connects Moonraker to Obico (app.obico.io, or your own Obico server): remote view, notifications and failure detection. It uses WonderMaker's [pause_resume], PAUSE/RESUME/CANCEL_PRINT and [exclude_object], which are already in printer.cfg."
+    remote_precheck || return 0
+    local dir="$HOME_DIR/moonraker-obico" conf="$HOME_DIR/printer_data/config" port; port="$(remote_moonraker_port)"
+    remote_clone https://github.com/TheSpaghettiDetective/moonraker-obico.git "$dir" || { warn_later "Could not download moonraker-obico (network?)."; return 0; }
+    if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would run: $dir/install.sh -H 127.0.0.1 -p $port -C $conf/moonraker.conf -l ~/printer_data/logs -S https://app.obico.io -L${NC}"
+    elif [ "$TESTING" = 1 ]; then echo "[test] obico install.sh -H 127.0.0.1 -p $port -C $conf/moonraker.conf -L" >> "$HOME_DIR/.sudo.log"
+    else
+        [ -f "$conf/printer.cfg" ] && cp "$conf/printer.cfg" "$conf/printer.cfg.wm-before-obico-$STAMP" && print_info "Obico adds one include line to printer.cfg. A copy was saved as printer.cfg.wm-before-obico-$STAMP"
+        ( cd "$dir" && bash ./install.sh -H 127.0.0.1 -p "$port" -C "$conf/moonraker.conf" -l "$HOME_DIR/printer_data/logs" -S https://app.obico.io -L ) \
+            || { warn_later "The Obico installer failed (see the output above). Run it again later: cd ~/moonraker-obico && ./install.sh"; return 0; }
+    fi
+    record "HOMEDIR moonraker-obico"
+    remote_note_update_manager
+    print_success "Obico installed. Link your printer to your account (it shows a 6-digit code to type at app.obico.io; a self-hosted server needs -S your-url):"
+    echo "      ~/moonraker-obico/scripts/link.sh -c ~/printer_data/config/moonraker-obico.cfg"
+    echo "    Then restart Klipper from Fluidd (it adds moonraker_obico_macros.cfg to printer.cfg)."
+}
+
+step_octoapp() {
+    [ "$WANT_OCTOAPP" = 1 ] || return 0
+    print_header "Step 12d: OctoApp"
+    why "OctoApp's own installer (method 1c on its wiki: git clone + ./install.sh) is pointed at this Pi's Moonraker. It creates ~/octoapp, ~/octoapp-env and the octoapp service."
+    remote_precheck || return 0
+    local dir="$HOME_DIR/octoapp" conf="$HOME_DIR/printer_data/config/moonraker.conf"
+    remote_clone https://github.com/crysxd/OctoApp-Plugin.git "$dir" || { warn_later "Could not download OctoApp (network?)."; return 0; }
+    if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would run: $dir/install.sh $conf moonraker.service${NC}"; return 0
+    elif [ "$TESTING" = 1 ]; then echo "[test] octoapp install.sh $conf moonraker.service" >> "$HOME_DIR/.sudo.log"
+    elif remote_interactive; then
+        echo "  OctoApp's installer asks a few questions; answer them on screen."
+        ( cd "$dir" && bash ./install.sh "$conf" moonraker.service ) || { warn_later "The OctoApp installer did not finish. Run it again: cd ~/octoapp && ./install.sh $conf moonraker.service"; return 0; }
+    else
+        print_info "OctoApp's installer asks questions, so it was not started. It is downloaded; finish it in a terminal:"
+        echo "      cd ~/octoapp && ./install.sh $conf moonraker.service"
+        return 0
+    fi
+    record "HOMEDIR octoapp"; record "HOMEDIR octoapp-env"
+    remote_note_update_manager
+    print_success "OctoApp installed. Open the OctoApp phone app on the same network; it registers by itself."
+}
+
+step_octoeverywhere() {
+    [ "$WANT_OCTOEVERYWHERE" = 1 ] || return 0
+    print_header "Step 12e: OctoEverywhere"
+    why "OctoEverywhere's own installer is pointed at this Pi's Moonraker. It creates ~/octoeverywhere, ~/octoeverywhere-env and the octoeverywhere service, then prints a link to connect it to your free account."
+    remote_precheck || return 0
+    local dir="$HOME_DIR/octoeverywhere" conf="$HOME_DIR/printer_data/config/moonraker.conf"
+    remote_clone https://github.com/QuinnDamerell/OctoPrint-OctoEverywhere.git "$dir" || { warn_later "Could not download OctoEverywhere (network?)."; return 0; }
+    if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would run: $dir/install.sh $conf moonraker.service${NC}"; return 0
+    elif [ "$TESTING" = 1 ]; then echo "[test] octoeverywhere install.sh $conf moonraker.service" >> "$HOME_DIR/.sudo.log"
+    elif remote_interactive; then
+        echo "  OctoEverywhere's installer asks a few questions and shows a link for your account; follow it on screen."
+        ( cd "$dir" && bash ./install.sh "$conf" moonraker.service ) || { warn_later "The OctoEverywhere installer did not finish. Run it again: cd ~/octoeverywhere && ./install.sh $conf moonraker.service"; return 0; }
+    else
+        print_info "OctoEverywhere's installer asks questions, so it was not started. It is downloaded; finish it in a terminal:"
+        echo "      cd ~/octoeverywhere && ./install.sh $conf moonraker.service"
+        return 0
+    fi
+    record "HOMEDIR octoeverywhere"; record "HOMEDIR octoeverywhere-env"
+    remote_note_update_manager
+    print_success "OctoEverywhere installed. Open the link it printed to connect your account."
+}
+
+step_remote() { step_obico; step_octoapp; step_octoeverywhere; }
+step_remote_update() {   # --update: never run the makers' installers again for something already there (Fluidd's update manager updates them)
+    local pair name var dir
+    for pair in "obico:WANT_OBICO:moonraker-obico" "octoapp:WANT_OCTOAPP:octoapp" "octoeverywhere:WANT_OCTOEVERYWHERE:octoeverywhere"; do
+        IFS=: read -r name var dir <<< "$pair"
+        [ "${!var}" = 1 ] || continue
+        if [ -d "$HOME_DIR/$dir" ]; then print_success "$name is already installed (update it from Fluidd's update manager, or: cd ~/$dir && git pull)"
+        else "step_${name}"; fi
+    done
+}
+
 step_crowsnest() {
     [ "$WANT_CROWSNEST" = 1 ] || return 0
     print_header "Step 13: webcam service (crowsnest)"
@@ -627,6 +737,17 @@ questions() {
     ask_yn "Install the Fluidd with the WonderMaker Toolheads panel (recommended)?" y || WANT_PANEL=0
     ask_yn "Install webcam support (crowsnest, as WonderMaker uses)?" y || WANT_CROWSNEST=0
     ask_yn "Install timelapse support (Moonraker timelapse + ffmpeg)?" y || WANT_TIMELAPSE=0
+    local rname rvar rtext
+    for rname in obico octoapp octoeverywhere; do
+        case "$rname" in
+            obico)          rvar=WANT_OBICO;          rtext="Obico for Klipper (remote view and print-failure detection; account at obico.io or your own server)" ;;
+            octoapp)        rvar=WANT_OCTOAPP;        rtext="OctoApp (phone app notifications and remote control)" ;;
+            octoeverywhere) rvar=WANT_OCTOEVERYWHERE; rtext="OctoEverywhere (remote access, webcam and notifications; free account)" ;;
+        esac
+        if [ "${!rvar}" = ask ]; then
+            if ask_yn "Install $rtext?" n; then printf -v "$rvar" 1; else printf -v "$rvar" 0; fi
+        fi
+    done
     if [ "$WANT_SHELLCMD" = ask ]; then
         echo "  Klipper gcode shell command: lets G-code macros run a Linux command or script (RUN_SHELL_COMMAND). Nothing runs until you add a [gcode_shell_command ...] section to printer.cfg."
         if ask_yn "Install the Klipper gcode shell command extension?" n; then WANT_SHELLCMD=1; else WANT_SHELLCMD=0; fi
@@ -759,6 +880,9 @@ KS_PIN=$(addon_pin klipperscreen | cut -d'|' -f2)
 WANT_TIMELAPSE=$WANT_TIMELAPSE
 WANT_CROWSNEST=$WANT_CROWSNEST
 WANT_SHELLCMD=$WANT_SHELLCMD
+WANT_OBICO=$WANT_OBICO
+WANT_OCTOAPP=$WANT_OCTOAPP
+WANT_OCTOEVERYWHERE=$WANT_OCTOEVERYWHERE
 CROWSNEST_PIN=$(addon_pin crowsnest | cut -d'|' -f2)
 TIMELAPSE_PIN=$(addon_pin moonraker-timelapse | cut -d'|' -f2)
 PANEL_SHA=$([ -n "$PANEL_ZIP" ] && sha256sum "$PANEL_ZIP" 2>/dev/null | cut -d' ' -f1)
@@ -771,10 +895,11 @@ load_answers() {
         case "$k" in
             VERSION) OLD_VERSION="$v" ;; CROWSNEST_PIN) OLD_CN_PIN="$v" ;; TIMELAPSE_PIN) OLD_TL_PIN="$v" ;; PANEL_SHA) OLD_PANEL_SHA="$v" ;;
             MODEL) [ -n "${MODEL_SET:-}" ] || MODEL="$v" ;; SRC_KIND) : ;;
-            WANT_PANEL|WANT_SCREEN|WANT_TIMELAPSE|WANT_CROWSNEST|WANT_SHELLCMD) printf -v "$k" '%s' "$v" ;;
+            WANT_PANEL|WANT_SCREEN|WANT_TIMELAPSE|WANT_CROWSNEST|WANT_SHELLCMD|WANT_OBICO|WANT_OCTOAPP|WANT_OCTOEVERYWHERE) printf -v "$k" '%s' "$v" ;;
             SCREEN_BACKEND) printf -v "$k" '%s' "$v" ;; KS_PIN) OLD_KS_PIN="$v" ;;
         esac
     done < "$CONF"
+    local r; for r in ${CLI_REMOTE:-}; do case "$r" in obico) WANT_OBICO="$CLI_OBICO" ;; octoapp) WANT_OCTOAPP="$CLI_OCTOAPP" ;; octoeverywhere) WANT_OCTOEVERYWHERE="$CLI_OCTOEVERYWHERE" ;; esac; done
     [ -n "${CLI_SHELLCMD:-}" ] && WANT_SHELLCMD="$CLI_SHELLCMD"    # --shell-command on|off given now wins over the saved answer
     return 0
 }
@@ -973,6 +1098,7 @@ do_update() {
     if [ "$WANT_SCREEN" = macros ]; then step_macros; fi
     if [ "$WANT_TIMELAPSE" = 1 ]; then step_timelapse; fi
     if [ "$WANT_SHELLCMD" = 1 ]; then step_shellcmd; fi
+    step_remote_update
     if [ "$WANT_CROWSNEST" = 1 ] && [ "$(addon_pin crowsnest | cut -d'|' -f2)" != "${OLD_CN_PIN:-}" ]; then step_crowsnest; fi
     save_answers
     SUDO systemctl restart moonraker; SUDO systemctl restart nginx
@@ -1077,6 +1203,15 @@ do_doctor() {
         cmp -s "$SCRIPT_DIR/config/gcode_shell_command.py" "$HOME_DIR/klipper/klippy/extras/gcode_shell_command.py" 2>/dev/null && doc_ok "gcode_shell_command extension is installed" \
             || { doc_bad "gcode_shell_command extension is missing or different" "RUN_SHELL_COMMAND will not work (Klipper stops at start if printer.cfg has a [gcode_shell_command] section)."; offer_fix "copy it again" step_shellcmd; }
     fi
+    local rp rn rv rdir rsvc
+    for rp in "Obico:WANT_OBICO:moonraker-obico:moonraker-obico" "OctoApp:WANT_OCTOAPP:octoapp:octoapp" "OctoEverywhere:WANT_OCTOEVERYWHERE:octoeverywhere:octoeverywhere"; do
+        IFS=: read -r rn rv rdir rsvc <<< "$rp"
+        [ "${!rv}" = 1 ] || continue
+        if [ ! -d "$HOME_DIR/$rdir" ]; then doc_bad "$rn is missing (~/$rdir)" "Run ./installer.sh --update --$(echo "$rn" | tr 'A-Z' 'a-z') on."
+        elif [ "$TESTING" = 1 ]; then doc_ok "$rn is downloaded"
+        elif [ "$(service_state "$rsvc")" = active ]; then doc_ok "$rn is running"
+        else doc_bad "$rn is downloaded but its service is not running" "Finish its installer: cd ~/$rdir && ./install.sh   (Obico: ~/moonraker-obico/scripts/link.sh -c ~/printer_data/config/moonraker-obico.cfg)"; fi
+    done
     local miss; miss="$(modules_present | tr '\n' ' ')"
     if [ -z "$miss" ]; then doc_ok "WonderMaker's compiled modules are present"
     else doc_bad "missing modules: $miss" "Klipper cannot run the heaters, load cells or calibration without them."; offer_fix "copy the factory modules from this repository (checksums are verified)" restore_modules_from_repo; fi
@@ -1189,6 +1324,9 @@ do_uninstall() {
             FILE|LINK) SUDO rm -f "$v" ;;
         esac
     done < "$STATE"
+    local rd; for rd in moonraker-obico octoapp octoeverywhere; do
+        [ -d "$HOME_DIR/$rd" ] && print_warning "~/$rd is a remote-access add-on linked to your account and is NOT removed. Remove it with its own uninstaller: $([ "$rd" = moonraker-obico ] && echo "see Uninstall in ~/moonraker-obico/README.md" || echo "cd ~/$rd && ./uninstall.sh")"
+    done
     SUDO systemctl daemon-reload; SUDO udevadm control --reload-rules
     SUDO nginx -t >/dev/null 2>&1 && SUDO systemctl reload nginx
     mv "$STATE" "$STATE.removed-$STAMP"
@@ -1230,7 +1368,7 @@ show_plan
 guard_not_printing
 save_answers
 step_packages; step_groups; step_python; step_unpack; step_model; step_venvs; step_modules
-step_services; step_nginx; step_can; step_panel; step_screen; step_timelapse; step_shellcmd; step_crowsnest; step_start
+step_services; step_nginx; step_can; step_panel; step_screen; step_timelapse; step_shellcmd; step_remote; step_crowsnest; step_start
 save_answers
 self_test
 if [ "$AUTOSTART" = 1 ] && [ "$DRY" != 1 ]; then do_first_start auto || true; fi
