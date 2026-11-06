@@ -68,7 +68,7 @@ TESTING="${WM_INSTALLER_TEST:-0}"        # 1 = no sudo, no apt, no systemctl, no
 MODE="install"
 DRY=0
 SRC_KIND=""; SRC_ARG=""; MODEL="ultra-s"; MODULES_DIR=""; FROM_FACTORY=0
-WANT_PANEL=1; WANT_SCREEN=ask; WANT_TIMELAPSE=1; WANT_CROWSNEST=1; CLI_REMOTE=""; WANT_SHELLCMD=1; OBICO_SERVER=""; CLI_OBICO_SERVER=""; WANT_OBICO=ask; WANT_OCTOAPP=ask; WANT_OCTOEVERYWHERE=ask; WANT_NETMGR=ask; WANT_SHAKETUNE=0
+WANT_PANEL=1; WANT_SCREEN=ask; WANT_TIMELAPSE=1; WANT_CROWSNEST=1; CLI_REMOTE=""; ONLY_ADDON=""; WANT_SHELLCMD=1; OBICO_SERVER=""; CLI_OBICO_SERVER=""; WANT_OBICO=ask; WANT_OCTOAPP=ask; WANT_OCTOEVERYWHERE=ask; WANT_NETMGR=ask; WANT_SHAKETUNE=0
 SCREEN_LAYOUT=""; SCREEN_BACKEND="x11"; REPO_DIR="$SCRIPT_DIR"
 STAMP="$(date +%Y%m%d-%H%M%S)"
 BACKUP_ROOT="$HOME_DIR/wm-rpi-backup"
@@ -146,6 +146,7 @@ while [ $# -gt 0 ]; do
         --network-manager) case "${2:-}" in on|yes|1) WANT_NETMGR=1 ;; off|no|0) WANT_NETMGR=0 ;; *) print_error "--network-manager needs on or off"; exit 1 ;; esac; CLI_REMOTE="$CLI_REMOTE netmgr"; CLI_NETMGR="$WANT_NETMGR"; shift ;;
         --shaketune)    case "${2:-}" in on|yes|1) WANT_SHAKETUNE=1 ;; off|no|0) WANT_SHAKETUNE=0 ;; *) print_error "--shaketune needs on or off"; exit 1 ;; esac; CLI_REMOTE="$CLI_REMOTE shaketune"; CLI_SHAKETUNE="$WANT_SHAKETUNE"; shift ;;
         --octoeverywhere) case "${2:-}" in on|yes|1) WANT_OCTOEVERYWHERE=1 ;; off|no|0) WANT_OCTOEVERYWHERE=0 ;; *) print_error "--octoeverywhere needs on or off"; exit 1 ;; esac; CLI_REMOTE="$CLI_REMOTE octoeverywhere"; CLI_OCTOEVERYWHERE="$WANT_OCTOEVERYWHERE"; shift ;;
+        --only-addon)   ONLY_ADDON="${2:-}"; shift ;;   # used by the menu (Add-ons): with --update, touch only that add-on, not the system files, packages, panel or nginx
         --screen)       case "${2:-}" in on|yes|1) WANT_SCREEN=1 ;; off|no|0) WANT_SCREEN=0 ;; macros) WANT_SCREEN=macros ;; *) print_error "--screen needs on, off or macros"; exit 1 ;; esac; shift ;;
         --screen-layout) case "${2:-}" in tabs|grid) SCREEN_LAYOUT="$2" ;; *) print_error "--screen-layout needs tabs or grid"; exit 1 ;; esac; shift ;;
         --screen-backend) case "${2:-}" in x11|weston|cage) SCREEN_BACKEND="$2" ;; *) print_error "--screen-backend needs x11, weston or cage"; exit 1 ;; esac; shift ;;
@@ -924,11 +925,13 @@ step_octoeverywhere() {
 }
 
 step_remote() { step_obico; step_octoapp; step_octoeverywhere; }
+upd_wants() { [ -z "$ONLY_ADDON" ] || [ "$ONLY_ADDON" = "$1" ]; }   # --update --only-addon NAME runs just that add-on
 step_remote_update() {   # --update: never run the makers' installers again for something already there (Fluidd's update manager updates them)
     local pair name var dir
     for pair in "obico:WANT_OBICO:moonraker-obico" "octoapp:WANT_OCTOAPP:octoapp" "octoeverywhere:WANT_OCTOEVERYWHERE:octoeverywhere"; do
         IFS=: read -r name var dir <<< "$pair"
         [ "${!var}" = 1 ] || continue
+        upd_wants "$name" || continue
         if [ -d "$HOME_DIR/$dir" ]; then
             print_success "$name is already installed (update it from Fluidd's update manager, or: cd ~/$dir && git pull)"
             [ "$name" = obico ] && [ -n "$OBICO_SERVER" ] && obico_set_server
@@ -1356,30 +1359,31 @@ do_update() {
     guard_not_printing
     check_system; preflight; update_notice
     [ -d "$HOME_DIR/klipper" ] || die_with_fix "~/klipper is missing." "run ./installer.sh --doctor"
-    echo "Your printer_data (config, calibration) is not touched. Updated: services, nginx, can0 rule, Python packages, panel, add-ons."
+    if [ -n "$ONLY_ADDON" ]; then echo "Only this add-on is installed. The system files, packages, Fluidd panel and nginx are not touched, and neither is your printer_data."
+    else echo "Your printer_data (config, calibration) is not touched. Updated: services, nginx, can0 rule, Python packages, panel, add-ons."; fi
     ask_yn "Go ahead?" y || exit 0
-    step_packages; step_groups; step_python
-    if [ "$TESTING" != 1 ] && [ "$DRY" != 1 ]; then
+    if [ -z "$ONLY_ADDON" ]; then step_packages; step_groups; step_python; fi
+    if [ -z "$ONLY_ADDON" ] && [ "$TESTING" != 1 ] && [ "$DRY" != 1 ]; then
         "$HOME_DIR/klippy-env/bin/pip" install -q -r "$SCRIPT_DIR/config/klippy-requirements.txt" || warn_later "klippy-env packages did not update."
         "$HOME_DIR/moonraker-env/bin/pip" install -q -r "$SCRIPT_DIR/config/moonraker-requirements.txt" || warn_later "moonraker-env packages did not update."
     fi
-    step_services_files; step_nginx; step_can
-    if [ "$WANT_PANEL" = 1 ]; then
+    if [ -z "$ONLY_ADDON" ]; then step_services_files; step_nginx; step_can; fi
+    if [ -z "$ONLY_ADDON" ] && [ "$WANT_PANEL" = 1 ]; then
         local sha=""; panel_get && sha="$(sha256sum "$PANEL_ZIP" | cut -d' ' -f1)"
         if [ -n "$sha" ] && [ "$sha" != "${OLD_PANEL_SHA:-}" ]; then step_panel; else print_success "Fluidd panel is already the latest"; fi
     fi
-    if [ "$WANT_SCREEN" = 1 ]; then
+    if [ "$WANT_SCREEN" = 1 ] && upd_wants screen; then
         if [ "$(addon_pin klipperscreen | cut -d'|' -f2)" != "${OLD_KS_PIN:-}" ] || [ ! -d "$KS_DIR" ]; then step_screen; else copy_zr_panel; print_success "ZR Tools screen files refreshed"; fi
     fi
-    if [ "$WANT_SCREEN" = macros ]; then step_macros; fi
-    if [ "$WANT_NETMGR" = 1 ]; then step_netmgr; fi
-    if [ "$WANT_TIMELAPSE" = 1 ]; then step_timelapse; fi
-    if [ "$WANT_SHELLCMD" = 1 ]; then step_shellcmd; fi
-    if [ "$WANT_SHAKETUNE" = 1 ]; then step_shaketune; fi
+    if [ "$WANT_SCREEN" = macros ] && upd_wants screen; then step_macros; fi
+    if [ "$WANT_NETMGR" = 1 ] && upd_wants network-manager; then step_netmgr; fi
+    if [ "$WANT_TIMELAPSE" = 1 ] && upd_wants timelapse; then step_timelapse; fi
+    if [ "$WANT_SHELLCMD" = 1 ] && upd_wants shell-command; then step_shellcmd; fi
+    if [ "$WANT_SHAKETUNE" = 1 ] && upd_wants shaketune; then step_shaketune; fi
     step_remote_update
-    if [ "$WANT_CROWSNEST" = 1 ] && { [ "$(addon_pin crowsnest | cut -d'|' -f2)" != "${OLD_CN_PIN:-}" ] || [ ! -d "$HOME_DIR/crowsnest" ]; }; then step_crowsnest; fi
+    if [ "$WANT_CROWSNEST" = 1 ] && upd_wants webcam && { [ "$(addon_pin crowsnest | cut -d'|' -f2)" != "${OLD_CN_PIN:-}" ] || [ ! -d "$HOME_DIR/crowsnest" ]; }; then step_crowsnest; fi
     save_answers
-    SUDO systemctl restart moonraker; SUDO systemctl restart nginx
+    SUDO systemctl restart moonraker; [ -n "$ONLY_ADDON" ] || SUDO systemctl restart nginx
     [ "$(service_state klipper)" = active ] && print_info "Klipper keeps running. Restart it from Fluidd when you are ready (config reload)."
     self_test
     print_success "Update finished (installer $VERSION)."
@@ -1952,11 +1956,11 @@ menu_addons() {
         if [ "$st" = "not installed" ]; then
             ask_yn "Install ${label[$k]}?" n || continue
             case "$k" in
-                screen) menu_run --update --screen on ;;
-                network-manager) echo "  This can drop the network connection (SSH, Fluidd) when the Pi restarts. Nothing restarts by itself."; ask_yn "Still install it?" n && menu_run --update --network-manager on ;;
-                webcam) menu_run --update --webcam on ;;
-                timelapse) menu_run --update --timelapse on ;;
-                *) menu_run --update "--$k" on ;;
+                screen) menu_run --update --only-addon screen --screen on ;;
+                network-manager) echo "  This can drop the network connection (SSH, Fluidd) when the Pi restarts. Nothing restarts by itself."; ask_yn "Still install it?" n && menu_run --update --only-addon network-manager --network-manager on ;;
+                webcam) menu_run --update --only-addon webcam --webcam on ;;
+                timelapse) menu_run --update --only-addon timelapse --timelapse on ;;
+                *) menu_run --update --only-addon "$k" "--$k" on ;;
             esac
         else
             case "$k" in

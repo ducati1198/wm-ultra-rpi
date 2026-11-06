@@ -698,4 +698,12 @@ check "empty canbus_uuid in T0-T3 and the load cell get unique placeholders" "[ 
 check "the old files are kept" "ls $CUU/wm-rpi-backup/uuid-*/wm_zru_thr0.cfg"
 check "a real uuid is never overwritten" "grep -q 'aa0000000000' $CUU/printer_data/config/wm_zru_mcu.cfg"
 
+# --- add-on install from the menu touches only that add-on ---
+OA="$T/oa"; mkdir -p "$OA"; inst "$OA" --from-stage "$T/stage_hk" --screen off >/dev/null; : > "$OA/.sudo.log"
+OUT="$(inst "$OA" --update --only-addon shaketune --shaketune on)"
+check "add-on only: Shake&Tune is installed" "[ -L $OA/klipper/klippy/extras/shaketune ]"
+check "add-on only: no system packages, nginx, can0 rule or panel work" "! grep -E 'nginx|can0|python3-|klippy-requirements' $OA/.sudo.log"
+check "add-on only says so" "echo \"\$OUT\" | grep -q 'Only this add-on'"
+check "full update still updates everything" "inst $OA --update | grep -q 'Updated: services, nginx'"
+
 echo; echo "passed: $PASS  failed: $FAIL"; [ "$FAIL" = 0 ]
