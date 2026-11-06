@@ -731,22 +731,52 @@ obico_choose_server() {   # Obico's website or your own server; asked once and r
     print_warning "No valid server address given: using app.obico.io. To change it later: ./installer.sh --remove obico, then ./installer.sh --update --obico on --obico-server <address>"
 }
 
+obico_cfg_url() {   # the server written in moonraker-obico.cfg ([server] url), without a trailing slash
+    sed -n '/^\[server\]/,/^\[/{s/^url *= *//p}' "$HOME_DIR/printer_data/config/moonraker-obico.cfg" 2>/dev/null | head -n1 | tr -d '[:space:]' | sed 's#/*$##'
+}
+obico_set_server() {   # point an installed Obico at $OBICO_SERVER (the printer has to be linked again on the new server)
+    local f="$HOME_DIR/printer_data/config/moonraker-obico.cfg" have; have="$(obico_cfg_url)"
+    [ -f "$f" ] || return 0
+    [ "$have" = "$OBICO_SERVER" ] && return 0
+    cp "$f" "$f.wm-before-server-change-$STAMP"
+    python3 - "$f" "$OBICO_SERVER" <<'PY'
+import sys, re
+p, url = sys.argv[1], sys.argv[2]
+lines = open(p).read().split("\n"); out = []; sect = ""; done = False
+for l in lines:
+    m = re.match(r"\s*\[(.+?)\]", l)
+    if m: sect = m.group(1)
+    if sect == "server" and re.match(r"\s*url\s*=", l) and not done: l = "url = " + url; done = True
+    elif sect == "server" and re.match(r"\s*auth_token\s*=", l): l = "# " + l + "   # linked to the previous server"
+    out.append(l)
+open(p, "w").write("\n".join(out))
+PY
+    SUDO systemctl restart moonraker-obico
+    print_success "Obico now points to $OBICO_SERVER (was: ${have:-unknown}). A copy of the old settings: $(basename "$f").wm-before-server-change-$STAMP"
+    echo "    Link the printer again on the new server (a 6-digit code):  ~/moonraker-obico/scripts/link.sh -c ~/printer_data/config/moonraker-obico.cfg"
+}
 step_obico() {
     [ "$WANT_OBICO" = 1 ] || return 0
     print_header "Step 12c: Obico for Klipper"
     why "moonraker-obico connects Moonraker to Obico (app.obico.io, or your own Obico server): remote view, notifications and failure detection. It uses WonderMaker's [pause_resume], PAUSE/RESUME/CANCEL_PRINT and [exclude_object], which are already in printer.cfg."
     remote_precheck || return 0
     obico_choose_server
-    local dir="$HOME_DIR/moonraker-obico" conf="$HOME_DIR/printer_data/config" port; port="$(remote_moonraker_port)"
+    local dir="$HOME_DIR/moonraker-obico" conf="$HOME_DIR/printer_data/config" port fflag="" have; port="$(remote_moonraker_port)"
+    # Obico's installer keeps an existing moonraker-obico.cfg and ignores -S then, so an old file would silently keep the old server.
+    if [ -f "$conf/moonraker-obico.cfg" ]; then
+        have="$(obico_cfg_url)"
+        if [ "$have" != "$OBICO_SERVER" ]; then fflag="-f"; print_warning "An older Obico settings file points to ${have:-an unknown server}. It is reset to $OBICO_SERVER (Obico keeps a dated copy) and you link the printer again."; fi
+    fi
     remote_clone https://github.com/TheSpaghettiDetective/moonraker-obico.git "$dir" || { warn_later "Could not download moonraker-obico (network?)."; return 0; }
-    if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would run: $dir/install.sh -H 127.0.0.1 -p $port -C $conf/moonraker.conf -l ~/printer_data/logs -S $OBICO_SERVER -L${NC}"
-    elif [ "$TESTING" = 1 ]; then echo "[test] obico install.sh -H 127.0.0.1 -p $port -C $conf/moonraker.conf -S $OBICO_SERVER -L" >> "$HOME_DIR/.sudo.log"
+    if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would run: $dir/install.sh -H 127.0.0.1 -p $port -C $conf/moonraker.conf -l ~/printer_data/logs -S $OBICO_SERVER -L${fflag:+ $fflag}${NC}"
+    elif [ "$TESTING" = 1 ]; then echo "[test] obico install.sh -H 127.0.0.1 -p $port -C $conf/moonraker.conf -S $OBICO_SERVER -L${fflag:+ $fflag}" >> "$HOME_DIR/.sudo.log"
     else
         [ -f "$conf/printer.cfg" ] && cp "$conf/printer.cfg" "$conf/printer.cfg.wm-before-obico-$STAMP" && print_info "Obico adds one include line to printer.cfg. A copy was saved as printer.cfg.wm-before-obico-$STAMP"
-        ( cd "$dir" && bash ./install.sh -H 127.0.0.1 -p "$port" -C "$conf/moonraker.conf" -l "$HOME_DIR/printer_data/logs" -S "$OBICO_SERVER" -L ) \
+        ( cd "$dir" && bash ./install.sh -H 127.0.0.1 -p "$port" -C "$conf/moonraker.conf" -l "$HOME_DIR/printer_data/logs" -S "$OBICO_SERVER" -L $fflag ) \
             || { warn_later "The Obico installer failed (see the output above). Run it again later: cd ~/moonraker-obico && ./install.sh"; return 0; }
     fi
     record "HOMEDIR moonraker-obico"
+    if [ "$DRY" != 1 ] && [ "$TESTING" != 1 ] && [ "$(obico_cfg_url)" != "$OBICO_SERVER" ]; then obico_set_server; fi
     remote_note_update_manager
     print_success "Obico installed (server: $OBICO_SERVER). Link your printer to your account (it shows a 6-digit code to type at $OBICO_SERVER):"
     echo "      ~/moonraker-obico/scripts/link.sh -c ~/printer_data/config/moonraker-obico.cfg"
@@ -803,7 +833,9 @@ step_remote_update() {   # --update: never run the makers' installers again for 
     for pair in "obico:WANT_OBICO:moonraker-obico" "octoapp:WANT_OCTOAPP:octoapp" "octoeverywhere:WANT_OCTOEVERYWHERE:octoeverywhere"; do
         IFS=: read -r name var dir <<< "$pair"
         [ "${!var}" = 1 ] || continue
-        if [ -d "$HOME_DIR/$dir" ]; then print_success "$name is already installed (update it from Fluidd's update manager, or: cd ~/$dir && git pull)"
+        if [ -d "$HOME_DIR/$dir" ]; then
+            print_success "$name is already installed (update it from Fluidd's update manager, or: cd ~/$dir && git pull)"
+            [ "$name" = obico ] && [ -n "$OBICO_SERVER" ] && obico_set_server
         else "step_${name}"; fi
     done
 }
@@ -1573,6 +1605,7 @@ do_remove_addon() {
                     if grep -q 'include moonraker-obico-update.cfg' "$cfgd/moonraker.conf" 2>/dev/null; then sed -i '/include moonraker-obico-update.cfg/d' "$cfgd/moonraker.conf"; rm -f "$cfgd/moonraker-obico-update.cfg"; fi
                 fi
             fi
+            if [ "$name" = obico ] && [ -f "$cfgd/moonraker-obico.cfg" ]; then mv "$cfgd/moonraker-obico.cfg" "$cfgd/moonraker-obico.cfg.wm-removed-$STAMP"; print_info "Obico's settings file was set aside as moonraker-obico.cfg.wm-removed-$STAMP, so a new install asks for the server again."; fi
             rm -rf "$HOME_DIR/$dir" "$HOME_DIR/$env"
             case "$name" in obico) WANT_OBICO=0 ;; octoapp) WANT_OCTOAPP=0 ;; *) WANT_OCTOEVERYWHERE=0 ;; esac; save_answers
             print_success "$name removed."

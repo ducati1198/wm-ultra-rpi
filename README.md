@@ -559,6 +559,8 @@ Three optional services that let you watch and control the printer from outside 
 
 **Obico server:** when you choose Obico the installer asks *Obico's website (app.obico.io, free account)* or *my own self-hosted Obico server* (you type its address, for example `http://obico.local:3334`). The answer is saved. You can also give it up front: `./installer.sh --update --obico on --obico-server https://app.obico.io`. With `--yes` it uses app.obico.io.
 
+**Obico remembers the server you chose.** Obico's own installer keeps an existing `moonraker-obico.cfg` and then ignores the server you give it, so an old file (for example one made when you picked the website) would silently keep that server. The installer now compares the server in that file with your choice. If they differ it resets the file (Obico keeps a dated copy) and tells you, and you link the printer again on the new server. To change the server of an Obico that is already installed: `./installer.sh --update --obico-server https://your-server:3334`. It rewrites the address, keeps a copy of the old file, restarts the service, and shows the link command (`~/moonraker-obico/scripts/link.sh -c ~/printer_data/config/moonraker-obico.cfg`). Removing Obico sets its settings file aside (`moonraker-obico.cfg.wm-removed-...`), so the next install asks for the server again.
+
 OctoApp and OctoEverywhere ask questions while they install, so the installer only starts them when you run it in a terminal without `--yes`. Otherwise it downloads them and prints the exact command to finish (`cd ~/octoapp && ./install.sh ~/printer_data/config/moonraker.conf moonraker.service`).
 
 **Why these work with WonderMaker's Klipper and Moonraker.** The checks I could do without a printer:
@@ -578,7 +580,7 @@ OctoApp and OctoEverywhere ask questions while they install, so the installer on
 `./installer.sh` with no options at a terminal always opens a numbered menu, also on a Pi where nothing is installed yet (choose **1) Install or reinstall** there). `./installer.sh --menu` opens it any time; `./installer.sh --install`, or any other option, skips the menu and does that one thing. Each menu entry runs the same installer option you could type yourself, so nothing works differently from the command line.
 
 ```
-WonderMaker Ultra Raspberry Pi replacement - installer 1.10.0
+WonderMaker Ultra Raspberry Pi replacement - installer 1.10.1
   Klipper: active   Moonraker: active   nginx: active
   3 new change(s) on GitHub (version 1.6.1). Choose 2 to see them and update.
 

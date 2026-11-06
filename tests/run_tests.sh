@@ -252,6 +252,22 @@ check "NetworkManager already running: nothing is changed" "WM_TEST_NM=1 inst $N
 check "menu: Add-ons lists NetworkManager with its status" "M '3\n0\n0\n' $NM --menu | grep -q 'NetworkManager (Network panel)'"
 check "menu: Uninstall lists the switch back" "M '6\n0\n0\n' $NM --menu | grep -q 'switch back to dhcpcd'"
 
+
+echo "== Obico keeps the server you chose"
+O2="$T/o2"; rm -rf "$O2"; mkdir -p "$O2"; mkstage "$T/stage_o2"; inst "$O2" --from-stage "$T/stage_o2" --screen off >/dev/null; printf '[server]\nport: 7125\n' > "$O2/printer_data/config/moonraker.conf"
+printf '[server]\nurl = https://app.obico.io\nauth_token = abc123\n\n[moonraker]\nhost = 127.0.0.1\n' > "$O2/printer_data/config/moonraker-obico.cfg"
+OUT="$(inst "$O2" --update --obico on --obico-server http://192.0.2.9:3334)"
+check "an old Obico settings file with another server is reset (-f) and the user is told" "grep -q -- '-S http://192.0.2.9:3334 -L -f' $O2/.sudo.log && echo \"$OUT\" | grep -q 'older Obico settings file points to https://app.obico.io'"
+rm -rf "$O2/moonraker-obico"; : > "$O2/.sudo.log"
+printf '[server]\nurl = http://192.0.2.9:3334/\nauth_token = abc123\n' > "$O2/printer_data/config/moonraker-obico.cfg"
+inst "$O2" --update --obico on --obico-server http://192.0.2.9:3334 >/dev/null
+check "a settings file that already has the chosen server is kept (no -f), so the printer stays linked" "grep -q -- '-S http://192.0.2.9:3334 -L' $O2/.sudo.log && ! grep -q -- '-L -f' $O2/.sudo.log"
+OUT="$(inst "$O2" --update --obico on --obico-server https://obico.example.org)"
+check "changing the server of an installed Obico rewrites the url and keeps a copy" "grep -q '^url = https://obico.example.org' $O2/printer_data/config/moonraker-obico.cfg && ls $O2/printer_data/config/moonraker-obico.cfg.wm-before-server-change-* && echo \"$OUT\" | grep -q 'Link the printer again'"
+check "the old link token is not carried to the new server" "grep -q '^# auth_token' $O2/printer_data/config/moonraker-obico.cfg && ! grep -q '^auth_token' $O2/printer_data/config/moonraker-obico.cfg"
+check "the Obico service is restarted after a server change" "grep -q 'systemctl restart moonraker-obico' $O2/.sudo.log"
+check "--remove obico sets the settings file aside so a new install asks again" "M 'y\n' $O2 --remove obico | grep -q 'set aside' && [ ! -f $O2/printer_data/config/moonraker-obico.cfg ] && ls $O2/printer_data/config/moonraker-obico.cfg.wm-removed-*"
+
 echo "== Obico server choice and one SSH password"
 check "--obico-server needs a web address" "! bash $ROOT/installer.sh --obico-server not-a-url"
 check "Obico defaults to app.obico.io and saves it" "grep -q 'OBICO_SERVER=https://app.obico.io' $HR/wm-rpi-backup/install.conf"

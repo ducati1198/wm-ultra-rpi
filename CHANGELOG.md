@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.10.1
+
+- **Obico used the website although a self-hosted server was chosen.** Obico's installer keeps an existing `moonraker-obico.cfg` and ignores the server it is given. The installer now checks that file: when its server differs from your choice, the file is reset (`-f`, Obico keeps a dated copy) and you are told to link the printer again. After the install it checks again and corrects the address if needed.
+- `./installer.sh --update --obico-server URL` now changes the server of an Obico that is already installed (copy of the old settings, old link token set aside, service restarted, link command shown).
+- Removing Obico sets `moonraker-obico.cfg` aside so a new install asks for the server again.
+
 ## 1.10.0
 
 - **NetworkManager as an option** for KlipperScreen's Network panel (`--network-manager on|off`, menu: Add-ons). Default **off**. It is asked when you add a touchscreen, with a note that switching to NetworkManager can drop the network connection. KlipperScreen's own script reboots the Pi when it installs NetworkManager, so the installer does it itself: it installs and enables NetworkManager, turns dhcpcd off, and restarts nothing, so the change starts at the next reboot. If NetworkManager is already running, nothing is changed.
