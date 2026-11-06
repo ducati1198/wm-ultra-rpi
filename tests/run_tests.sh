@@ -792,4 +792,14 @@ check "install notices missing factory files, restores them and goes on" "WM_ASS
 check "menu: Update now on an empty Pi explains instead of failing" "rm -rf $T/ue; mkdir -p $T/ue; M '2\n2\n\n0\n0\n' $T/ue --menu | grep -q 'Nothing is installed on this Pi yet' "
 check "--update on an empty Pi says what to do" "WM_HOME=$T/ue WM_INSTALLER_TEST=1 bash $ROOT/installer.sh --update </dev/null 2>&1 | grep -q 'nothing is installed by this installer yet'"
 
+echo "== progress bars"
+PB="$T/pb"; rm -rf "$PB"; mkdir -p "$PB"
+OUT="$(inst "$PB" --from-github --model ultra-s)"
+check "pi install: every step shows a bar with its number and percent" "echo \"$OUT\" | grep -q 'Step 1 of 14' && echo \"$OUT\" | grep -q 'Step 7 of 14' && echo \"$OUT\" | grep -q '  0%' && echo \"$OUT\" | grep -qE '█.*░.*[0-9]+%'"
+check "pi install: ends with a full bar" "echo \"$OUT\" | grep -q '100%  All 14 steps finished'"
+OUT="$(inst "$PB" --update)"
+check "pi update shows its bar from 0 to 100 percent" "echo \"$OUT\" | grep -q 'Update step 1 of 8' && echo \"$OUT\" | grep -q '100%  Update finished'"
+OUT="$(WM_HOME=$T/pb2 WM_TEST_SERVICES='makerbase-client klipper' WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash $SB --pi 192.0.2.10 --no-reboot 2>&1 </dev/null)"
+check "board install: bar from step 1 of 7 to 100 percent" "echo \"$OUT\" | grep -q 'Install step 1 of 7' && echo \"$OUT\" | grep -q 'Install step 7 of 7' && echo \"$OUT\" | grep -q '100%  All 7 steps finished'"
+
 echo; echo "passed: $PASS  failed: $FAIL"; [ "$FAIL" = 0 ]

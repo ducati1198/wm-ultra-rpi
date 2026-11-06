@@ -88,7 +88,27 @@ declare -a WARNINGS=()
 APT_PACKAGES=(nginx can-utils build-essential libffi-dev libssl-dev libjpeg-dev zlib1g-dev libsodium23 liblmdb0 curl git python3-venv python3-pip iproute2 dbus usbutils)
 COMPILED_MODULES=(cs1237 hx711 heater_air_core heater_feng xy_offset_calibrator_core heater_air xy_offset_calibrator tools_calibrate echelon_stepper custom_hall)
 
-print_header()  { echo -e "\n${BLUE}── $1 ──────────────────────────────────────────${NC}"; }
+print_header()  {
+    echo -e "\n${BLUE}── $1 ──────────────────────────────────────────${NC}"
+    if [ "${PROG_STEPS:-0}" -gt 0 ] && [[ "$1" =~ ^Step\ ([0-9]+) ]]; then progress_bar $(( ${BASH_REMATCH[1]} - 1 )) "$PROG_STEPS" "Step ${BASH_REMATCH[1]} of $PROG_STEPS"; fi
+}
+PROG_STEPS=0
+prog_repeat() { local s="" i; for ((i=0;i<$2;i++)); do s+="$1"; done; printf '%s' "$s"; }
+progress_bar() {   # steps-done total label : a bar like [██████░░░░░░]  42%  label
+    local n="$1" t="$2" label="${3:-}" w=24 f pct
+    [ "$t" -gt 0 ] 2>/dev/null || return 0
+    [ "$n" -gt "$t" ] && n="$t"; [ "$n" -lt 0 ] && n=0
+    pct=$((n*100/t)); f=$((n*w/t))
+    printf '  %b[%s%s]%b %3d%%  %s\n' "$GREEN" "$(prog_repeat '█' "$f")" "$(prog_repeat '░' $((w-f)))" "$NC" "$pct" "$label"
+}
+heartbeat_start() {   # slow command ahead: say "still working" every 30 s so it does not look frozen
+    [ "$TESTING" = 1 ] || [ "$DRY" = 1 ] && return 0
+    local t0 label="$1"; t0="$(date +%s)"
+    ( while sleep 30 && kill -0 $$ 2>/dev/null; do echo -e "  ${DIM}... still working: $label ($(( ($(date +%s)-t0)/60 )) min $(( ($(date +%s)-t0)%60 )) s)${NC}"; done ) &
+    HB_PID=$!
+}
+heartbeat_stop() { [ -n "${HB_PID:-}" ] && { kill "$HB_PID" 2>/dev/null; wait "$HB_PID" 2>/dev/null; HB_PID=""; }; return 0; }
+
 print_info()    { echo -e "${BLUE}ℹ ${1}${NC}"; }
 print_success() { echo -e "${GREEN}✓ ${1}${NC}"; }
 print_warning() { echo -e "${YELLOW}⚠ ${1}${NC}"; }
@@ -273,7 +293,9 @@ step_packages() {
     why "nginx serves Fluidd; can-utils and iproute2 talk to the CAN bus; the rest builds the Python environments."
     [ "$TESTING" = 1 ] && { SUDO apt-get install -y "${APT_PACKAGES[@]}"; return; }
     SUDO apt-get update -qq
-    SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y "${APT_PACKAGES[@]}" || die_with_fix "apt could not install the packages." "check the internet connection, then run the installer again."
+    heartbeat_start "installing packages"
+    SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y "${APT_PACKAGES[@]}" || { heartbeat_stop; die_with_fix "apt could not install the packages." "check the internet connection, then run the installer again."; }
+    heartbeat_stop
     print_success "Packages installed"
 }
 
@@ -338,10 +360,14 @@ step_venvs() {
     [ "$DRY" = 1 ] && { echo -e "  ${DIM}would create ~/klippy-env and ~/moonraker-env with Python 3.9${NC}"; return; }
     "$PY39" -m venv "$HOME_DIR/klippy-env" || die_with_fix "could not create klippy-env." "run again."
     "$HOME_DIR/klippy-env/bin/pip" install -q -U pip wheel "setuptools<66" || die_with_fix "pip failed." "check the internet connection."
-    "$HOME_DIR/klippy-env/bin/pip" install -q -r "$SCRIPT_DIR/config/klippy-requirements.txt" || die_with_fix "Klipper's packages did not install." "see the message above."
+    heartbeat_start "installing Klipper's Python packages (several minutes on a Pi)"
+    "$HOME_DIR/klippy-env/bin/pip" install -q -r "$SCRIPT_DIR/config/klippy-requirements.txt" || { heartbeat_stop; die_with_fix "Klipper's packages did not install." "see the message above."; }
+    heartbeat_stop
     "$PY39" -m venv "$HOME_DIR/moonraker-env"
     "$HOME_DIR/moonraker-env/bin/pip" install -q -U pip wheel "setuptools<66"
-    "$HOME_DIR/moonraker-env/bin/pip" install -q -r "$SCRIPT_DIR/config/moonraker-requirements.txt" || die_with_fix "Moonraker's packages did not install." "see the message above."
+    heartbeat_start "installing Moonraker's Python packages"
+    "$HOME_DIR/moonraker-env/bin/pip" install -q -r "$SCRIPT_DIR/config/moonraker-requirements.txt" || { heartbeat_stop; die_with_fix "Moonraker's packages did not install." "see the message above."; }
+    heartbeat_stop
     record "HOMEDIR klippy-env"; record "HOMEDIR moonraker-env"
     print_success "Environments ready"
 }
@@ -987,7 +1013,9 @@ step_crowsnest() {
     elif [ "$TESTING" = 1 ]; then echo "[test] sudo make install (crowsnest)" >> "$HOME_DIR/.sudo.log"
     else
         local conf="$HOME_DIR/printer_data/config/crowsnest.conf"; cp "$conf" "$conf.wm-keep"   # crowsnest's installer replaces the file with its own default
-        ( cd "$HOME_DIR/crowsnest" && sudo env CROWSNEST_UNATTENDED=1 CROWSNEST_ADD_CROWSNEST_MOONRAKER=0 make install ) || { warn_later "crowsnest install failed. See the output above; webcams are optional."; cp "$conf.wm-keep" "$conf"; return 0; }
+        heartbeat_start "building the webcam service (can take 10 minutes)"
+        ( cd "$HOME_DIR/crowsnest" && sudo env CROWSNEST_UNATTENDED=1 CROWSNEST_ADD_CROWSNEST_MOONRAKER=0 make install ) || { heartbeat_stop; warn_later "crowsnest install failed. See the output above; webcams are optional."; cp "$conf.wm-keep" "$conf"; return 0; }
+        heartbeat_stop
         cp "$conf.wm-keep" "$conf"; rm -f "$conf.wm-keep"
     fi
     record "HOMEDIR crowsnest"; record "FILE /etc/systemd/system/crowsnest.service"
@@ -1427,17 +1455,24 @@ do_update() {
     if [ -n "$ONLY_ADDON" ]; then echo "Only this add-on is installed. The system files, packages, Fluidd panel and nginx are not touched, and neither is your printer_data."
     else echo "Your printer_data (config, calibration) is not touched. Updated: services, nginx, can0 rule, Python packages, panel, add-ons."; fi
     ask_yn "Go ahead?" y || exit 0
+    local UT=8
+    progress_bar 0 $UT "Update step 1 of $UT: backup"
     auto_backup
+    progress_bar 1 $UT "Update step 2 of $UT: packages and Python"
     if [ -z "$ONLY_ADDON" ]; then step_packages; step_groups; step_python; fi
+    progress_bar 2 $UT "Update step 3 of $UT: Python packages"
     if [ -z "$ONLY_ADDON" ] && [ "$TESTING" != 1 ] && [ "$DRY" != 1 ]; then
         "$HOME_DIR/klippy-env/bin/pip" install -q -r "$SCRIPT_DIR/config/klippy-requirements.txt" || warn_later "klippy-env packages did not update."
         "$HOME_DIR/moonraker-env/bin/pip" install -q -r "$SCRIPT_DIR/config/moonraker-requirements.txt" || warn_later "moonraker-env packages did not update."
     fi
+    progress_bar 3 $UT "Update step 4 of $UT: services, nginx, CAN"
     if [ -z "$ONLY_ADDON" ]; then step_services_files; step_nginx; step_can; fi
+    progress_bar 4 $UT "Update step 5 of $UT: Fluidd panel"
     if [ -z "$ONLY_ADDON" ] && [ "$WANT_PANEL" = 1 ]; then
         local sha=""; panel_get && sha="$(sha256sum "$PANEL_ZIP" | cut -d' ' -f1)"
         if [ -n "$sha" ] && [ "$sha" != "${OLD_PANEL_SHA:-}" ]; then step_panel; else print_success "Fluidd panel is already the latest"; fi
     fi
+    progress_bar 5 $UT "Update step 6 of $UT: touchscreen and add-ons"
     if [ "$WANT_SCREEN" = 1 ] && upd_wants screen; then
         if [ "$(addon_pin klipperscreen | cut -d'|' -f2)" != "${OLD_KS_PIN:-}" ] || [ ! -d "$KS_DIR" ]; then step_screen; else copy_zr_panel; print_success "ZR Tools screen files refreshed"; fi
     fi
@@ -1447,12 +1482,15 @@ do_update() {
     if [ "$WANT_SHELLCMD" = 1 ] && upd_wants shell-command; then step_shellcmd; fi
     if [ "$WANT_SHAKETUNE" = 1 ] && upd_wants shaketune; then step_shaketune; fi
     if [ "$WANT_SPOOLMAN" = 1 ] && upd_wants spoolman; then step_spoolman; fi
+    progress_bar 6 $UT "Update step 7 of $UT: remote access and webcam"
     step_remote_update
     if [ "$WANT_CROWSNEST" = 1 ] && upd_wants webcam && { [ "$(addon_pin crowsnest | cut -d'|' -f2)" != "${OLD_CN_PIN:-}" ] || [ ! -d "$HOME_DIR/crowsnest" ]; }; then step_crowsnest; fi
     save_answers
+    progress_bar 7 $UT "Update step 8 of $UT: restart and self-test"
     SUDO systemctl restart moonraker; [ -n "$ONLY_ADDON" ] || SUDO systemctl restart nginx
     [ "$(service_state klipper)" = active ] && print_info "Klipper keeps running. Restart it from Fluidd when you are ready (config reload)."
     self_test
+    progress_bar $UT $UT "Update finished"
     print_success "Update finished (installer $VERSION)."
 }
 do_check_updates() {   # read-only: compares this copy of the repository with GitHub
@@ -2411,6 +2449,7 @@ show_plan
 [ "$DRY" = 1 ] || ask_yn "Go ahead?" y || { echo "Nothing changed."; exit 0; }
 guard_not_printing
 save_answers
+PROG_STEPS=14
 step_packages; step_groups; step_python; step_unpack; step_model; step_venvs; step_modules
 step_services; step_nginx; step_can; step_panel; step_screen; step_netmgr; step_timelapse; step_shellcmd; step_shaketune; step_spoolman; step_remote; step_crowsnest; step_start
 save_answers
@@ -2418,6 +2457,7 @@ self_test
 if [ "$AUTOSTART" = 1 ] && [ "$DRY" != 1 ]; then do_first_start auto || true; fi
 
 print_header "Done"
+[ "$PROG_STEPS" -gt 0 ] && progress_bar "$PROG_STEPS" "$PROG_STEPS" "All $PROG_STEPS steps finished"
 if [ ${#WARNINGS[@]} -gt 0 ]; then for w in "${WARNINGS[@]}"; do print_warning "$w"; done; fi
 IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
 print_success "Open Fluidd at http://${IP:-<pi-address>}/"

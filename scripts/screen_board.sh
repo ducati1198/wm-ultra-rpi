@@ -49,7 +49,30 @@ klipper-mcu enabled active
 hostapd disabled inactive"
 declare -a WARNINGS=()
 
-print_header()  { echo -e "\n${BLUE}── $1 ──────────────────────────────────────────${NC}"; }
+print_header()  {
+    echo -e "\n${BLUE}── $1 ──────────────────────────────────────────${NC}"
+    [ "${SB_PROG:-0}" = 1 ] || return 0
+    local k=""; case "$1" in "Checking this board") k=1 ;; "Installing packages"*) k=2 ;; "Installing KlipperScreen"*) k=3 ;; "Stopping the factory services"*) k=4 ;; "Factory mode button") k=5 ;; "Rescue tool"*) k=6 ;; "Starting KlipperScreen") k=7 ;; esac
+    [ -n "$k" ] && progress_bar $((k-1)) 7 "Install step $k of 7"
+    return 0
+}
+PROG_STEPS=0
+prog_repeat() { local s="" i; for ((i=0;i<$2;i++)); do s+="$1"; done; printf '%s' "$s"; }
+progress_bar() {   # steps-done total label : a bar like [██████░░░░░░]  42%  label
+    local n="$1" t="$2" label="${3:-}" w=24 f pct
+    [ "$t" -gt 0 ] 2>/dev/null || return 0
+    [ "$n" -gt "$t" ] && n="$t"; [ "$n" -lt 0 ] && n=0
+    pct=$((n*100/t)); f=$((n*w/t))
+    printf '  %b[%s%s]%b %3d%%  %s\n' "$GREEN" "$(prog_repeat '█' "$f")" "$(prog_repeat '░' $((w-f)))" "$NC" "$pct" "$label"
+}
+heartbeat_start() {   # slow command ahead: say "still working" every 30 s so it does not look frozen
+    [ "$TESTING" = 1 ] || [ "$DRY" = 1 ] && return 0
+    local t0 label="$1"; t0="$(date +%s)"
+    ( while sleep 30 && kill -0 $$ 2>/dev/null; do echo -e "  ${DIM}... still working: $label ($(( ($(date +%s)-t0)/60 )) min $(( ($(date +%s)-t0)%60 )) s)${NC}"; done ) &
+    HB_PID=$!
+}
+heartbeat_stop() { [ -n "${HB_PID:-}" ] && { kill "$HB_PID" 2>/dev/null; wait "$HB_PID" 2>/dev/null; HB_PID=""; }; return 0; }
+
 print_info()    { echo -e "${BLUE}ℹ ${1}${NC}"; }
 print_success() { echo -e "${GREEN}✓ ${1}${NC}"; }
 print_warning() { echo -e "${YELLOW}⚠ ${1}${NC}"; }
@@ -222,7 +245,9 @@ step_packages() {
         if [ -n "$deb" ]; then SUDO dpkg -i "$deb" || warn_later "Could not install $deb (X may not start for a normal user)."
         else warn_later "xserver-xorg-legacy is missing and /packages/xserver has no copy. KlipperScreen's X may not start."; fi
     fi
-    SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-upgrade $APT_PKGS || die_with_fix "apt could not install the packages." "see the messages above; rerun this script after fixing. The factory services are still running (nothing was disabled yet)."
+    heartbeat_start "installing packages"
+    SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-upgrade $APT_PKGS || { heartbeat_stop; die_with_fix "apt could not install the packages." "see the messages above; rerun this script after fixing. The factory services are still running (nothing was disabled yet)."; }
+    heartbeat_stop
     # The factory image has /usr/share/X11 removed (X cannot build a keymap or find its input config): put it back
     SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y --reinstall xkb-data xserver-xorg-input-libinput xserver-xorg-input-evdev || warn_later "Could not restore the X keyboard data (xkb-data): X may not start."
     SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-upgrade libmpv-dev fonts-nanum fonts-ipafont >/dev/null 2>&1 || print_info "Optional packages (libmpv, CJK fonts) skipped."
@@ -249,9 +274,11 @@ step_klipperscreen() {
     elif [ "$TESTING" = 1 ]; then echo "[test] venv + pip install" >> "$HOME_DIR/.sudo.log"
     else
         rm -rf "$KS_ENV"; python3 -m venv "$KS_ENV" || die_with_fix "python3 -m venv failed." "apt install python3-venv."
+        heartbeat_start "building KlipperScreen's Python packages (can take 15 minutes on this board)"
         "$KS_ENV/bin/pip" --disable-pip-version-check install -r "$KS_DIR/scripts/KlipperScreen-requirements.txt" \
             || { "$KS_ENV/bin/pip" install --upgrade pip setuptools wheel && "$KS_ENV/bin/pip" install --prefer-binary -r "$KS_DIR/scripts/KlipperScreen-requirements.txt"; } \
-            || die_with_fix "pip could not install KlipperScreen's Python packages." "see the messages above (PyGObject needs the packages that were just installed). The factory services are still running."
+            || { heartbeat_stop; die_with_fix "pip could not install KlipperScreen's Python packages." "see the messages above (PyGObject needs the packages that were just installed). The factory services are still running."; }
+        heartbeat_stop
     fi
     # ZR Tools panel files
     if [ "$DRY" != 1 ]; then
@@ -463,6 +490,7 @@ remove_rescue() {
 }
 
 do_install() {
+    SB_PROG=1
     echo -e "${BLUE}KlipperScreen on the WonderMaker screen board (not yet tested on hardware)${NC}"
     [ "$DRY" = 1 ] && print_info "DRY RUN: nothing will be changed."
     preflight
@@ -481,7 +509,7 @@ do_install() {
     step_restore_button
     step_rescue
     step_start
-    print_header "Done"
+    print_header "Done"; progress_bar 7 7 "All 7 steps finished"
     if [ ${#WARNINGS[@]} -gt 0 ]; then local w; for w in "${WARNINGS[@]}"; do print_warning "$w"; done; fi
     print_success "KlipperScreen is set up. Go back: ZR Tools > More > System > Factory mode, or bash $BK/screen_board.sh --factory-restore"
     if [ "$DRY" != 1 ] && [ "$REBOOT" = 1 ]; then      # a clean start: every service, the screen server and the touch rules come up together

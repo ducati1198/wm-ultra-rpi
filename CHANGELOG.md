@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.20.0
+
+- **Progress bars.** Pi install: every step shows a bar with percent and "Step N of 14" and the install ends at 100%. Pi update: "Update step N of 8". Screen board install: "Install step N of 7". Slow single steps (apt packages, Python packages, the webcam build, the KlipperScreen build) print "still working ..." with the elapsed time every 30 seconds, so a long wait does not look frozen.
+
 ## 1.19.2
 
 - **Update on a Pi with nothing installed** no longer ends in an error: the menu says "Nothing is installed on this Pi yet, so there is nothing to update" and points to Install, after still fetching the newest installer files. `--update` gives the same plain explanation.
