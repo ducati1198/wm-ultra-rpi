@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.9.0
+
+- **Advanced → Start Klipper again** (`--start-klipper`): undoes *Stop Klipper* (enables Klipper at boot and starts it) without the hardware checks. *First start* is still there for the full checks.
+- **Uninstall → Clean up installer files** (`--remove cleanup`): delete settings backups, support bundles, folders moved aside by installs, old Fluidd copies, config safety copies (`*.wm-*`), add-on download copies, the installer records, or the installer folder itself. Sizes are shown, your printer data is never listed, and anything that may be the only copy needs you to type `DELETE`.
+
 ## 1.8.0
 
 - **PolKit warning fixed.** Fluidd showed "PolKit warnings detected" (`org.freedesktop.packagekit.* is not registered`) because the `packagekit` package was missing. The installer now installs it, together with Moonraker's PolicyKit rule. It also asks Moonraker for its warnings after every install, update and repair, every time the menu opens, and in `--doctor` (which could not fix this before), and repairs the problem when Moonraker reports it. During a print it only tells you. If PackageKit cannot be installed, it sets `enable_system_updates: False` in `moonraker.conf` (a copy is saved).

@@ -577,7 +577,7 @@ OctoApp and OctoEverywhere ask questions while they install, so the installer on
 On a Pi that is already installed, `./installer.sh` with no options at a terminal opens a numbered menu (`./installer.sh --menu` opens it any time). A first-time install goes straight to the install questions as before; `./installer.sh --install` runs the normal install and skips the menu. Each menu entry runs the same installer option you could type yourself, so nothing works differently from the command line.
 
 ```
-WonderMaker Ultra Raspberry Pi replacement - installer 1.8.0
+WonderMaker Ultra Raspberry Pi replacement - installer 1.9.0
   Klipper: active   Moonraker: active   nginx: active
   3 new change(s) on GitHub (version 1.6.1). Choose 2 to see them and update.
 
@@ -587,7 +587,7 @@ WonderMaker Ultra Raspberry Pi replacement - installer 1.8.0
    4) Check and fix                Doctor, repair, hardware test
    5) Backup and restore           Save and restore config, calibration and database
    6) Uninstall                    Remove any add-on, Fluidd, Moonraker, Klipper or everything
-   7) Advanced                     First start, stop Klipper, support bundle
+   7) Advanced                     First start, start or stop Klipper, support bundle
    0) Exit
 ```
 
@@ -608,9 +608,24 @@ WonderMaker Ultra Raspberry Pi replacement - installer 1.8.0
   | `moonraker`, `klipper` | the service, the program folder and its Python environment; `~/printer_data` stays |
   | `data` | `~/printer_data` (config, calibration, database, gcode files). A backup is made first and you must type `DELETE` |
   | `system` | the services, nginx files and can0 rule listed in the install record (same as `--uninstall`) |
-  | `all` | every item above except `data`; you must type `REMOVE`. Your printer data and your backups are not touched |
+  | `cleanup` | a page of installer-made files with their sizes, see below |
+  | `all` | every program above (not `data`, not `cleanup`); you must type `REMOVE`. Your printer data, backups and installer files are not touched |
 
   A running print blocks all of them.
+
+  **Clean up installer files** (`./installer.sh --remove cleanup`) lists these groups with their size, and you delete them one at a time. Your printer data is never in the list. Groups that may hold the only copy of something need you to type `DELETE`; the others ask y/n.
+
+  | Group | What it is | Confirmation |
+  |---|---|---|
+  | Settings backups | `~/wm-backups` (backups and the safety copies made before a restore or a data delete) | type `DELETE` |
+  | Support bundles | `~/wm-support-*.tgz` | y/n |
+  | Folders moved aside | `~/wm-rpi-backup/old-*`, the old klipper, moonraker and printer_data folders an install moved out of the way | type `DELETE` |
+  | Old Fluidd copies | `~/wm-rpi-backup/fluidd-*` | type `DELETE` |
+  | Config safety copies | files like `printer.cfg.wm-model-bak` in your config folder | y/n |
+  | Add-on download copies | the panel download cache and Obico, OctoApp or OctoEverywhere folders that have no service installed | y/n |
+  | Installer records | `~/wm-rpi-backup` (saved answers and the install record; afterwards the installer no longer knows what is installed) | type `DELETE` |
+  | The installer folder | the repository folder this script is in | type `DELETE` |
+- **Advanced → Start Klipper again** (`./installer.sh --start-klipper`) undoes *Stop Klipper*: it enables Klipper at boot and starts it now, without the hardware checks. *First start* does the same after checking the main board and can0.
 - **PolKit warning:** if Fluidd shows "PolKit warnings detected" (Moonraker says `org.freedesktop.packagekit.* is not registered`), the cause is the missing `packagekit` package. The installer checks for this after every install, update and repair, every time the menu opens, and in `--doctor`. It asks Moonraker for its warnings; when it finds this one it installs PackageKit, installs Moonraker's PolicyKit rule, restarts Moonraker and looks again. During a print it only tells you. If PackageKit cannot be installed (no internet), it sets `enable_system_updates: False` in `moonraker.conf` (a copy is saved), so Moonraker stops managing Debian packages.
 - **KIAUH:** if `~/kiauh` exists the menu warns you. KIAUH installs stock Klipper and Moonraker and would break WonderMaker's compiled modules; this installer manages the WonderMaker versions.
 - `./installer.sh --webcam on|off` and `--timelapse on|off` (with `--update`) are the matching options for those two add-ons.

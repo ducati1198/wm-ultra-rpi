@@ -23,12 +23,13 @@
 # ./installer.sh --restore FILE        restore such a backup (a safety copy is made first)
 # ./installer.sh --support-bundle      make a scrubbed .tgz of logs and config to share when asking for help
 # ./installer.sh --enable-klipper      same as --first-start
+# ./installer.sh --start-klipper       undo --disable-klipper: start Klipper now and at every boot, without the hardware checks
 # ./installer.sh --disable-klipper     stop Klipper and stop it from starting at boot
 # ./installer.sh --uninstall           remove what the installer added to the system (your files in ~ stay)
 # ./installer.sh --shell-command on|off   the Klipper "gcode shell command" extension (RUN_SHELL_COMMAND CMD=name runs a Linux command from G-code). Installed automatically; off skips it
 # ./installer.sh --menu                numbered menu (install, update, add-ons, check and fix, backup, screen, advanced). Opens by itself when you run ./installer.sh with no options on a Pi that is already installed
 # ./installer.sh --install             the normal install (skips the menu)
-# ./installer.sh --remove NAME         remove something after asking: screen, webcam, timelapse, shell-command, obico, octoapp, octoeverywhere, fluidd, moonraker, klipper, data, system, or all (everything except your printer data and backups)
+# ./installer.sh --remove NAME         remove something after asking: screen, webcam, timelapse, shell-command, obico, octoapp, octoeverywhere, fluidd, moonraker, klipper, data, system, cleanup (installer files: old backups, support bundles, saved copies, the installer folder), or all (everything except your printer data, backups and installer files)
 # ./installer.sh --webcam on|off       crowsnest webcam service;  --timelapse on|off   Moonraker timelapse (both used with --update)
 # ./installer.sh --obico-server URL    which Obico to connect to: https://app.obico.io (Obico's website, the default) or your own self-hosted server. Asked when you choose Obico
 # ./installer.sh --obico on|off        optional remote access: Obico for Klipper (moonraker-obico). Also --octoapp on|off and --octoeverywhere on|off. Each is asked (default no)
@@ -147,6 +148,7 @@ while [ $# -gt 0 ]; do
         --no-start)     AUTOSTART=0 ;;
         --force)        FORCE=1 ;;
         --disable-klipper) MODE=disable ;;
+        --start-klipper) MODE=startklipper ;;
         --uninstall)    MODE=uninstall ;;
         --dry-run)      DRY=1 ;;
         --yes)          WM_ASSUME_YES=1 ;;
@@ -1388,6 +1390,20 @@ do_check() {
     [ "$bad" = 0 ] && print_success "All good." || { print_error "Problems found."; exit 1; }
 }
 
+do_start_klipper() {
+    print_header "Start Klipper again"
+    why "Undoes 'Stop Klipper': Klipper starts now and at every boot. No hardware checks (First start does those)."
+    guard_not_printing
+    usb_bridge_present || print_warning "No main board (1d50:606f) on USB. Klipper starts anyway and reports an error until the board is connected."
+    SUDO systemctl enable klipper; SUDO systemctl restart klipper
+    if [ "$TESTING" = 1 ] || [ "$DRY" = 1 ]; then print_success "Klipper enabled and started (test)"; return 0; fi
+    local i st=""; for i in $(seq 1 30); do st="$(klippy_state)"; [ "$st" = ready ] && break; sleep 2; done
+    case "$st" in
+        ready) print_success "Klipper is enabled at boot and ready." ;;
+        startup|"") print_warning "Klipper is enabled and still starting (state: ${st:-unknown}). Watch: journalctl -u klipper -f" ;;
+        *) print_warning "Klipper is enabled but reports '$st'. Look at Fluidd or: journalctl -u klipper -n 40" ;;
+    esac
+}
 do_disable() { SUDO systemctl disable klipper; SUDO systemctl stop klipper; print_success "Klipper stopped and disabled."; }
 
 do_uninstall() {
@@ -1419,6 +1435,54 @@ uninstall_system_files() {
 # ============================================================================
 # Remove an add-on (asks first; uses the makers' own uninstallers)
 # ============================================================================
+cleanup_paths() {   # group -> the paths that exist (one per line)
+    local cfgd d; cfgd="$(cfg_dir)"
+    case "$1" in
+        backups) [ -d "$HOME_DIR/wm-backups" ] && echo "$HOME_DIR/wm-backups" ;;
+        bundles) ls -1d "$HOME_DIR"/wm-support-*.tgz 2>/dev/null ;;
+        moved)   ls -1d "$BACKUP_ROOT"/old-* 2>/dev/null ;;
+        fluiddcopies) ls -1d "$BACKUP_ROOT"/fluidd-* 2>/dev/null ;;
+        cfgcopies) ls -1d "$cfgd"/*.wm-* 2>/dev/null ;;
+        downloads)
+            [ -d "$BACKUP_ROOT/.panel-dl" ] && echo "$BACKUP_ROOT/.panel-dl"
+            for d in moonraker-obico octoapp octoeverywhere; do [ -d "$HOME_DIR/$d" ] && [ ! -f "/etc/systemd/system/$d.service" ] && echo "$HOME_DIR/$d"; done ;;
+        records) [ -d "$BACKUP_ROOT" ] && echo "$BACKUP_ROOT" ;;
+        repo)    [ -f "$REPO_DIR/installer.sh" ] && [ -f "$REPO_DIR/VERSION" ] && [ "$REPO_DIR" != "$HOME_DIR" ] && [ "$REPO_DIR" != / ] && echo "$REPO_DIR" ;;
+    esac
+}
+do_cleanup() {   # a page of installer-made files you can delete; your printer data is never in it
+    local groups=(backups bundles moved fluiddcopies cfgcopies downloads records repo) g n paths sz cnt word
+    declare -A label=([backups]="Settings backups (~/wm-backups)" [bundles]="Support bundles (~/wm-support-*.tgz)" [moved]="Folders moved aside by installs" [fluiddcopies]="Old Fluidd copies" [cfgcopies]="Config safety copies (*.wm-*)" [downloads]="Add-on download copies" [records]="Installer records (~/wm-rpi-backup)" [repo]="The installer folder itself")
+    declare -A help=([backups]="backup .tgz files and safety copies made before restores" [bundles]="logs bundles made for help requests" [moved]="old klipper, moonraker, printer_data folders in ~/wm-rpi-backup/old-*" [fluiddcopies]="Fluidd saved before each panel update" [cfgcopies]="files like printer.cfg.wm-model-bak in your config folder" [downloads]="panel download cache, add-on sources that are not installed" [records]="saved answers and install record; after this the installer no longer knows what is installed" [repo]="$REPO_DIR (this script)")
+    while true; do
+        echo; echo "  Clean up installer files"; echo "  Files made by or for this installer. Your printer data (~/printer_data) is never in this list."
+        n=0; for g in "${groups[@]}"; do
+            n=$((n+1)); paths="$(cleanup_paths "$g")"
+            if [ -z "$paths" ]; then menu_item "$n" "${label[$g]}" "[nothing to delete]"
+            else cnt="$(echo "$paths" | wc -l)"; sz="$(echo "$paths" | tr '\n' '\0' | du -shc --files0-from=- 2>/dev/null | tail -1 | cut -f1)"; menu_item "$n" "${label[$g]}" "[${sz:-?}, $cnt item(s)] ${help[$g]}"; fi
+        done
+        menu_item 0 "Back" ""
+        menu_read "Choose what to delete:" || return 0
+        [ "$REPLY_MENU" = 0 ] || [ -z "$REPLY_MENU" ] && return 0
+        if ! [[ "$REPLY_MENU" =~ ^[0-9]+$ ]] || [ "$REPLY_MENU" -lt 1 ] || [ "$REPLY_MENU" -gt "${#groups[@]}" ]; then echo "  Choose a number from the list."; continue; fi
+        g="${groups[$((REPLY_MENU-1))]}"; paths="$(cleanup_paths "$g")"
+        [ -z "$paths" ] && { echo "  Nothing to delete there."; continue; }
+        echo "  This deletes:"; echo "$paths" | sed 's/^/    /'
+        case "$g" in
+            backups|moved|fluiddcopies|records|repo)
+                echo "  These may be the only copy of your settings or of older versions. Copy anything you want to keep off the Pi first."
+                read -r -p "  Type DELETE (capital letters) to confirm, anything else cancels: " word || word=""
+                [ "$word" = DELETE ] || { echo "  Nothing changed."; continue; } ;;
+            *) ask_yn "Delete these?" n || { echo "  Nothing changed."; continue; } ;;
+        esac
+        echo "$paths" | while IFS= read -r p; do rm -rf "$p"; done
+        case "$g" in
+            records) print_warning "The installer no longer knows what is installed: Update and the menu will say so. To use it again run ./installer.sh --install." ;;
+            repo) cd "$HOME_DIR" || true; print_success "The installer folder was deleted. Run it again by downloading the repository."; exit 0 ;;
+        esac
+        print_success "Deleted: ${label[$g]}"
+    done
+}
 do_remove_addon() {
     local name="$ARG1" dir env svc cfgd; cfgd="$(cfg_dir)"
     load_answers || true
@@ -1515,6 +1579,7 @@ PY
             SUDO systemctl stop klipper; SUDO systemctl stop moonraker
             rm -rf "$HOME_DIR/printer_data"
             print_success "Printer data deleted. The backup is in ~/wm-backups (newest file): copy it off the Pi." ;;
+        cleanup) do_cleanup ;;
         system)
             [ -f "$STATE" ] || { print_info "Nothing recorded to remove."; return 0; }
             do_uninstall ;;
@@ -1529,7 +1594,7 @@ PY
             done
             [ -f "$STATE" ] && uninstall_system_files
             print_success "Everything was removed except ~/printer_data and your backups." ;;
-        *) die_with_fix "unknown name '${name}'." "use one of: screen, webcam, timelapse, shell-command, obico, octoapp, octoeverywhere, fluidd, moonraker, klipper, data, system, all." ;;
+        *) die_with_fix "unknown name '${name}'." "use one of: screen, webcam, timelapse, shell-command, obico, octoapp, octoeverywhere, fluidd, moonraker, klipper, data, system, cleanup, all." ;;
     esac
 }
 
@@ -1677,17 +1742,18 @@ menu_restore() {   # shows where the backups are kept and lets you choose one by
 }
 
 menu_uninstall() {
-    local k n items=(screen webcam timelapse shell-command obico octoapp octoeverywhere fluidd moonraker klipper data system all)
-    declare -A label=([screen]="Touchscreen (KlipperScreen)" [webcam]="Webcam (crowsnest)" [timelapse]="Timelapse" [shell-command]="Klipper gcode shell command" [obico]="Obico for Klipper" [octoapp]="OctoApp" [octoeverywhere]="OctoEverywhere" [fluidd]="Fluidd web page" [moonraker]="Moonraker" [klipper]="Klipper" [data]="My printer data" [system]="System files" [all]="Everything above")
-    declare -A help=([fluidd]="The page you open in the browser, with its nginx site" [moonraker]="The web API Fluidd and the add-ons use" [klipper]="The printer firmware host" [data]="printer.cfg, calibration, database, gcode files (a backup is made first)" [system]="Services, nginx files and the can0 rule the installer added" [all]="Everything except my printer data and my backups")
+    local k n items=(screen webcam timelapse shell-command obico octoapp octoeverywhere fluidd moonraker klipper data system cleanup all)
+    declare -A label=([screen]="Touchscreen (KlipperScreen)" [webcam]="Webcam (crowsnest)" [timelapse]="Timelapse" [shell-command]="Klipper gcode shell command" [obico]="Obico for Klipper" [octoapp]="OctoApp" [octoeverywhere]="OctoEverywhere" [fluidd]="Fluidd web page" [moonraker]="Moonraker" [klipper]="Klipper" [data]="My printer data" [system]="System files" [cleanup]="Clean up installer files" [all]="Everything above")
+    declare -A help=([fluidd]="The page you open in the browser, with its nginx site" [moonraker]="The web API Fluidd and the add-ons use" [klipper]="The printer firmware host" [data]="printer.cfg, calibration, database, gcode files (a backup is made first)" [system]="Services, nginx files and the can0 rule the installer added" [cleanup]="Old backups, support bundles, moved-aside folders, saved copies, the installer folder" [all]="Everything except my printer data, my backups and the installer files")
     while true; do
         echo; echo "  Uninstall"; echo "  Choose what to remove. Each choice explains what goes and asks before it changes anything."
-        n=0; for k in "${items[@]}"; do n=$((n+1)); case "$k" in all) menu_item "$n" "${label[$k]}" "${help[$k]}" ;; *) menu_item "$n" "${label[$k]}" "[$(addon_status "$k")] ${help[$k]:-}" ;; esac; done
+        n=0; for k in "${items[@]}"; do n=$((n+1)); case "$k" in all|cleanup) menu_item "$n" "${label[$k]}" "${help[$k]}" ;; *) menu_item "$n" "${label[$k]}" "[$(addon_status "$k")] ${help[$k]:-}" ;; esac; done
         menu_item 0 "Back" ""
         menu_read "Choose:" || return 0
         [ "$REPLY_MENU" = 0 ] || [ -z "$REPLY_MENU" ] && return 0
         if ! [[ "$REPLY_MENU" =~ ^[0-9]+$ ]] || [ "$REPLY_MENU" -lt 1 ] || [ "$REPLY_MENU" -gt "${#items[@]}" ]; then echo "  Choose a number from the list."; continue; fi
         menu_run --remove "${items[$((REPLY_MENU-1))]}"
+        [ -f "$SCRIPT_DIR/installer.sh" ] || { echo "  The installer folder was removed, so the menu closes."; exit 0; }
     done
 }
 
@@ -1695,12 +1761,13 @@ menu_advanced() {
     while true; do
         echo; echo "  Advanced"
         menu_item 1 "First start" "With the main board connected: checks, then starts Klipper"
-        menu_item 2 "Stop Klipper" "Stops Klipper and keeps it from starting at boot"
-        menu_item 3 "Support bundle" "A scrubbed .tgz of logs and config to share when asking for help"
+        menu_item 2 "Start Klipper again" "Undoes Stop Klipper: starts it now and at every boot, no checks"
+        menu_item 3 "Stop Klipper" "Stops Klipper and keeps it from starting at boot"
+        menu_item 4 "Support bundle" "A scrubbed .tgz of logs and config to share when asking for help"
         menu_item 0 "Back" ""
         menu_read "Choose:" || return 0
         case "$REPLY_MENU" in
-            1) menu_run --first-start ;; 2) menu_run --disable-klipper ;; 3) menu_run --support-bundle ;;
+            1) menu_run --first-start ;; 2) menu_run --start-klipper ;; 3) menu_run --disable-klipper ;; 4) menu_run --support-bundle ;;
             0|"") return 0 ;; *) echo "  Choose a number from the list." ;;
         esac
     done
@@ -1717,7 +1784,7 @@ do_menu() {
         menu_item 4 "Check and fix" "Doctor, repair, hardware test"
         menu_item 5 "Backup and restore" "Save and restore config, calibration and database"
         menu_item 6 "Uninstall" "Remove any add-on, Fluidd, Moonraker, Klipper or everything"
-        menu_item 7 "Advanced" "First start, stop Klipper, support bundle"
+        menu_item 7 "Advanced" "First start, start or stop Klipper, support bundle"
         menu_item 0 "Exit" ""
         menu_read "Choose:" || { echo; return 0; }
         case "$REPLY_MENU" in
@@ -1751,6 +1818,7 @@ case "$MODE" in
     restore)    do_restore; exit 0 ;;
     bundle)     do_support_bundle; exit 0 ;;
     disable)    do_disable; exit 0 ;;
+    startklipper) do_start_klipper; exit $? ;;
     uninstall)  do_uninstall; exit 0 ;;
     screentest) do_screen_test; exit 0 ;;
     screenlayout) do_screen_layout; exit 0 ;;
