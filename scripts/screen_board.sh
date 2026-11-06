@@ -669,6 +669,18 @@ do_whatsnew_board() {
     awk -v cur="$old" '/^## /{ if ($2==cur) exit; n++ } n>0 && NF' "$w/CHANGELOG.md" 2>/dev/null | sed 's/^/    /' | cut -c1-170 | head -40
     echo "  To update: menu > Update > Update now (or: bash scripts/screen_board.sh --update)"
 }
+refresh_installer_folder() {   # the folder this script runs from must be the new version too, or the menu keeps showing the old one
+    local w="$1"
+    [ "$DRY" = 1 ] && return 0
+    [ "$TESTING" = 1 ] && [ "${WM_TEST_REFRESH:-0}" != 1 ] && return 0   # tests must never overwrite the real repository
+    if [ -d "$REPO_DIR/.git" ] && command -v git >/dev/null 2>&1 && [ "$TESTING" != 1 ]; then
+        git -C "$REPO_DIR" pull --ff-only -q 2>/dev/null && return 0
+        print_warning "git pull failed in $REPO_DIR (local changes?): copying the new files over it instead."
+    fi
+    case "$(basename "$REPO_DIR")" in wm-ultra-rpi*) ;; *) return 0 ;; esac
+    [ -f "$REPO_DIR/scripts/screen_board.sh" ] && cp -a "$w"/. "$REPO_DIR"/ 2>/dev/null
+    return 0
+}
 do_update_board() {
     print_header "Update the ZR Tools screen files"
     local new old w; old="$(cat "$REPO_DIR/VERSION" 2>/dev/null)"
@@ -688,8 +700,14 @@ do_update_board() {
         [ -f "$w/zr_tools/pi_address_panel.py" ] && cp "$w/zr_tools/pi_address_panel.py" "$KS_DIR/panels/pi_address.py"
         [ -f "$KS_DIR/panels/network.py" ] && grep -q wpa_cli "$KS_DIR/panels/network.py" 2>/dev/null && [ -f "$w/zr_tools/wifi_panel.py" ] && cp "$w/zr_tools/wifi_panel.py" "$KS_DIR/panels/network.py"
         mkdir -p "$BK"; cp "$w/scripts/screen_board.sh" "$BK/screen_board.sh"
+        # the installer folder this script runs from is refreshed too, so the menu itself is the new version (tests: only with WM_TEST_REFRESH_REPO=1, on a copy)
+        if [ "$TESTING" != 1 ] || [ "${WM_TEST_REFRESH_REPO:-0}" = 1 ]; then
+            if [ -d "$REPO_DIR/.git" ] && command -v git >/dev/null 2>&1 && [ "$TESTING" != 1 ]; then git -C "$REPO_DIR" pull -q --ff-only 2>/dev/null || cp -a "$w"/. "$REPO_DIR"/ 2>/dev/null || warn_later "Could not refresh $REPO_DIR; run: cd $REPO_DIR && git pull"
+            else cp -a "$w"/. "$REPO_DIR"/ 2>/dev/null || warn_later "Could not refresh $REPO_DIR."; fi
+        fi
         [ "$TESTING" = 1 ] || { [ -f /usr/local/sbin/wm-factory-restore ] && sudo install -o root -g root -m 755 "$w/scripts/screen_board.sh" /usr/local/sbin/wm-factory-restore; }
     fi
+    refresh_installer_folder "$w"
     SUDO systemctl restart KlipperScreen
     print_success "Updated to $new. A backup of your settings was made first."
 }
@@ -844,10 +862,10 @@ menu_update() {
     while true; do
         echo; echo "  Update"
         menu_item 1 "See what is new" "reads GitHub, changes nothing"
-        menu_item 2 "Update now" "downloads the newest ZR Tools screen files (backup first)"
+        menu_item 2 "Update now" "downloads the newest version (backup first), then reopens the menu"
         menu_item 0 "Back" ""
         menu_read "Choose:" || return 0
-        case "$REPLY_MENU" in 1) menu_sub --check-updates ;; 2) menu_sub --update ;; 0|"") return 0 ;; *) echo "  Choose a number from the list." ;; esac
+        case "$REPLY_MENU" in 1) menu_sub --check-updates ;; 2) menu_sub --update; exec bash "$SCRIPT_DIR/screen_board.sh" --menu ;; 0|"") return 0 ;; *) echo "  Choose a number from the list." ;; esac
     done
 }
 menu_fix() {

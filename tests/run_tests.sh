@@ -816,4 +816,11 @@ check "board install: --no-reboot asks nothing and does not reboot" "! WM_ASSUME
 
 check "board factory restore shows its bar from step 1 of 3 to 100 percent" "O=\$(WM_ASSUME_YES=1 WM_TEST_SERVICES='makerbase-client klipper' WM_HOME=$T/fr WM_INSTALLER_TEST=1 bash $SB --pi 192.0.2.10 --no-reboot 2>&1 </dev/null >/dev/null; WM_ASSUME_YES=1 WM_TEST_SERVICES='makerbase-client klipper' WM_HOME=$T/fr WM_INSTALLER_TEST=1 bash $SB --factory-restore --no-reboot 2>&1 </dev/null); echo \"\$O\" | grep -q 'Factory restore step 1 of 3' && echo \"\$O\" | grep -q 'Factory restore step 2 of 3' && echo \"\$O\" | grep -q '100%  Factory restore finished'"
 
+RFD="$T/wm-ultra-rpi-board"; rm -rf "$RFD"; mkdir -p "$RFD/scripts" "$T/rfh"; cp "$SB" "$RFD/scripts/"; echo 1.0.0 > "$RFD/VERSION"; mkdir -p "$T/rfn/zr_tools" "$T/rfn/scripts"; echo 99.0.0 > "$T/rfn/VERSION"; echo x > "$T/rfn/NEWFILE"; for f in zr_tools zr_views zr_logic pi_address_panel; do echo n > "$T/rfn/zr_tools/$f.py"; done; cp "$SB" "$T/rfn/scripts/"
+check "board --update also refreshes the installer folder itself (so the menu shows the new version)" "WM_TEST_REFRESH=1 WM_ASSUME_YES=1 WM_TEST_UPDATE_DIR=$T/rfn WM_TEST_SERVICES='makerbase-client klipper' WM_HOME=$T/rfh WM_INSTALLER_TEST=1 bash $RFD/scripts/screen_board.sh --pi 192.0.2.10 --no-reboot >/dev/null 2>&1 </dev/null; WM_TEST_REFRESH=1 WM_ASSUME_YES=1 WM_TEST_UPDATE_DIR=$T/rfn WM_HOME=$T/rfh WM_INSTALLER_TEST=1 bash $RFD/scripts/screen_board.sh --update </dev/null 2>&1 | grep -q 'Updated to 99.0.0' && grep -q 99.0.0 $RFD/VERSION && [ -f $RFD/NEWFILE ]"
+
+RUF="$T/ruf"; rm -rf "$RUF"; mkdir -p "$RUF/scripts" "$RUF/zr_tools"; cp "$SB" "$RUF/scripts/"; echo 1.0.0 > "$RUF/VERSION"; RUH="$T/ruh"; mkdir -p "$RUH/printer_data/config" "$RUH/KlipperScreen/panels"
+echo "[x]" > "$RUH/printer_data/config/KlipperScreen.conf"
+check "board --update also refreshes the installer folder it runs from" "WM_TEST_REFRESH_REPO=1 WM_ASSUME_YES=1 WM_TEST_UPDATE_DIR=$UP WM_HOME=$RUH WM_INSTALLER_TEST=1 bash $RUF/scripts/screen_board.sh --update </dev/null 2>&1 | grep -q 'Updated to 99.0.0' && grep -q 99.0.0 $RUF/VERSION"
+
 echo; echo "passed: $PASS  failed: $FAIL"; [ "$FAIL" = 0 ]

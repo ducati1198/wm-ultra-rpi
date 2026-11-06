@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.20.3
+
+- **Screen board: Update now refreshes the installer folder too** (git pull, or a copy of the new files), and the menu restarts itself on the new version. Before, an update only replaced the ZR Tools panels, so the menu you were looking at stayed the old one (for example without the "See what is new / Update now" page).
+
 ## 1.20.2
 
 - **Progress bars in the uninstall sections.** Pi: "Remove all programs" and "Erase everything" show "Removing <name> (step N of M)" with a percent bar and end at 100%. Screen board: "Back to factory mode" shows "Factory restore step N of 3". The add-ons' own uninstallers print a "still working" line every 30 seconds when they are slow.
