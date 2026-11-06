@@ -1420,7 +1420,7 @@ auto_backup() {   # a quick safety copy of your settings before an update or an 
 
 do_update() {
     print_header "Update"
-    load_answers || die_with_fix "no earlier install found ($CONF)." "run ./installer.sh first."
+    load_answers || die_with_fix "nothing is installed by this installer yet, so there is nothing to update ($CONF is missing)." "run ./installer.sh and choose 1 (Install or reinstall). To get the newest installer files only: ./installer.sh --get-latest"
     guard_not_printing
     check_system; preflight; update_notice
     [ -d "$HOME_DIR/klipper" ] || die_with_fix "~/klipper is missing." "run ./installer.sh --doctor"
@@ -2085,6 +2085,10 @@ menu_updates() {
         case "$REPLY_MENU" in
             1) menu_run --check-updates ;;
             2) bash "$SCRIPT_DIR/installer.sh" --get-latest || { menu_pause; continue; }
+               if [ ! -f "$CONF" ]; then   # nothing to update yet: the installer folder is now current, so say so instead of failing
+                   echo; print_info "Nothing is installed on this Pi yet, so there is nothing to update. The installer files above are the newest. Go back and choose 1 (Install)."
+                   menu_pause; continue
+               fi
                bash "$SCRIPT_DIR/installer.sh" --update; echo; menu_pause
                exec bash "$SCRIPT_DIR/installer.sh" --menu ;;   # restart the menu so the new version is the one running
             0|"") return 0 ;;

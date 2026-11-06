@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.19.2
+
+- **Update on a Pi with nothing installed** no longer ends in an error: the menu says "Nothing is installed on this Pi yet, so there is nothing to update" and points to Install, after still fetching the newest installer files. `--update` gives the same plain explanation.
+
 ## 1.19.1
 
 - **Damaged repository copy is repaired, not a dead end.** When the install uses the factory files of this repository and some of them are missing or changed (for example after a wipe of the home folder), the installer now says so and offers `git checkout -- factory` instead of stopping with "Checksum of the factory files does not match". The error message also names that command.

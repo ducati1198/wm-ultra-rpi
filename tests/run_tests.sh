@@ -789,4 +789,7 @@ rm -f "$RF"/factory/ultra-s/klipper/klippy/extras/air.py
 RFH="$T/rfh"; mkdir -p "$RFH"
 check "install notices missing factory files, restores them and goes on" "WM_ASSUME_YES=1 WM_HOME=$RFH WM_INSTALLER_TEST=1 bash $RF/installer.sh --from-github --model ultra-s </dev/null 2>&1 | grep -q 'Factory files restored' && [ -f $RF/factory/ultra-s/klipper/klippy/extras/air.py ]"
 
+check "menu: Update now on an empty Pi explains instead of failing" "rm -rf $T/ue; mkdir -p $T/ue; M '2\n2\n\n0\n0\n' $T/ue --menu | grep -q 'Nothing is installed on this Pi yet' "
+check "--update on an empty Pi says what to do" "WM_HOME=$T/ue WM_INSTALLER_TEST=1 bash $ROOT/installer.sh --update </dev/null 2>&1 | grep -q 'nothing is installed by this installer yet'"
+
 echo; echo "passed: $PASS  failed: $FAIL"; [ "$FAIL" = 0 ]
