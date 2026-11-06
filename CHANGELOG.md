@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.12.0
+
+- **Uninstall → Erase everything** (`--remove erase`): removes every program, the system files, NetworkManager's switch (if the installer made it), your printer data (`~/printer_data`, `~/TM_T1`) and every installer file (backups, support bundles, logs, the copy from the old board, moved-aside folders, saved copies, the records). It lists all of it first, makes no backup, and you must type `ERASE`. Only the installer folder, and the log of that run, stay.
+- The old "Everything above" entry is renamed **All programs**, because it never included your data, the clean-up files or NetworkManager. It still keeps those, and its list says so.
+
 ## 1.11.0
 
 - **The installer now keeps a log.** Every run that changes something is written to `~/wm-install-logs/installer-<what>-<date>.log` (its path is printed at the end). At a terminal the installer re-runs itself inside `script`, so the screen behaves as before and everything shown is recorded; without a terminal it uses `tee`. Colour codes are removed, progress bars are reduced to their last line, passwords and tokens become `<removed>`, files are private, the newest 20 are kept.

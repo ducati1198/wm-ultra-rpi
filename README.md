@@ -581,7 +581,7 @@ OctoApp and OctoEverywhere ask questions while they install, so the installer on
 `./installer.sh` with no options at a terminal always opens a numbered menu, also on a Pi where nothing is installed yet (choose **1) Install or reinstall** there). `./installer.sh --menu` opens it any time; `./installer.sh --install`, or any other option, skips the menu and does that one thing. Each menu entry runs the same installer option you could type yourself, so nothing works differently from the command line.
 
 ```
-WonderMaker Ultra Raspberry Pi replacement - installer 1.11.0
+WonderMaker Ultra Raspberry Pi replacement - installer 1.12.0
   Klipper: active   Moonraker: active   nginx: active
   3 new change(s) on GitHub (version 1.6.1). Choose 2 to see them and update.
 
@@ -590,7 +590,7 @@ WonderMaker Ultra Raspberry Pi replacement - installer 1.11.0
    3) Add-ons                      Touchscreen, webcam, timelapse, shell command, Obico, OctoApp, OctoEverywhere
    4) Check and fix                Doctor, repair, hardware test
    5) Backup and restore           Save and restore config, calibration and database
-   6) Uninstall                    Remove any add-on, Fluidd, Moonraker, Klipper or everything
+   6) Uninstall                    Remove any add-on, Fluidd, Moonraker, Klipper, your data, or erase everything
    7) Advanced                     First start, start or stop Klipper, support bundle, last log
    0) Exit
 ```
@@ -614,7 +614,8 @@ WonderMaker Ultra Raspberry Pi replacement - installer 1.11.0
   | `data` | `~/printer_data` and `~/TM_T1` (config, calibration, database, gcode files, factory settings). A backup is made first and you must type `DELETE` |
   | `system` | the services, nginx files and can0 rule listed in the install record (same as `--uninstall`) |
   | `cleanup` | a page of installer-made files with their sizes, see below |
-  | `all` | every program above (not `data`, not `cleanup`). It lists what is installed, then you must type `REMOVE`. At the end it lists what is still on the Pi and how to remove it. Your printer data, backups and installer files are not touched |
+  | `all` | **All programs** (menu entry "All programs"): every program above and the system files, but not `data`, not `cleanup` and not NetworkManager. It lists what is installed, then you must type `REMOVE`. At the end it lists what is still on the Pi and how to remove it. Your printer data, backups and installer files are not touched |
+  | `erase` | everything: every program, the system files, NetworkManager switched back (if the installer switched it), **your printer data** (`~/printer_data`, `~/TM_T1`), and every installer file (backups, support bundles, logs, the copy from the old board, moved-aside folders, saved copies, the records). **No backup is made.** Only the installer folder stays, and the log of the run itself. It lists everything first and you must type `ERASE` |
 
   A running print blocks all of them.
 
