@@ -287,7 +287,7 @@ OA="$T/oa"; rm -rf "$OA"; mkdir -p "$OA"; mkstage "$T/stage_oa"; inst "$OA" --fr
 inst "$OA" --update --octoapp on --octoeverywhere on >/dev/null
 M 'y\n' $OA --remove octoapp >/dev/null; M 'y\n' $OA --remove octoeverywhere >/dev/null
 check "OctoApp and OctoEverywhere: their own ./uninstall.sh is the first step" "grep -q 'official uninstall octoapp: bash ./uninstall.sh' $OA/.sudo.log && grep -q 'official uninstall octoeverywhere: bash ./uninstall.sh' $OA/.sudo.log"
-check "Obico: the steps from its own uninstall list are done (service, reset-failed, include lines)" "sed -n '/^do_remove_addon()/,/^}/p' $ROOT/installer.sh | grep -q 'reset-failed' && sed -n '/^do_remove_addon()/,/^}/p' $ROOT/installer.sh | grep -q 'include moonraker-obico-update.cfg' && sed -n '/^do_remove_addon()/,/^}/p' $ROOT/installer.sh | grep -q 'include moonraker_obico_macros.cfg'"
+check "Obico: the steps from its own uninstall list are done (service, reset-failed, include lines)" "sed -n '/^do_remove_addon_core()/,/^}/p' $ROOT/installer.sh | grep -q 'reset-failed' && sed -n '/^do_remove_addon_core()/,/^}/p' $ROOT/installer.sh | grep -q 'include moonraker-obico-update.cfg' && sed -n '/^do_remove_addon_core()/,/^}/p' $ROOT/installer.sh | grep -q 'include moonraker_obico_macros.cfg'"
 
 
 echo "== leftovers and administrator rights"
@@ -734,7 +734,7 @@ echo "== screen board menu"
 MB="$T/mb"; mkdir -p "$MB"
 mb() { local in="$1"; shift; printf "$in" | WM_TEST_SERVICES="makerbase-client klipper moonraker nginx" WM_HOME="$MB" WM_INSTALLER_TEST=1 bash "$SB" "$@" 2>&1; }
 check "board menu: lists every entry and exits with 0" "mb '0\n' --menu | grep -q 'Install KlipperScreen' && mb '0\n' --menu | grep -q 'Backup and restore' && mb '0\n' --menu | grep -q 'Dry run'"
-check "board menu: settings page has the driver and network entries" "mb '5\n0\n0\n' --menu | grep -q 'Change the screen driver' && mb '5\n0\n0\n' --menu | grep -q 'Network and system'"
+check "board menu: settings page has the Pi address and network entries, and no screen driver entry" "mb '5\n0\n0\n' --menu | grep -q 'Change the Pi address' && mb '5\n0\n0\n' --menu | grep -q 'Network and system' && ! mb '5\n0\n0\n' --menu | grep -q 'Change the screen driver'"
 check "board menu: check and fix page" "mb '3\n0\n0\n' --menu | grep -q 'Fix everything' && mb '3\n0\n0\n' --menu | grep -q 'Restart the screen'"
 check "board menu: a wrong choice is explained" "mb 'x\n0\n' --menu | grep -q 'Choose a number'"
 check "board menu: status is read-only" "mb '3\n3\n0\n0\n' --menu | grep -q 'Screen board status' && [ ! -e $MB/.sudo.log ]"
@@ -837,5 +837,15 @@ check "board install restarts klipper on the Pi through moonraker" "WM_ASSUME_YE
 : > "$BK2/.sudo.log"
 check "board update restarts klipper on the Pi and KlipperScreen" "WM_TEST_UPDATE_DIR=$UPD WM_ASSUME_YES=1 WM_HOME=$BK2 WM_INSTALLER_TEST=1 bash $SB --update </dev/null 2>&1 | grep -q 'Klipper on the Pi restarted' && grep -q 'restart klipper on' $BK2/.sudo.log && grep -q 'restart KlipperScreen' $BK2/.sudo.log"
 check "board --dry-run restarts nothing on the Pi" "WM_ASSUME_YES=1 WM_HOME=$T/bk3 WM_INSTALLER_TEST=1 bash $SB --pi 192.0.2.10 --dry-run </dev/null 2>&1 | grep -qv 'Klipper on the Pi restarted'"
+
+echo "== bars: weights, update, uninstall; doctor waits and re-checks"
+check "pi install: bar percent grows and never goes backwards" "echo \"$(inst $T/pbw --from-github --model ultra-s)\" | grep -o '[0-9]*%' | tr -d '%' | awk 'NR>1 && \$1<prev {bad=1} {prev=\$1} END{exit bad}'"
+PW="$T/pw"; rm -rf "$PW"; mkdir -p "$PW/KlipperScreen/panels" "$PW/printer_data/config"; echo "[x]" > "$PW/printer_data/config/KlipperScreen.conf"
+check "board update shows its bar from 0 to 100 percent" "O=\$(WM_TEST_UPDATE_DIR=$UPD WM_ASSUME_YES=1 WM_HOME=$PW WM_INSTALLER_TEST=1 bash $SB --update </dev/null 2>&1); echo \"\$O\" | grep -q 'Update step 1 of 6' && echo \"\$O\" | grep -q '100%  Update finished'"
+check "board doctor says how many problems were fixed" "WM_ASSUME_YES=1 WM_TEST_SERVICES='makerbase-client klipper' WM_HOME=$PW WM_INSTALLER_TEST=1 bash $SB --pi 192.0.2.10 --no-reboot </dev/null >/dev/null 2>&1; rm -f $PW/.svc/KlipperScreen.active; O=\$(WM_ASSUME_YES=1 WM_HOME=$PW WM_INSTALLER_TEST=1 bash $SB --doctor </dev/null 2>&1); echo \"\$O\" | grep -q 'KlipperScreen is not running' && echo \"\$O\" | grep -q 'fixed'"
+UB="$T/ub"; mkdir -p "$UB/printer_data/config"; touch "$UB/Spoolman" 2>/dev/null; rm -f "$UB/Spoolman"; mkdir -p "$UB/Spoolman"
+OUT="$(printf 'y\nn\n' | WM_HOME=$UB WM_INSTALLER_TEST=1 bash $ROOT/installer.sh --remove spoolman 2>&1)"
+check "single removal shows a bar that ends at 100 percent" "echo \"$OUT\" | grep -q '100%  spoolman removed' && echo \"$OUT\" | grep -q 'Removing the files'"
+check "board --remove installer files show a bar at 100 percent" "mkdir -p $T/wm-ultra-rpi-pb/scripts && cp $SB $T/wm-ultra-rpi-pb/scripts/ && echo 1 > $T/wm-ultra-rpi-pb/VERSION && WM_ASSUME_YES=1 WM_HOME=$PW WM_INSTALLER_TEST=1 bash $T/wm-ultra-rpi-pb/scripts/screen_board.sh --remove installer </dev/null 2>&1 | grep -q '100%  Done'"
 
 echo; echo "passed: $PASS  failed: $FAIL"; [ "$FAIL" = 0 ]

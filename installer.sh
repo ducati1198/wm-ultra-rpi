@@ -88,9 +88,35 @@ declare -a WARNINGS=()
 APT_PACKAGES=(nginx can-utils build-essential libffi-dev libssl-dev libjpeg-dev zlib1g-dev libsodium23 liblmdb0 curl git python3-venv python3-pip iproute2 dbus usbutils)
 COMPILED_MODULES=(cs1237 hx711 heater_air_core heater_feng xy_offset_calibrator_core heater_air xy_offset_calibrator tools_calibrate echelon_stepper custom_hall)
 
+pi_weight() {   # how long each install step takes, roughly (a step that is switched off counts for nothing)
+    case "$1" in
+        1) echo 14 ;; 2) echo 1 ;; 3) echo 8 ;; 4) echo 5 ;; 4b) echo 1 ;; 5) echo 30 ;; 6) echo 2 ;; 7|8|9) echo 2 ;; 10) echo 4 ;;
+        11) [ "${WANT_SCREEN:-0}" = 1 ] && echo 12 || echo 1 ;;
+        12) [ "${WANT_TIMELAPSE:-0}" = 1 ] && echo 2 || echo 0 ;;
+        12b) [ "${WANT_SHELLCMD:-0}" = 1 ] && echo 1 || echo 0 ;;
+        12f) [ "${WANT_SHAKETUNE:-0}" = 1 ] && echo 4 || echo 0 ;;
+        12g) [ "${WANT_SPOOLMAN:-0}" = 1 ] && echo 5 || echo 0 ;;
+        12c) [ "${WANT_OBICO:-0}" = 1 ] && echo 3 || echo 0 ;;
+        12d) [ "${WANT_OCTOAPP:-0}" = 1 ] && echo 3 || echo 0 ;;
+        12e) [ "${WANT_OCTOEVERYWHERE:-0}" = 1 ] && echo 3 || echo 0 ;;
+        13) [ "${WANT_CROWSNEST:-0}" = 1 ] && echo 12 || echo 0 ;;
+        14) echo 3 ;;
+        *) echo 0 ;;
+    esac
+}
+pi_cum() {   # percent-points finished when step KEY starts; "end" = the total
+    local k s sum=0
+    for k in 1 2 3 4 4b 5 6 7 8 9 10 11 12 12b 12f 12g 12c 12d 12e 13 14; do
+        [ "$k" = "$1" ] && { echo "$sum"; return; }
+        sum=$((sum + $(pi_weight "$k")))
+    done
+    echo "$sum"
+}
 print_header()  {
     echo -e "\n${BLUE}── $1 ──────────────────────────────────────────${NC}"
-    if [ "${PROG_STEPS:-0}" -gt 0 ] && [[ "$1" =~ ^Step\ ([0-9]+) ]]; then progress_bar $(( ${BASH_REMATCH[1]} - 1 )) "$PROG_STEPS" "Step ${BASH_REMATCH[1]} of $PROG_STEPS"; fi
+    if [ "${PROG_STEPS:-0}" -gt 0 ] && [[ "$1" =~ ^Step\ ([0-9]+[a-z]?) ]]; then
+        local key="${BASH_REMATCH[1]}"; progress_bar "$(pi_cum "$key")" "$(pi_cum end)" "Step ${key%%[a-z]} of $PROG_STEPS"
+    fi
 }
 PROG_STEPS=0
 prog_repeat() { local s="" i; for ((i=0;i<$2;i++)); do s+="$1"; done; printf '%s' "$s"; }
@@ -132,6 +158,7 @@ SUDO() {
     if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would run: sudo $*${NC}"; return 0; fi
     if [ "$TESTING" = 1 ]; then echo "[test] sudo $*" >> "$HOME_DIR/.sudo.log"; test_systemctl "$@"; return 0; fi
     if [ "${1:-}" = systemctl ] && { [ "${2:-}" = stop ] || [ "${2:-}" = disable ]; }; then
+        rm_event stop "Stopping the service"
         sudo "$@" 2> >(grep -v -e 'not loaded' -e 'does not exist' >&2); return 0   # a service that is not there is already stopped
     fi
     sudo "$@"
@@ -667,8 +694,16 @@ step_screen() {
     [ "$SCREEN_BACKEND" = x11 ] && echo "  Rotate: add 'xrandr --output <name> --rotate left' to an X11 autostart (README, 'Touchscreen')."
 }
 
+PROG_RM=0; PROG_RM_SEEN=""
+rm_event() {   # key label : one step of a single removal reached; the bar moves once per kind of step
+    [ "${PROG_RM:-0}" = 1 ] || return 0
+    case " $PROG_RM_SEEN " in *" $1 "*) return 0 ;; esac
+    PROG_RM_SEEN="$PROG_RM_SEEN $1"
+    progress_bar "$(echo $PROG_RM_SEEN | wc -w)" 5 "$2"
+}
 rm_path() {   # delete files or folders; when the Pi user may not (an uninstaller ran as root and left root-owned files), retry with sudo
     local p
+    rm_event files "Removing the files"
     for p in "$@"; do
         [ -e "$p" ] || [ -L "$p" ] || continue
         rm -rf "$p" 2>/dev/null
@@ -697,6 +732,7 @@ leftover_report() {   # what of this installer is still on the Pi, and how to re
 }
 run_official_uninstall() {   # name dir command... : the add-on's OWN uninstaller, run first. Returns 0 when it ran and succeeded.
     local name="$1" dir="$2"; shift 2
+    rm_event official "Running $name's own uninstaller"
     if [ "$TESTING" = 1 ]; then echo "[test] official uninstall $name: $*" >> "$HOME_DIR/.sudo.log"; return 0; fi
     [ -d "$dir" ] || return 1
     print_info "Running $name's own uninstaller ($*) ..."
@@ -712,6 +748,7 @@ official_yes() {   # command... : always answered with yes (crowsnest's uninstal
     yes y 2>/dev/null | "$@"
 }
 moonraker_drop_update_section() {   # name : remove [update_manager NAME] from moonraker.conf (copy kept), so Fluidd stops listing a removed add-on
+    rm_event conf "Cleaning up the settings"
     local f="$HOME_DIR/printer_data/config/moonraker.conf"
     [ -f "$f" ] || return 0
     grep -qiE "^\[update_manager +$1\]" "$f" || return 0
@@ -801,7 +838,7 @@ step_shellcmd() {   # Arksine's gcode_shell_command module (GPLv3), copied from 
 # ---------------------------------------------------------------------------
 step_shaketune() {
     [ "$WANT_SHAKETUNE" = 1 ] || return 0
-    print_header "Klippain Shake&Tune"
+    print_header "Step 12f: Klippain Shake&Tune"
     why "Adds Shake&Tune's graphs and commands (AXES_SHAPER_CALIBRATION, ...) to Klipper. WonderMaker's config already has the lis2dw accelerometer and [resonance_tester] it needs. Not yet tried on a WonderMaker printer."
     local dir="$HOME_DIR/klippain_shaketune" ext="$HOME_DIR/klipper/klippy/extras/shaketune" cfgd="$HOME_DIR/printer_data/config" pin url sha
     [ "$DRY" = 1 ] || [ -d "$HOME_DIR/klipper/klippy/extras" ] || { warn_later "Shake&Tune needs ~/klipper. Run ./installer.sh --update first."; return 0; }
@@ -936,6 +973,7 @@ step_octoeverywhere() {
 # Same steps as KIAUH: download the release's spoolman.zip, unzip to ~/Spoolman, run its scripts/install.sh (venv, service), then connect Moonraker.
 # ---------------------------------------------------------------------------
 moonraker_drop_section() {   # name : remove the plain [NAME] section from moonraker.conf (copy kept)
+    rm_event conf "Cleaning up the settings"
     local f="$HOME_DIR/printer_data/config/moonraker.conf"
     [ -f "$f" ] || return 0
     grep -qiE "^\[$1\]" "$f" || return 0
@@ -953,7 +991,7 @@ PY
 }
 step_spoolman() {
     [ "$WANT_SPOOLMAN" = 1 ] || return 0
-    print_header "Spoolman"
+    print_header "Step 12g: Spoolman"
     why "Spoolman keeps track of your filament spools (weight left, brand, colour). Fluidd shows it in its spool panel once Moonraker is connected to it. It runs as its own service on port 7912 and keeps its own database."
     local dir="$HOME_DIR/Spoolman" conf="$HOME_DIR/printer_data/config/moonraker.conf" asvc="$HOME_DIR/printer_data/moonraker.asvc" url tag zip="/tmp/spoolman-$STAMP.zip"
     remote_precheck || return 0
@@ -1458,23 +1496,23 @@ do_update() {
     else echo "Your printer_data (config, calibration) is not touched. Updated: services, nginx, can0 rule, Python packages, panel, add-ons. Klipper is restarted at the end."; fi
     ask_yn "Go ahead?" y || exit 0
     local UT=8
-    progress_bar 0 $UT "Update step 1 of $UT: backup"
+    progress_bar 0 100 "Update step 1 of $UT: backup"
     auto_backup
-    progress_bar 1 $UT "Update step 2 of $UT: packages and Python"
+    progress_bar 5 100 "Update step 2 of $UT: packages and Python"
     if [ -z "$ONLY_ADDON" ]; then step_packages; step_groups; step_python; fi
-    progress_bar 2 $UT "Update step 3 of $UT: Python packages"
+    progress_bar 20 100 "Update step 3 of $UT: Python packages"
     if [ -z "$ONLY_ADDON" ] && [ "$TESTING" != 1 ] && [ "$DRY" != 1 ]; then
         "$HOME_DIR/klippy-env/bin/pip" install -q -r "$SCRIPT_DIR/config/klippy-requirements.txt" || warn_later "klippy-env packages did not update."
         "$HOME_DIR/moonraker-env/bin/pip" install -q -r "$SCRIPT_DIR/config/moonraker-requirements.txt" || warn_later "moonraker-env packages did not update."
     fi
-    progress_bar 3 $UT "Update step 4 of $UT: services, nginx, CAN"
+    progress_bar 45 100 "Update step 4 of $UT: services, nginx, CAN"
     if [ -z "$ONLY_ADDON" ]; then step_services_files; step_nginx; step_can; fi
-    progress_bar 4 $UT "Update step 5 of $UT: Fluidd panel"
+    progress_bar 50 100 "Update step 5 of $UT: Fluidd panel"
     if [ -z "$ONLY_ADDON" ] && [ "$WANT_PANEL" = 1 ]; then
         local sha=""; panel_get && sha="$(sha256sum "$PANEL_ZIP" | cut -d' ' -f1)"
         if [ -n "$sha" ] && [ "$sha" != "${OLD_PANEL_SHA:-}" ]; then step_panel; else print_success "Fluidd panel is already the latest"; fi
     fi
-    progress_bar 5 $UT "Update step 6 of $UT: touchscreen and add-ons"
+    progress_bar 55 100 "Update step 6 of $UT: touchscreen and add-ons"
     if [ "$WANT_SCREEN" = 1 ] && upd_wants screen; then
         if [ "$(addon_pin klipperscreen | cut -d'|' -f2)" != "${OLD_KS_PIN:-}" ] || [ ! -d "$KS_DIR" ]; then step_screen; else copy_zr_panel; print_success "ZR Tools screen files refreshed"; fi
     fi
@@ -1484,15 +1522,15 @@ do_update() {
     if [ "$WANT_SHELLCMD" = 1 ] && upd_wants shell-command; then step_shellcmd; fi
     if [ "$WANT_SHAKETUNE" = 1 ] && upd_wants shaketune; then step_shaketune; fi
     if [ "$WANT_SPOOLMAN" = 1 ] && upd_wants spoolman; then step_spoolman; fi
-    progress_bar 6 $UT "Update step 7 of $UT: remote access and webcam"
+    progress_bar 80 100 "Update step 7 of $UT: remote access and webcam"
     step_remote_update
     if [ "$WANT_CROWSNEST" = 1 ] && upd_wants webcam && { [ "$(addon_pin crowsnest | cut -d'|' -f2)" != "${OLD_CN_PIN:-}" ] || [ ! -d "$HOME_DIR/crowsnest" ]; }; then step_crowsnest; fi
     save_answers
-    progress_bar 7 $UT "Update step 8 of $UT: restart and self-test"
+    progress_bar 90 100 "Update step 8 of $UT: restart Klipper and self-test"
     SUDO systemctl restart moonraker; [ -n "$ONLY_ADDON" ] || SUDO systemctl restart nginx
     restart_klipper_after
     self_test
-    progress_bar $UT $UT "Update finished"
+    progress_bar 100 100 "Update finished"
     print_success "Update finished (installer $VERSION)."
 }
 do_check_updates() {   # read-only: compares this copy of the repository with GitHub
@@ -1884,7 +1922,16 @@ do_cleanup() {   # a page of installer-made files you can delete; your printer d
         print_success "Deleted: ${label[$g]}"
     done
 }
-do_remove_addon() {
+do_remove_addon() {   # one removal, with a bar that moves as its steps happen
+    local rc=0
+    PROG_RM_SEEN=""; [ "${PROG_QUIET:-0}" = 1 ] || PROG_RM=1
+    do_remove_addon_core || rc=$?
+    PROG_RM=0
+    [ "$rc" = 0 ] && [ -n "$PROG_RM_SEEN" ] && progress_bar 100 100 "$ARG1 removed"
+    PROG_RM_SEEN=""
+    return $rc
+}
+do_remove_addon_core() {
     local name="$ARG1" dir env svc cfgd; cfgd="$(cfg_dir)"
     load_answers || true
     guard_not_printing
@@ -2042,7 +2089,7 @@ PY
             local tn=$(( ${#todo[@]} + 1 ))
             for c in "${todo[@]}"; do
                 progress_bar "$ti" "$tn" "Removing $c (step $((ti+1)) of $tn)"; ti=$((ti+1))
-                ( ARG1="$c"; REMOVE_CONFIRMED=1; FORCE=1; do_remove_addon )
+                ( ARG1="$c"; REMOVE_CONFIRMED=1; FORCE=1; PROG_QUIET=1; do_remove_addon )
             done
             progress_bar "$ti" "$tn" "Removing the system files and leftovers (step $tn of $tn)"
             remove_python39
@@ -2074,12 +2121,12 @@ PY
             local tn=$(( ${#todo[@]} + 1 ))
             for c in "${todo[@]}"; do
                 progress_bar "$ti" "$tn" "Removing $c (step $((ti+1)) of $tn)"; ti=$((ti+1))
-                ( ARG1="$c"; REMOVE_CONFIRMED=1; REMOVE_DATA=1; FORCE=1; do_remove_addon )
+                ( ARG1="$c"; REMOVE_CONFIRMED=1; REMOVE_DATA=1; FORCE=1; PROG_QUIET=1; do_remove_addon )
             done
             progress_bar "$ti" "$tn" "Removing the system files and leftovers (step $tn of $tn)"
             remove_python39
             [ -f "$STATE" ] && uninstall_system_files
-            [ -f "$NETMGR_STATE" ] && ( ARG1=network-manager; REMOVE_CONFIRMED=1; FORCE=1; do_remove_addon )
+            [ -f "$NETMGR_STATE" ] && ( ARG1=network-manager; REMOVE_CONFIRMED=1; FORCE=1; PROG_QUIET=1; do_remove_addon )
             SUDO systemctl stop klipper 2>/dev/null; SUDO systemctl stop moonraker 2>/dev/null
             rm_path "$HOME_DIR/printer_data" "$HOME_DIR/TM_T1"
             for g in backups bundles logs stage moved fluiddcopies cfgcopies downloads records; do
@@ -2484,7 +2531,7 @@ self_test
 if [ "$AUTOSTART" = 1 ] && [ "$DRY" != 1 ]; then do_first_start auto || true; fi
 
 print_header "Done"
-[ "$PROG_STEPS" -gt 0 ] && progress_bar "$PROG_STEPS" "$PROG_STEPS" "All $PROG_STEPS steps finished"
+[ "$PROG_STEPS" -gt 0 ] && progress_bar 100 100 "All $PROG_STEPS steps finished"
 if [ ${#WARNINGS[@]} -gt 0 ]; then for w in "${WARNINGS[@]}"; do print_warning "$w"; done; fi
 IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
 print_success "Open Fluidd at http://${IP:-<pi-address>}/"

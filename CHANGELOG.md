@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.20.7
+
+- **Progress bars are weighted** by how long each step takes (the long Python and KlipperScreen builds count for most), so the percent no longer jumps. Install, update, factory restore and every uninstall end at 100%.
+- **Update now has a bar** on the screen board ("Update step N of 6") and its percentages are weighted on the Pi too.
+- **Uninstall has bars**: removing a single add-on or part on the Pi shows stopping, its own uninstaller, removing files and cleaning settings; the board's "Uninstall installer files" shows its bar as well.
+- **Screen board Doctor:** a KlipperScreen that is still starting is waited for (up to 60 s) before it is called a problem; the "start it" fix now waits for KlipperScreen to run, shows its last log lines when it does not, and the summary says how many problems were fixed and how many are still open.
+- **Screen board:** the "Change the screen driver" entry is removed from Settings (`--set-driver` still works on the command line).
+
 ## 1.20.6
 
 - **Klipper is restarted after every install and update.** Pi installer: at the end of an install or update, if Klipper is running it is restarted and the installer waits for "ready" (and says so when Klipper reports an error). If Klipper is off (a fresh install), it is not started: `--first-start` does that after the connection check. Never during a print, and not in a dry run.
