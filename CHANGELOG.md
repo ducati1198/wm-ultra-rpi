@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.14.2
+
+- The Ultra factory files carry the same real CAN uuids as the Ultra-S ones (see 1.14.1), copied from the owner's printer. On other printers they will not match the boards: `--first-start` still checks them, and toolheads and the hub need their own uuids.
+
 ## 1.14.1
 
 - **The Ultra-S factory files now carry the real CAN uuids** of the owner's printer, copied from its working board (main board, hub, extruder, T0-T3 and the load cell) instead of empty or placeholder values. A repo install on that printer's hardware therefore starts with the right ids and no "Duplicate canbus_uuid". **They belong to those boards:** on a different printer they will not be on the bus, so `--first-start` still checks them (it only changes the main board's uuid) and a toolhead or the hub still needs its own uuid (`scripts/read_write_can_id.sh`).
