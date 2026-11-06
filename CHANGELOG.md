@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.6.0
+
+- New numbered menu: `./installer.sh --menu`, which also opens by itself when you run `./installer.sh` with no options at a terminal on a Pi that is already installed (a first-time install is unchanged; `--install` skips the menu). Sections: install, update (see what is new, then update), add-ons, check and fix, backup and restore, touchscreen settings, advanced. Each entry runs the same installer option, so there is one code path.
+- Status on top (version, services, newer version on GitHub, print in progress) and a one-line help text per entry. A running print still blocks every change.
+- Add-ons page with a status per add-on; install or remove from the list. New `--remove obico|octoapp|octoeverywhere|shell-command` (asks first). New `--webcam on|off` and `--timelapse on|off`.
+- Warns if KIAUH is on the Pi.
+
 ## 1.5.0
 
 - New optional remote-access add-ons, each asked during install (default no): Obico for Klipper (`--obico on`), OctoApp (`--octoapp on`, its method 1c: git clone + install.sh) and OctoEverywhere (`--octoeverywhere on`). They are installed with the makers' own installers, pointed at this Pi's Moonraker, in their own Python environments. Linking to your account is left to you and explained on screen. `printer.cfg` is copied before Obico adds its include line.

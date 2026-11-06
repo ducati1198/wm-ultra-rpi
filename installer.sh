@@ -26,6 +26,10 @@
 # ./installer.sh --disable-klipper     stop Klipper and stop it from starting at boot
 # ./installer.sh --uninstall           remove what the installer added to the system (your files in ~ stay)
 # ./installer.sh --shell-command on|off   optional Klipper "gcode shell command" extension: RUN_SHELL_COMMAND CMD=name runs a Linux command from G-code (asked if not given; default no)
+# ./installer.sh --menu                numbered menu (install, update, add-ons, check and fix, backup, screen, advanced). Opens by itself when you run ./installer.sh with no options on a Pi that is already installed
+# ./installer.sh --install             the normal install (skips the menu)
+# ./installer.sh --remove NAME         remove an add-on after asking: obico, octoapp, octoeverywhere or shell-command (the makers' own uninstallers; your account stays on their website)
+# ./installer.sh --webcam on|off       crowsnest webcam service;  --timelapse on|off   Moonraker timelapse (both used with --update)
 # ./installer.sh --obico on|off        optional remote access: Obico for Klipper (moonraker-obico). Also --octoapp on|off and --octoeverywhere on|off. Each is asked (default no)
 # ./installer.sh --screen on|off|macros   KlipperScreen on the Pi (on), nothing (off), or only the ZR Tools macros (macros: for the WonderMaker screen board). Asked if not given; default on
 # ./installer.sh --screen-layout tabs|grid   touch layout: tabs = big buttons + bottom tabs (default), grid = card grid
@@ -104,6 +108,7 @@ usage() { sed -n '4,/^# What this/p' "$0" | sed '$d' | sed 's/^# \{0,1\}//'; }
 # ============================================================================
 # Arguments
 # ============================================================================
+ORIG_ARGC=$#; EXPLICIT_INSTALL=0
 while [ $# -gt 0 ]; do
     case "$1" in
         --from-board)   SRC_KIND=board; SRC_ARG="${2:-}"; shift ;;
@@ -112,6 +117,11 @@ while [ $# -gt 0 ]; do
         --model)        MODEL="${2:-}"; MODEL_SET=1; shift ;;
         --modules)      MODULES_DIR="${2:-}"; shift ;;
         --check)        MODE=check ;;
+        --menu)         MODE=menu ;;
+        --install)      MODE=install; EXPLICIT_INSTALL=1 ;;
+        --remove)       MODE=remove; ARG1="${2:-}"; shift ;;
+        --webcam)       case "${2:-}" in on|yes|1) WANT_CROWSNEST=1 ;; off|no|0) WANT_CROWSNEST=0 ;; *) print_error "--webcam needs on or off"; exit 1 ;; esac; CLI_REMOTE="$CLI_REMOTE webcam"; CLI_WEBCAM="$WANT_CROWSNEST"; shift ;;
+        --timelapse)    case "${2:-}" in on|yes|1) WANT_TIMELAPSE=1 ;; off|no|0) WANT_TIMELAPSE=0 ;; *) print_error "--timelapse needs on or off"; exit 1 ;; esac; CLI_REMOTE="$CLI_REMOTE timelapse"; CLI_TIMELAPSE="$WANT_TIMELAPSE"; shift ;;
         --first-start|--enable-klipper) MODE=firststart ;;
         --hw-test)      MODE=hwtest ;;
         --doctor)       MODE=doctor ;;
@@ -899,7 +909,7 @@ load_answers() {
             SCREEN_BACKEND) printf -v "$k" '%s' "$v" ;; KS_PIN) OLD_KS_PIN="$v" ;;
         esac
     done < "$CONF"
-    local r; for r in ${CLI_REMOTE:-}; do case "$r" in obico) WANT_OBICO="$CLI_OBICO" ;; octoapp) WANT_OCTOAPP="$CLI_OCTOAPP" ;; octoeverywhere) WANT_OCTOEVERYWHERE="$CLI_OCTOEVERYWHERE" ;; esac; done
+    local r; for r in ${CLI_REMOTE:-}; do case "$r" in obico) WANT_OBICO="$CLI_OBICO" ;; octoapp) WANT_OCTOAPP="$CLI_OCTOAPP" ;; octoeverywhere) WANT_OCTOEVERYWHERE="$CLI_OCTOEVERYWHERE" ;; webcam) WANT_CROWSNEST="$CLI_WEBCAM" ;; timelapse) WANT_TIMELAPSE="$CLI_TIMELAPSE" ;; esac; done
     [ -n "${CLI_SHELLCMD:-}" ] && WANT_SHELLCMD="$CLI_SHELLCMD"    # --shell-command on|off given now wins over the saved answer
     return 0
 }
@@ -1099,7 +1109,7 @@ do_update() {
     if [ "$WANT_TIMELAPSE" = 1 ]; then step_timelapse; fi
     if [ "$WANT_SHELLCMD" = 1 ]; then step_shellcmd; fi
     step_remote_update
-    if [ "$WANT_CROWSNEST" = 1 ] && [ "$(addon_pin crowsnest | cut -d'|' -f2)" != "${OLD_CN_PIN:-}" ]; then step_crowsnest; fi
+    if [ "$WANT_CROWSNEST" = 1 ] && { [ "$(addon_pin crowsnest | cut -d'|' -f2)" != "${OLD_CN_PIN:-}" ] || [ ! -d "$HOME_DIR/crowsnest" ]; }; then step_crowsnest; fi
     save_answers
     SUDO systemctl restart moonraker; SUDO systemctl restart nginx
     [ "$(service_state klipper)" = active ] && print_info "Klipper keeps running. Restart it from Fluidd when you are ready (config reload)."
@@ -1333,12 +1343,231 @@ do_uninstall() {
     print_success "Removed. Folders in your home (klipper, moonraker, printer_data, fluidd, environments) are untouched; delete them yourself if you want."
 }
 
+
+# ============================================================================
+# Remove an add-on (asks first; uses the makers' own uninstallers)
+# ============================================================================
+do_remove_addon() {
+    local name="$ARG1" dir env svc cfgd; cfgd="$(cfg_dir)"
+    load_answers || true
+    guard_not_printing
+    case "$name" in
+        shell-command)
+            local ef="$HOME_DIR/klipper/klippy/extras/gcode_shell_command.py" users
+            [ -f "$ef" ] || { print_info "The shell command extension is not installed."; return 0; }
+            users="$(grep -rl '^\[gcode_shell_command' "$cfgd" 2>/dev/null | tr '\n' ' ')"
+            if [ -n "$users" ] && [ "$FORCE" != 1 ]; then die_with_fix "printer.cfg still has [gcode_shell_command ...] sections (in: $users). Klipper would not start without the extension." "remove those sections first, then try again."; fi
+            ask_yn "Remove the Klipper gcode shell command extension?" n || { echo "Nothing changed."; return 0; }
+            rm -f "$ef"; WANT_SHELLCMD=0; save_answers
+            print_success "Removed. Restart Klipper from Fluidd when you are ready." ;;
+        obico|octoapp|octoeverywhere)
+            case "$name" in obico) dir=moonraker-obico; env=moonraker-obico-env; svc=moonraker-obico ;; octoapp) dir=octoapp; env=octoapp-env; svc=octoapp ;; *) dir=octoeverywhere; env=octoeverywhere-env; svc=octoeverywhere ;; esac
+            [ -d "$HOME_DIR/$dir" ] || [ -d "$HOME_DIR/$env" ] || { print_info "$name is not installed."; return 0; }
+            echo "  This removes $name from this Pi (its service, ~/$dir and ~/$env). Your account on their website stays; remove the printer there yourself."
+            ask_yn "Remove $name?" n || { echo "Nothing changed."; return 0; }
+            if [ "$TESTING" = 1 ]; then echo "[test] remove $name" >> "$HOME_DIR/.sudo.log"
+            else
+                if [ "$name" != obico ] && [ -x "$HOME_DIR/$dir/uninstall.sh" ] && remote_interactive; then ( cd "$HOME_DIR/$dir" && bash ./uninstall.sh ) || print_warning "$name's own uninstaller did not finish; the service is stopped below anyway."; fi
+                SUDO systemctl stop "$svc" 2>/dev/null; SUDO systemctl disable "$svc" 2>/dev/null
+                SUDO rm -f "/etc/systemd/system/$svc.service"; SUDO systemctl daemon-reload
+                if [ "$name" = obico ]; then   # Klipper would not start with the include pointing at a deleted file
+                    rm -f "$cfgd/moonraker_obico_macros.cfg"
+                    if grep -q 'include moonraker_obico_macros.cfg' "$cfgd/printer.cfg" 2>/dev/null; then
+                        cp "$cfgd/printer.cfg" "$cfgd/printer.cfg.wm-before-obico-removal-$STAMP"; sed -i '/include moonraker_obico_macros.cfg/d' "$cfgd/printer.cfg"
+                        print_info "Removed the Obico include from printer.cfg (copy: printer.cfg.wm-before-obico-removal-$STAMP)"
+                    fi
+                    if grep -q 'include moonraker-obico-update.cfg' "$cfgd/moonraker.conf" 2>/dev/null; then sed -i '/include moonraker-obico-update.cfg/d' "$cfgd/moonraker.conf"; rm -f "$cfgd/moonraker-obico-update.cfg"; fi
+                fi
+            fi
+            rm -rf "$HOME_DIR/$dir" "$HOME_DIR/$env"
+            case "$name" in obico) WANT_OBICO=0 ;; octoapp) WANT_OCTOAPP=0 ;; *) WANT_OCTOEVERYWHERE=0 ;; esac; save_answers
+            print_success "$name removed."
+            [ "$name" != obico ] && print_info "moonraker.conf may still have an [update_manager $name] section; Fluidd shows a harmless warning until you delete it."
+            print_info "Restart Moonraker$([ "$name" = obico ] && echo " and Klipper") from Fluidd when you are ready." ;;
+        *) die_with_fix "unknown add-on '${name}'." "use one of: obico, octoapp, octoeverywhere, shell-command." ;;
+    esac
+}
+
+# ============================================================================
+# Menu (plain numbered lists). Every entry runs the same installer options you can type yourself.
+# ============================================================================
+menu_pause() { [ -t 0 ] && { read -r -p "  Press Enter to go back... " _ || true; }; return 0; }
+menu_run() { echo; bash "$SCRIPT_DIR/installer.sh" "$@"; local rc=$?; echo; menu_pause; return $rc; }
+menu_read() {   # prompt -> sets REPLY_MENU; returns 1 at end of input
+    local a; read -r -p "  $1 " a || return 1; REPLY_MENU="$(echo "$a" | tr -d '[:space:]')"; return 0
+}
+menu_item() { if [ -n "$3" ]; then printf '   %s) %-28s %b%s%b\n' "$1" "$2" "$DIM" "$3" "$NC"; else printf '   %s) %s\n' "$1" "$2"; fi; }
+
+addon_status() {   # name -> installed|running|not installed
+    case "$1" in
+        screen)   [ -d "$KS_DIR" ] && { [ "$(service_state KlipperScreen)" = active ] && echo running || echo installed; } || echo "not installed" ;;
+        webcam)   [ -d "$HOME_DIR/crowsnest" ] && { [ "$(service_state crowsnest)" = active ] && echo running || echo installed; } || echo "not installed" ;;
+        timelapse) [ -d "$HOME_DIR/moonraker-timelapse" ] && echo installed || echo "not installed" ;;
+        shell-command) [ -f "$HOME_DIR/klipper/klippy/extras/gcode_shell_command.py" ] && echo installed || echo "not installed" ;;
+        obico|octoapp|octoeverywhere)
+            local d=$1 sv=$1; [ "$1" = obico ] && { d=moonraker-obico; sv=moonraker-obico; }
+            [ -d "$HOME_DIR/$d" ] && { if [ "$TESTING" = 1 ]; then echo installed; elif [ "$(service_state "$sv")" = active ]; then echo running; else echo "downloaded, not running"; fi; } || echo "not installed" ;;
+    esac
+}
+
+menu_status() {
+    if [ -d "$HOME_DIR/kiauh" ]; then print_warning "KIAUH was found on this Pi. Do not use it for Klipper or Moonraker here: it installs the stock versions and would break WonderMaker's compiled modules. This installer manages the WonderMaker versions."; fi
+    if [ ! -f "$CONF" ]; then print_info "Not installed yet. Choose 1 to install."; return 0; fi
+    echo "  Klipper: $(service_state klipper)   Moonraker: $(service_state moonraker)   nginx: $(service_state nginx)"
+    local ps; ps="$(print_state)"; case "$ps" in printing|paused) print_warning "A print is active ($ps): changes are blocked until it ends." ;; esac
+    if [ -d "$REPO_DIR/.git" ] && command -v git >/dev/null 2>&1; then
+        [ -n "${WM_TEST_NO_FETCH:-}" ] || timeout 6 git -C "$REPO_DIR" fetch --quiet 2>/dev/null
+        local up behind; up="$(git -C "$REPO_DIR" rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null)"; [ -n "$up" ] || up=origin/main
+        behind="$(git -C "$REPO_DIR" rev-list --count "HEAD..$up" 2>/dev/null)"
+        if [ "${behind:-0}" -gt 0 ] 2>/dev/null; then print_info "$behind new change(s) on GitHub (version $(git -C "$REPO_DIR" show "$up:VERSION" 2>/dev/null | head -1)). Choose 2 to see them and update."; fi
+    fi
+}
+
+menu_updates() {
+    while true; do
+        echo; echo "  Update"
+        menu_item 1 "See what is new" "Reads GitHub, changes nothing"
+        menu_item 2 "Update now" "git pull, then update services, packages, panel and add-ons (printer_data is kept)"
+        menu_item 0 "Back" ""
+        menu_read "Choose:" || return 0
+        case "$REPLY_MENU" in
+            1) menu_run --check-updates ;;
+            2) if [ -d "$REPO_DIR/.git" ]; then
+                   git -C "$REPO_DIR" pull --ff-only || { print_error "git pull failed. Save or discard local changes in $REPO_DIR and try again."; menu_pause; continue; }
+               else print_warning "This folder is not a git clone: skipping the download step."; fi
+               bash "$SCRIPT_DIR/installer.sh" --update; echo; menu_pause
+               exec bash "$SCRIPT_DIR/installer.sh" --menu ;;   # restart the menu so the new version is the one running
+            0|"") return 0 ;;
+            *) echo "  Choose a number from the list." ;;
+        esac
+    done
+}
+
+menu_addons() {
+    local k items=(screen webcam timelapse shell-command obico octoapp octoeverywhere)
+    declare -A label=([screen]="Touchscreen (KlipperScreen)" [webcam]="Webcam (crowsnest)" [timelapse]="Timelapse" [shell-command]="Klipper gcode shell command" [obico]="Obico for Klipper" [octoapp]="OctoApp" [octoeverywhere]="OctoEverywhere")
+    declare -A help=([screen]="Screen plugged into the Pi, with the ZR Tools page" [webcam]="USB camera streams for Fluidd" [timelapse]="Moonraker timelapse + ffmpeg" [shell-command]="RUN_SHELL_COMMAND: run Linux commands from G-code" [obico]="Remote view and failure detection (obico.io account)" [octoapp]="Phone app notifications and control" [octoeverywhere]="Remote access, webcam and notifications (free account)")
+    while true; do
+        echo; echo "  Add-ons"
+        local n=0; for k in "${items[@]}"; do n=$((n+1)); menu_item "$n" "${label[$k]}" "[$(addon_status "$k")] ${help[$k]}"; done
+        menu_item 0 "Back" ""
+        menu_read "Choose one to install or remove:" || return 0
+        [ "$REPLY_MENU" = 0 ] || [ -z "$REPLY_MENU" ] && return 0
+        if ! [[ "$REPLY_MENU" =~ ^[1-7]$ ]]; then echo "  Choose a number from the list."; continue; fi
+        k="${items[$((REPLY_MENU-1))]}"; local st; st="$(addon_status "$k")"
+        if [ "$st" = "not installed" ]; then
+            ask_yn "Install ${label[$k]}?" n || continue
+            case "$k" in
+                screen) menu_run --update --screen on ;;
+                webcam) menu_run --update --webcam on ;;
+                timelapse) menu_run --update --timelapse on ;;
+                *) menu_run --update "--$k" on ;;
+            esac
+        else
+            case "$k" in
+                webcam|timelapse) echo "  ${label[$k]} is installed. To stop it: sudo systemctl disable --now $([ "$k" = webcam ] && echo crowsnest || echo moonraker) (timelapse is a Moonraker component; leave it unless you know you do not want it)."; menu_pause ;;
+                screen) ask_yn "Remove KlipperScreen from this Pi (Klipper, Moonraker and Fluidd stay)?" n && menu_run --screen-remove ;;
+                *) menu_run --remove "$k" ;;
+            esac
+        fi
+    done
+}
+
+menu_fix() {
+    while true; do
+        echo; echo "  Check and fix"
+        menu_item 1 "Doctor" "Finds problems, explains them, offers a fix for each (asks first)"
+        menu_item 2 "Repair" "Puts back services, nginx files, the can0 rule and groups (data untouched)"
+        menu_item 3 "Hardware test" "Read-only live test: USB bridge, can0, CAN devices, camera, services"
+        menu_item 4 "Quick check" "Report problems, change nothing"
+        menu_item 0 "Back" ""
+        menu_read "Choose:" || return 0
+        case "$REPLY_MENU" in 1) menu_run --doctor ;; 2) menu_run --repair ;; 3) menu_run --hw-test ;; 4) menu_run --check ;; 0|"") return 0 ;; *) echo "  Choose a number from the list." ;; esac
+    done
+}
+
+menu_backup() {
+    while true; do
+        echo; echo "  Backup and restore"
+        menu_item 1 "Back up my settings" "Saves config, calibration and database to ~/wm-backups (copy it off the Pi)"
+        menu_item 2 "Restore a backup" "Asks for the file; a safety copy is made first"
+        menu_item 3 "Undo the last install" "Puts back the folders the installer moved aside"
+        menu_item 0 "Back" ""
+        menu_read "Choose:" || return 0
+        case "$REPLY_MENU" in
+            1) menu_run --backup ;;
+            2) menu_read "Path of the .tgz file (Enter to cancel):" || return 0; [ -n "$REPLY_MENU" ] && menu_run --restore "$REPLY_MENU" ;;
+            3) menu_run --undo ;;
+            0|"") return 0 ;; *) echo "  Choose a number from the list." ;;
+        esac
+    done
+}
+
+menu_screen() {
+    while true; do
+        echo; echo "  Touchscreen settings   [$(addon_status screen)]"
+        menu_item 1 "Layout: tabs" "Big buttons with bottom tabs (default)"
+        menu_item 2 "Layout: grid" "Cards on a home page"
+        menu_item 3 "Screen test" "Read-only: shows the screen found, its size and wide or tall"
+        menu_item 4 "Remove KlipperScreen" "Klipper, Moonraker and Fluidd stay"
+        menu_item 0 "Back" ""
+        menu_read "Choose:" || return 0
+        case "$REPLY_MENU" in
+            1) menu_run --screen-layout tabs ;; 2) menu_run --screen-layout grid ;; 3) menu_run --screen-test ;;
+            4) ask_yn "Remove KlipperScreen?" n && menu_run --screen-remove ;;
+            0|"") return 0 ;; *) echo "  Choose a number from the list." ;;
+        esac
+    done
+}
+
+menu_advanced() {
+    while true; do
+        echo; echo "  Advanced"
+        menu_item 1 "First start" "With the main board connected: checks, then starts Klipper"
+        menu_item 2 "Stop Klipper" "Stops Klipper and keeps it from starting at boot"
+        menu_item 3 "Support bundle" "A scrubbed .tgz of logs and config to share when asking for help"
+        menu_item 4 "Uninstall" "Removes what the installer added to the system (your files in ~ stay)"
+        menu_item 0 "Back" ""
+        menu_read "Choose:" || return 0
+        case "$REPLY_MENU" in
+            1) menu_run --first-start ;; 2) menu_run --disable-klipper ;; 3) menu_run --support-bundle ;; 4) menu_run --uninstall ;;
+            0|"") return 0 ;; *) echo "  Choose a number from the list." ;;
+        esac
+    done
+}
+
+do_menu() {
+    load_answers || true
+    while true; do
+        echo; menu_status; echo
+        menu_item 1 "Install or reinstall" "Sets up Klipper, Moonraker and Fluidd; asks a few plain questions"
+        menu_item 2 "Update" "See what is new, then update (your printer_data is kept)"
+        menu_item 3 "Add-ons" "Touchscreen, webcam, timelapse, shell command, Obico, OctoApp, OctoEverywhere"
+        menu_item 4 "Check and fix" "Doctor, repair, hardware test"
+        menu_item 5 "Backup and restore" "Save and restore config, calibration and database"
+        menu_item 6 "Touchscreen settings" "Layout, screen test, remove"
+        menu_item 7 "Advanced" "First start, stop Klipper, support bundle, uninstall"
+        menu_item 0 "Exit" ""
+        menu_read "Choose:" || { echo; return 0; }
+        case "$REPLY_MENU" in
+            1) ask_yn "Run the install now? It asks its own questions first." y && menu_run --install ;;
+            2) menu_updates ;; 3) menu_addons ;; 4) menu_fix ;; 5) menu_backup ;; 6) menu_screen ;; 7) menu_advanced ;;
+            0|q|Q|"") return 0 ;;
+            *) echo "  Choose a number from the list." ;;
+        esac
+    done
+}
+
 # ============================================================================
 # Main
 # ============================================================================
 echo -e "${BLUE}WonderMaker Ultra Raspberry Pi replacement - installer $VERSION${NC}"
 [ "$DRY" = 1 ] && print_info "DRY RUN: nothing will be changed."
+# No options on a Pi that is already installed, at a terminal: open the menu.
+if [ "$ORIG_ARGC" = 0 ] && [ "$MODE" = install ] && [ -f "$CONF" ] && [ -t 0 ] && [ -t 1 ] && [ "${WM_ASSUME_YES:-0}" != 1 ]; then MODE=menu; fi
 case "$MODE" in
+    menu)       do_menu; exit 0 ;;
+    remove)     do_remove_addon; exit $? ;;
     check)      do_check; exit 0 ;;
     firststart) do_first_start ask; exit $? ;;
     hwtest)     do_hw_test; exit 0 ;;

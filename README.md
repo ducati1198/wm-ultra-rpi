@@ -42,6 +42,7 @@ Run these in `~/wm-ultra-rpi` on the Pi.
 | I want to... | Run | What happens to my data |
 |---|---|---|
 | **Check** that everything is fine | `./installer.sh --doctor` | Nothing changes unless you accept a fix |
+| Do any of this from a **menu** | `./installer.sh` (on a Pi that is already installed) or `./installer.sh --menu` | Same as the options below; nothing changes until you pick something and confirm |
 | See what is new first | `./installer.sh --check-updates` | Nothing is changed |
 | **Update** to the latest version | `git pull && ./installer.sh --update` | Kept: `printer_data`, calibration, settings |
 | **Repair** a broken service, nginx or can0 rule | `./installer.sh --repair` | Kept |
@@ -567,3 +568,28 @@ OctoApp and OctoEverywhere ask questions while they install, so the installer on
 - Each add-on adds an `[update_manager ...]` section to `moonraker.conf`. WonderMaker's Klipper and Moonraker are not git clones, so Fluidd may list them as not updatable or invalid. Do not press update on those two; use `./installer.sh --update`.
 - `./installer.sh --update` does not run these installers again once installed; update them from Fluidd or with `git pull` in their folder. `--doctor` checks they are downloaded and running.
 - `./installer.sh --uninstall` does not remove them (they are linked to your accounts). Use `cd ~/octoapp && ./uninstall.sh`, `cd ~/octoeverywhere && ./uninstall.sh`, or the Uninstall steps in `~/moonraker-obico/README.md`.
+
+## The menu
+
+On a Pi that is already installed, `./installer.sh` with no options at a terminal opens a numbered menu (`./installer.sh --menu` opens it any time). A first-time install goes straight to the install questions as before; `./installer.sh --install` runs the normal install and skips the menu. Each menu entry runs the same installer option you could type yourself, so nothing works differently from the command line.
+
+```
+WonderMaker Ultra Raspberry Pi replacement - installer 1.6.0
+  Klipper: active   Moonraker: active   nginx: active
+  3 new change(s) on GitHub (version 1.6.1). Choose 2 to see them and update.
+
+   1) Install or reinstall         Sets up Klipper, Moonraker and Fluidd; asks a few plain questions
+   2) Update                       See what is new, then update (your printer_data is kept)
+   3) Add-ons                      Touchscreen, webcam, timelapse, shell command, Obico, OctoApp, OctoEverywhere
+   4) Check and fix                Doctor, repair, hardware test
+   5) Backup and restore           Save and restore config, calibration and database
+   6) Touchscreen settings         Layout, screen test, remove
+   7) Advanced                     First start, stop Klipper, support bundle, uninstall
+   0) Exit
+```
+
+- **Status on top:** the version, whether Klipper, Moonraker and nginx are running, and (if the Pi is online) whether GitHub has newer changes.
+- **A print stops changes:** while a print is running the menu says so and every entry that changes something refuses, as the command line does. Looking (status, quick check) still works.
+- **Add-ons** shows `[installed]`, `[running]` or `[not installed]` for each add-on. Pick one to install it, or to remove it after a confirmation (`./installer.sh --remove obico|octoapp|octoeverywhere|shell-command`). Removing uses the makers' own uninstallers where they have one; your account on their website stays. Removing Obico also removes the include line it added to `printer.cfg` (a copy is saved first), because Klipper would not start with it pointing at a deleted file. Removing the shell command extension is refused while `printer.cfg` still has a `[gcode_shell_command ...]` section.
+- **KIAUH:** if `~/kiauh` exists the menu warns you. KIAUH installs stock Klipper and Moonraker and would break WonderMaker's compiled modules; this installer manages the WonderMaker versions.
+- `./installer.sh --webcam on|off` and `--timelapse on|off` (with `--update`) are the matching options for those two add-ons.

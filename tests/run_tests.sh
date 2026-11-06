@@ -126,6 +126,30 @@ OUT="$(printf 'y\n' | WM_HOME="$HR" WM_INSTALLER_TEST=1 bash "$ROOT/installer.sh
 check "--uninstall leaves the add-ons and says how to remove them" "[ -d $HR/moonraker-obico ] && echo \"$OUT\" | grep -q 'NOT removed'"
 check "the maker installers' own repos are the ones used" "grep -q 'TheSpaghettiDetective/moonraker-obico' $ROOT/installer.sh && grep -q 'crysxd/OctoApp-Plugin' $ROOT/installer.sh && grep -q 'QuinnDamerell/OctoPrint-OctoEverywhere' $ROOT/installer.sh"
 
+echo "== menu and --remove"
+M() { printf "$1" | WM_TEST_NO_FETCH=1 WM_HOME="$2" WM_INSTALLER_TEST=1 bash "$ROOT/installer.sh" "${@:3}" 2>&1; }
+check "--menu on a home with no install says not installed" "mkdir -p $T/mempty && M '0\n' $T/mempty --menu | grep -q 'Not installed yet'"
+check "--menu shows every section" "M '0\n' $HR --menu | grep -q 'Install or reinstall' && M '0\n' $HR --menu | grep -q 'Backup and restore' && M '0\n' $HR --menu | grep -q 'Add-ons'"
+check "--menu shows the version and service status" "M '0\n' $HR --menu | grep -q 'Klipper:' && M '0\n' $HR --menu | grep -q 'installer 1\\.'"
+check "menu: exit with 0, and at end of input" "M '0\n' $HR --menu >/dev/null && M '' $HR --menu >/dev/null"
+check "menu: a wrong choice is explained, not fatal" "M 'x\n9\n0\n' $HR --menu | grep -c 'Choose a number' | grep -q 2"
+check "menu: add-ons page lists status of each add-on" "M '3\n0\n0\n' $HR --menu | grep -q 'Obico for Klipper.*installed' && M '3\n0\n0\n' $HR --menu | grep -q 'OctoEverywhere' && M '3\n0\n0\n' $HR --menu | grep -q 'gcode shell command'"
+check "menu: check-and-fix runs the doctor" "M '4\n1\n0\n0\n' $HR --menu | grep -q 'Doctor\\|doctor\\|Check'"
+check "menu: touchscreen settings runs the screen test" "WM_TEST_SCREEN=800x480 WM_TEST_TOUCH=0 M '6\n3\n0\n0\n' $HR --menu | grep -q 'Orientation'"
+check "menu warns when KIAUH is on the Pi" "mkdir -p $HR/kiauh && M '0\n' $HR --menu | grep -q 'KIAUH'; rmdir $HR/kiauh"
+check "menu: nothing is installed by merely opening and leaving it" "[ ! -e $HR/.menu-touched ]"
+check "menu shows a print in progress" "WM_TEST_PRINT_STATE=printing M '0\n' $HR --menu | grep -q 'print is active'"
+check "--install is accepted (skips the menu)" "bash $ROOT/installer.sh --help | grep -q -- '--install'"
+check "--remove needs a known name" "! M 'y\n' $HR --remove nothing"
+check "--remove asks first and keeps everything on no" "M 'n\n' $HR --remove obico | grep -q 'Nothing changed' && [ -d $HR/moonraker-obico ]"
+check "--remove obico removes its folder and is remembered" "M 'y\n' $HR --remove obico | grep -q 'removed' && [ ! -e $HR/moonraker-obico ] && grep -q 'WANT_OBICO=0' $HR/wm-rpi-backup/install.conf"
+inst "$HR" --update --shell-command on >/dev/null
+mkdir -p "$HR/printer_data/config"; printf '[gcode_shell_command hi]\ncommand: echo hi\n' > "$HR/printer_data/config/x.cfg"
+check "--remove shell-command refuses while printer.cfg still uses it" "! M 'y\n' $HR --remove shell-command"
+rm -f "$HR/printer_data/config/x.cfg"
+check "--remove shell-command removes the file" "M 'y\n' $HR --remove shell-command | grep -q 'Removed' && [ ! -e $HR/klipper/klippy/extras/gcode_shell_command.py ]"
+check "--webcam off is accepted with --update" "inst $HR --update --webcam off | grep -q 'Update finished'"
+
 echo "== check-updates and zr_tools.cfg backup"
 mkdir -p "$T/cu"; ( cd "$T/cu" && git init -q --bare origin.git && git clone -q origin.git work 2>/dev/null && cd work && git config user.email t@t && git config user.name t && echo 1.0.0 > VERSION && git add -A && git commit -q -m first && git push -q origin HEAD:main 2>/dev/null; git branch -q -M main; git push -q -u origin main 2>/dev/null; cd .. && git clone -q origin.git copy && cd copy && git checkout -q main 2>/dev/null; cd ../work && echo 1.1.0 > VERSION && git commit -q -am "new thing" && git push -q origin main )
 cp "$ROOT/installer.sh" "$T/cu/copy/installer.sh"
