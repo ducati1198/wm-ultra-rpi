@@ -212,7 +212,7 @@ OUT="$(M 'ERASE\n' $EX --remove erase)"
 check "erase: removes programs, printer data, TM_T1, backups, bundles, the old-board copy and the records" "echo \"$OUT\" | grep -q 'Everything was erased' && for d in klipper moonraker fluidd crowsnest printer_data TM_T1 wm-backups wm-stage wm-rpi-backup wm-support-1.tgz; do [ ! -e $EX/\$d ] || { echo left \$d; exit 1; }; done"
 check "erase: switches NetworkManager back (it was switched by the installer)" "grep -q 'systemctl enable dhcpcd' $EX/.sudo.log"
 check "erase: keeps the installer folder" "[ -f $ROOT/installer.sh ]"
-check "menu: the Uninstall page has All programs and Erase everything" "M '6\n0\n0\n' $CU --menu | grep -q 'All programs' && M '6\n0\n0\n' $CU --menu | grep -q 'Erase everything'"
+check "menu: the Uninstall page has All programs and Erase everything" "M '6\n0\n0\n' $EX --menu | grep -q 'All programs' && M '6\n0\n0\n' $EX --menu | grep -q 'Erase everything'"
 check "uninstall: --help lists every name" "bash $ROOT/installer.sh --help | grep -q 'octoeverywhere, fluidd, moonraker, klipper, data, system'"
 
 
@@ -670,5 +670,21 @@ check "preflight says NOT READY on a machine that is not the board" "[ $PFRC = 1
 remote_part() { awk '/read -r -d .. REMOTE/{f=1} f{print} /^RSH/{f=0}' "$PF" | grep -v 'apt-get -s'; }
 check "preflight read-only part has no write/install commands" "! remote_part | grep -E 'apt-get (install|upgrade)|rm -rf|systemctl (stop|disable|start|enable)|dpkg -i'"
 check "preflight read-only part is not empty" "[ \$(remote_part | wc -l) -gt 50 ]"
+
+# --- Klippain Shake&Tune add-on and remote-access questions removed from the install ---
+mkstage "$T/stage_hk"; HK="$T/hk"; mkdir -p "$HK"; inst "$HK" --from-stage "$T/stage_hk" --screen off >/dev/null
+check "--shaketune needs on or off" "! bash $ROOT/installer.sh --shaketune maybe"
+check "--help mentions --shaketune" "bash $ROOT/installer.sh --help | grep -q shaketune"
+check "shaketune is pinned" "grep -q '^shaketune|https://github.com/Frix-x/klippain-shaketune|[0-9a-f]\\{40\\}' $ROOT/config/pins/addons.txt"
+printf "[server]\n" > "$HK/printer_data/config/moonraker.conf"; : > "$HK/.sudo.log"
+OUT="$(inst "$HK" --update --shaketune on)"
+check "--shaketune on installs the extension link and config" "[ -L $HK/klipper/klippy/extras/shaketune ] && [ -f $HK/printer_data/config/shaketune.cfg ]"
+check "--shaketune on adds include and update manager, with a printer.cfg copy" "grep -q 'include shaketune.cfg' $HK/printer_data/config/printer.cfg && grep -q 'Klippain-ShakeTune' $HK/printer_data/config/moonraker.conf && ls $HK/printer_data/config/printer.cfg.wm-before-shaketune-* >/dev/null"
+check "--shaketune on never restarts klipper" "! grep -q 'restart klipper' $HK/.sudo.log"
+check "--shaketune is remembered" "grep -rq 'WANT_SHAKETUNE=1' $HK/wm-rpi-backup"
+check "--remove shaketune removes it" "M 'y\\n' $HK --remove shaketune | grep -q 'removed' && [ ! -e $HK/klipper/klippy/extras/shaketune ] && ! grep -q 'shaketune.cfg' $HK/printer_data/config/printer.cfg"
+OUT="$(inst "$T/hq" --dry-run --from-stage "$T/stage_hk" --model ultra-s --screen off)"
+check "the plan shows Shake&Tune" "echo \"\$OUT\" | grep -qi 'shake&tune'"
+check "the install does not ask about Obico, OctoApp or OctoEverywhere" "! M '\\n\\n\\n\\n\\n' $T/hq2 --dry-run | grep -qi 'Do you want.*\\(obico\\|octoapp\\|octoeverywhere\\)'"
 
 echo; echo "passed: $PASS  failed: $FAIL"; [ "$FAIL" = 0 ]

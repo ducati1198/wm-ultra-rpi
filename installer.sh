@@ -30,10 +30,11 @@
 # ./installer.sh --shell-command on|off   the Klipper "gcode shell command" extension (RUN_SHELL_COMMAND CMD=name runs a Linux command from G-code). Installed automatically; off skips it
 # ./installer.sh --menu                numbered menu (install, update, add-ons, check and fix, backup, screen, advanced). Opens by itself when you run ./installer.sh with no options on a Pi that is already installed
 # ./installer.sh --install             the normal install (skips the menu)
-# ./installer.sh --remove NAME         remove something after asking: screen, network-manager, webcam, timelapse, shell-command, obico, octoapp, octoeverywhere, fluidd, moonraker, klipper, data, system, cleanup (installer files: old backups, support bundles, saved copies, the installer folder), all (every program; keeps your printer data, backups and installer files) or erase (everything, including your printer data and backups; keeps only the installer folder)
+# ./installer.sh --remove NAME         remove something after asking: screen, network-manager, webcam, timelapse, shell-command, shaketune, obico, octoapp, octoeverywhere, fluidd, moonraker, klipper, data, system, cleanup (installer files: old backups, support bundles, saved copies, the installer folder), all (every program; keeps your printer data, backups and installer files) or erase (everything, including your printer data and backups; keeps only the installer folder)
 # ./installer.sh --webcam on|off       crowsnest webcam service;  --timelapse on|off   Moonraker timelapse (both used with --update)
 # ./installer.sh --obico-server URL    which Obico to connect to: https://app.obico.io (Obico's website, the default) or your own self-hosted server. Asked when you choose Obico
 # ./installer.sh --network-manager on|off   NetworkManager for KlipperScreen's Network panel (default off: it can drop the network connection until the Pi is restarted). Add it later with: ./installer.sh --update --network-manager on
+# ./installer.sh --shaketune on|off    Klippain Shake&Tune (input shaper and vibration graphs, by Frix-x). Add-on only: not asked during the install
 # ./installer.sh --obico on|off        optional remote access: Obico for Klipper (moonraker-obico). Also --octoapp on|off and --octoeverywhere on|off. Each is asked (default no)
 # ./installer.sh --screen on|off|macros   KlipperScreen on the Pi (on), nothing (off), or only the ZR Tools macros (macros: for the WonderMaker screen board). Asked if not given; default on
 # ./installer.sh --screen-layout tabs|grid   touch layout: tabs = big buttons + bottom tabs (default), grid = card grid
@@ -67,7 +68,7 @@ TESTING="${WM_INSTALLER_TEST:-0}"        # 1 = no sudo, no apt, no systemctl, no
 MODE="install"
 DRY=0
 SRC_KIND=""; SRC_ARG=""; MODEL="ultra-s"; MODULES_DIR=""; FROM_FACTORY=0
-WANT_PANEL=1; WANT_SCREEN=ask; WANT_TIMELAPSE=1; WANT_CROWSNEST=1; CLI_REMOTE=""; WANT_SHELLCMD=1; OBICO_SERVER=""; CLI_OBICO_SERVER=""; WANT_OBICO=ask; WANT_OCTOAPP=ask; WANT_OCTOEVERYWHERE=ask; WANT_NETMGR=ask
+WANT_PANEL=1; WANT_SCREEN=ask; WANT_TIMELAPSE=1; WANT_CROWSNEST=1; CLI_REMOTE=""; WANT_SHELLCMD=1; OBICO_SERVER=""; CLI_OBICO_SERVER=""; WANT_OBICO=ask; WANT_OCTOAPP=ask; WANT_OCTOEVERYWHERE=ask; WANT_NETMGR=ask; WANT_SHAKETUNE=0
 SCREEN_LAYOUT=""; SCREEN_BACKEND="x11"; REPO_DIR="$SCRIPT_DIR"
 STAMP="$(date +%Y%m%d-%H%M%S)"
 BACKUP_ROOT="$HOME_DIR/wm-rpi-backup"
@@ -143,6 +144,7 @@ while [ $# -gt 0 ]; do
         --obico)        case "${2:-}" in on|yes|1) WANT_OBICO=1 ;; off|no|0) WANT_OBICO=0 ;; *) print_error "--obico needs on or off"; exit 1 ;; esac; CLI_REMOTE="$CLI_REMOTE obico"; CLI_OBICO="$WANT_OBICO"; shift ;;
         --octoapp)      case "${2:-}" in on|yes|1) WANT_OCTOAPP=1 ;; off|no|0) WANT_OCTOAPP=0 ;; *) print_error "--octoapp needs on or off"; exit 1 ;; esac; CLI_REMOTE="$CLI_REMOTE octoapp"; CLI_OCTOAPP="$WANT_OCTOAPP"; shift ;;
         --network-manager) case "${2:-}" in on|yes|1) WANT_NETMGR=1 ;; off|no|0) WANT_NETMGR=0 ;; *) print_error "--network-manager needs on or off"; exit 1 ;; esac; CLI_REMOTE="$CLI_REMOTE netmgr"; CLI_NETMGR="$WANT_NETMGR"; shift ;;
+        --shaketune)    case "${2:-}" in on|yes|1) WANT_SHAKETUNE=1 ;; off|no|0) WANT_SHAKETUNE=0 ;; *) print_error "--shaketune needs on or off"; exit 1 ;; esac; CLI_REMOTE="$CLI_REMOTE shaketune"; CLI_SHAKETUNE="$WANT_SHAKETUNE"; shift ;;
         --octoeverywhere) case "${2:-}" in on|yes|1) WANT_OCTOEVERYWHERE=1 ;; off|no|0) WANT_OCTOEVERYWHERE=0 ;; *) print_error "--octoeverywhere needs on or off"; exit 1 ;; esac; CLI_REMOTE="$CLI_REMOTE octoeverywhere"; CLI_OCTOEVERYWHERE="$WANT_OCTOEVERYWHERE"; shift ;;
         --screen)       case "${2:-}" in on|yes|1) WANT_SCREEN=1 ;; off|no|0) WANT_SCREEN=0 ;; macros) WANT_SCREEN=macros ;; *) print_error "--screen needs on, off or macros"; exit 1 ;; esac; shift ;;
         --screen-layout) case "${2:-}" in tabs|grid) SCREEN_LAYOUT="$2" ;; *) print_error "--screen-layout needs tabs or grid"; exit 1 ;; esac; shift ;;
@@ -738,6 +740,45 @@ step_shellcmd() {   # Arksine's gcode_shell_command module (GPLv3), copied from 
 }
 
 # ---------------------------------------------------------------------------
+# Klippain Shake&Tune (Frix-x): input shaper and vibration graphs. The maker's install.sh restarts Klipper and Moonraker by itself (it would
+# start Klipper before the main board is connected, or interrupt a print), so the same steps are done here, without the restarts.
+# ---------------------------------------------------------------------------
+step_shaketune() {
+    [ "$WANT_SHAKETUNE" = 1 ] || return 0
+    print_header "Klippain Shake&Tune"
+    why "Adds Shake&Tune's graphs and commands (AXES_SHAPER_CALIBRATION, ...) to Klipper. WonderMaker's config already has the lis2dw accelerometer and [resonance_tester] it needs. Not yet tried on a WonderMaker printer."
+    local dir="$HOME_DIR/klippain_shaketune" ext="$HOME_DIR/klipper/klippy/extras/shaketune" cfgd="$HOME_DIR/printer_data/config" pin url sha
+    [ "$DRY" = 1 ] || [ -d "$HOME_DIR/klipper/klippy/extras" ] || { warn_later "Shake&Tune needs ~/klipper. Run ./installer.sh --update first."; return 0; }
+    [ "$DRY" = 1 ] || [ "$TESTING" = 1 ] || [ -x "$HOME_DIR/klippy-env/bin/pip" ] || { warn_later "Shake&Tune needs ~/klippy-env. Run ./installer.sh --repair."; return 0; }
+    if [ -L "$ext" ] && [ -d "$dir/.git" ] && [ "$DRY" != 1 ] && [ "$TESTING" != 1 ]; then print_success "Shake&Tune is already installed (update it from Fluidd's update manager)"; return 0; fi
+    pin="$(addon_pin shaketune)"; url="${pin%|*}"; sha="${pin#*|}"
+    SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y libopenblas-dev || { warn_later "libopenblas-dev could not be installed (network?). Shake&Tune was not installed."; return 0; }
+    fetch_addon "$url" "$sha" "$dir" || { warn_later "Could not download Shake&Tune (network?). Run ./installer.sh --update --shaketune on to retry."; return 0; }
+    if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would run: pip install -r requirements.txt (in ~/klippy-env), link shaketune into klippy/extras, add shaketune.cfg and the update manager section${NC}"; return 0; fi
+    if [ "$TESTING" = 1 ]; then mkdir -p "$dir/shaketune"; echo "[test] shaketune pip install -r requirements.txt" >> "$HOME_DIR/.sudo.log"
+    else
+        "$HOME_DIR/klippy-env/bin/pip" install -q -r "$dir/requirements.txt" || { warn_later "Shake&Tune's Python packages did not install (numpy, matplotlib; this can need a few minutes and a network). Run ./installer.sh --update --shaketune on to retry."; return 0; }
+    fi
+    ln -frsn "$dir/shaketune" "$ext"
+    if [ "$TESTING" != 1 ] && ! module_imports shaketune; then
+        rm -f "$ext"
+        warn_later "Shake&Tune does not load in this Klipper (import failed), so it was NOT linked and Klipper is unchanged. Details: cd ~/klipper/klippy && ~/klippy-env/bin/python -c 'import sys; sys.path.insert(0, \".\"); import extras.shaketune'"
+        return 0
+    fi
+    record "HOMEDIR klippain_shaketune"
+    [ -f "$cfgd/shaketune.cfg" ] || printf '[shaketune]\n# result_folder: ~/printer_data/config/ShakeTune_results\n# number_of_results_to_keep: 10\n# keep_raw_data: False\n' > "$cfgd/shaketune.cfg"
+    if [ -f "$cfgd/printer.cfg" ] && ! grep -rqs '^\[shaketune\]\|include shaketune.cfg' "$cfgd/printer.cfg"; then
+        cp "$cfgd/printer.cfg" "$cfgd/printer.cfg.wm-before-shaketune-$STAMP"; printf '\n[include shaketune.cfg]\n' >> "$cfgd/printer.cfg"
+        print_info "Added [include shaketune.cfg] to printer.cfg (copy: printer.cfg.wm-before-shaketune-$STAMP)"
+    fi
+    if [ -f "$cfgd/moonraker.conf" ] && ! grep -q '\[update_manager[a-z ]* Klippain-ShakeTune\]' "$cfgd/moonraker.conf"; then
+        printf '\n## Klippain Shake&Tune automatic update management\n[update_manager Klippain-ShakeTune]\ntype: git_repo\norigin: https://github.com/Frix-x/klippain-shaketune.git\npath: ~/klippain_shaketune\nvirtualenv: %s/klippy-env\nrequirements: requirements.txt\nsystem_dependencies: system-dependencies.json\nprimary_branch: main\nmanaged_services: klipper\n' "$HOME_DIR" >> "$cfgd/moonraker.conf"
+    fi
+    grep -rqs '^\[resonance_tester\]' "$cfgd" || warn_later "Shake&Tune needs [resonance_tester] and an accelerometer (lis2dw or adxl345) in your Klipper config; none was found in ~/printer_data/config."
+    print_success "Shake&Tune installed. Restart Klipper from Fluidd (config reload) to load it, then run for example: AXES_SHAPER_CALIBRATION (see github.com/Frix-x/klippain-shaketune). Graphs go to ~/printer_data/config/ShakeTune_results."
+}
+
+# ---------------------------------------------------------------------------
 # Remote access add-ons: Obico, OctoApp, OctoEverywhere. Each is the maker's own project, cloned into ~ and installed with
 # the maker's own installer, pointed at WonderMaker's Moonraker (127.0.0.1:7125, ~/printer_data/config/moonraker.conf, moonraker.service).
 # Linking to your account always needs you (a code or a link shown on screen), so that last step is left to you.
@@ -926,17 +967,14 @@ questions() {
     ask_yn "Install the Fluidd with the WonderMaker Toolheads panel (recommended)?" y || WANT_PANEL=0
     ask_yn "Install webcam support (crowsnest, as WonderMaker uses)?" y || WANT_CROWSNEST=0
     ask_yn "Install timelapse support (Moonraker timelapse + ffmpeg)?" y || WANT_TIMELAPSE=0
-    local rname rvar rtext
-    for rname in obico octoapp octoeverywhere; do
-        case "$rname" in
-            obico)          rvar=WANT_OBICO;          rtext="Obico for Klipper (remote view and print-failure detection; account at obico.io or your own server)" ;;
-            octoapp)        rvar=WANT_OCTOAPP;        rtext="OctoApp (phone app notifications and remote control)" ;;
-            octoeverywhere) rvar=WANT_OCTOEVERYWHERE; rtext="OctoEverywhere (remote access, webcam and notifications; free account)" ;;
-        esac
-        if [ "${!rvar}" = ask ]; then
-            if ask_yn "Install $rtext?" n; then printf -v "$rvar" 1; else printf -v "$rvar" 0; fi
-        fi
-    done
+    # Remote access (Obico, OctoApp, OctoEverywhere) is not asked here: each needs an account and its own questions.
+    # Add them afterwards in the menu (Add-ons), or give --obico on, --octoapp on, --octoeverywhere on to this install.
+    [ "$WANT_OBICO" = ask ] && WANT_OBICO=0
+    [ "$WANT_OCTOAPP" = ask ] && WANT_OCTOAPP=0
+    [ "$WANT_OCTOEVERYWHERE" = ask ] && WANT_OCTOEVERYWHERE=0
+    if [ "$WANT_OBICO$WANT_OCTOAPP$WANT_OCTOEVERYWHERE" = 000 ] && [ "${WM_ASSUME_YES:-0}" != 1 ]; then
+        print_info "Obico, OctoApp, OctoEverywhere and Shake&Tune are not part of this install. Add them any time: ./installer.sh, then Add-ons."
+    fi
     [ "$WANT_OBICO" = 1 ] && obico_choose_server
     if [ "$WANT_SCREEN" = ask ]; then
         local r t; read -r r t < <(detect_screen)
@@ -1081,6 +1119,7 @@ WANT_OBICO=$WANT_OBICO
 WANT_OCTOAPP=$WANT_OCTOAPP
 WANT_OCTOEVERYWHERE=$WANT_OCTOEVERYWHERE
 WANT_NETMGR=$WANT_NETMGR
+WANT_SHAKETUNE=$WANT_SHAKETUNE
 CROWSNEST_PIN=$(addon_pin crowsnest | cut -d'|' -f2)
 TIMELAPSE_PIN=$(addon_pin moonraker-timelapse | cut -d'|' -f2)
 PANEL_SHA=$([ -n "$PANEL_ZIP" ] && sha256sum "$PANEL_ZIP" 2>/dev/null | cut -d' ' -f1)
@@ -1093,11 +1132,11 @@ load_answers() {
         case "$k" in
             VERSION) OLD_VERSION="$v" ;; CROWSNEST_PIN) OLD_CN_PIN="$v" ;; TIMELAPSE_PIN) OLD_TL_PIN="$v" ;; PANEL_SHA) OLD_PANEL_SHA="$v" ;;
             MODEL) [ -n "${MODEL_SET:-}" ] || MODEL="$v" ;; SRC_KIND) : ;;
-            WANT_PANEL|WANT_SCREEN|WANT_TIMELAPSE|WANT_CROWSNEST|WANT_SHELLCMD|WANT_OBICO|WANT_OCTOAPP|WANT_OCTOEVERYWHERE|WANT_NETMGR|OBICO_SERVER) printf -v "$k" '%s' "$v" ;;
+            WANT_PANEL|WANT_SCREEN|WANT_TIMELAPSE|WANT_CROWSNEST|WANT_SHELLCMD|WANT_OBICO|WANT_OCTOAPP|WANT_OCTOEVERYWHERE|WANT_NETMGR|WANT_SHAKETUNE|OBICO_SERVER) printf -v "$k" '%s' "$v" ;;
             SCREEN_BACKEND) printf -v "$k" '%s' "$v" ;; KS_PIN) OLD_KS_PIN="$v" ;;
         esac
     done < "$CONF"
-    local r; for r in ${CLI_REMOTE:-}; do case "$r" in obico) WANT_OBICO="$CLI_OBICO" ;; octoapp) WANT_OCTOAPP="$CLI_OCTOAPP" ;; octoeverywhere) WANT_OCTOEVERYWHERE="$CLI_OCTOEVERYWHERE" ;; netmgr) WANT_NETMGR="$CLI_NETMGR" ;; webcam) WANT_CROWSNEST="$CLI_WEBCAM" ;; timelapse) WANT_TIMELAPSE="$CLI_TIMELAPSE" ;; esac; done
+    local r; for r in ${CLI_REMOTE:-}; do case "$r" in obico) WANT_OBICO="$CLI_OBICO" ;; octoapp) WANT_OCTOAPP="$CLI_OCTOAPP" ;; octoeverywhere) WANT_OCTOEVERYWHERE="$CLI_OCTOEVERYWHERE" ;; netmgr) WANT_NETMGR="$CLI_NETMGR" ;; shaketune) WANT_SHAKETUNE="$CLI_SHAKETUNE" ;; webcam) WANT_CROWSNEST="$CLI_WEBCAM" ;; timelapse) WANT_TIMELAPSE="$CLI_TIMELAPSE" ;; esac; done
     [ -n "${CLI_OBICO_SERVER:-}" ] && OBICO_SERVER="$CLI_OBICO_SERVER"
     [ -n "${CLI_SHELLCMD:-}" ] && WANT_SHELLCMD="$CLI_SHELLCMD"    # --shell-command on|off given now wins over the saved answer
     return 0
@@ -1114,6 +1153,7 @@ PLAN_OPTIONS=(
     "octoapp|WANT_OCTOAPP"
     "octoeverywhere|WANT_OCTOEVERYWHERE"
     "network manager|WANT_NETMGR"
+    "klippain shake&tune|WANT_SHAKETUNE"
 )
 show_plan() {
     print_header "Plan (nothing has been changed yet)"
@@ -1130,6 +1170,7 @@ show_plan() {
             1) val=yes ;; macros) val="only the ZR Tools macros" ;; ask) val="not chosen" ;; *) val=no ;;
         esac
         [ "$var" = WANT_OBICO ] && [ "$val" = yes ] && val="yes (server: ${OBICO_SERVER:-https://app.obico.io})"
+        case "$var:$val" in WANT_OBICO:no|WANT_OCTOAPP:no|WANT_OCTOEVERYWHERE:no|WANT_SHAKETUNE:no) val="no (add later: menu, Add-ons)" ;; esac
         printf '      %-16s %s\n' "$name" "$val"
     done
     [ "$AUTOSTART" = 1 ] && echo "  At the end:      Klipper, Moonraker, nginx and crowsnest are enabled and started (checks are shown; failures are reported)" \
@@ -1320,6 +1361,7 @@ do_update() {
     if [ "$WANT_NETMGR" = 1 ]; then step_netmgr; fi
     if [ "$WANT_TIMELAPSE" = 1 ]; then step_timelapse; fi
     if [ "$WANT_SHELLCMD" = 1 ]; then step_shellcmd; fi
+    if [ "$WANT_SHAKETUNE" = 1 ]; then step_shaketune; fi
     step_remote_update
     if [ "$WANT_CROWSNEST" = 1 ] && { [ "$(addon_pin crowsnest | cut -d'|' -f2)" != "${OLD_CN_PIN:-}" ] || [ ! -d "$HOME_DIR/crowsnest" ]; }; then step_crowsnest; fi
     save_answers
@@ -1678,6 +1720,17 @@ do_remove_addon() {
             [ "$name" != obico ] && moonraker_drop_update_section "$name"
             print_info "Restart Moonraker$([ "$name" = obico ] && echo " and Klipper") from Fluidd when you are ready." ;;
         screen) do_screen_remove ;;
+        shaketune)
+            [ -d "$HOME_DIR/klippain_shaketune" ] || [ -L "$HOME_DIR/klipper/klippy/extras/shaketune" ] || { print_info "Shake&Tune is not installed."; return 0; }
+            echo "  This removes Klippain Shake&Tune: the link in Klipper's extras, ~/klippain_shaketune, the [include shaketune.cfg] line in printer.cfg (a copy is kept) and its update manager section. Your results in ~/printer_data/config/ShakeTune_results stay. Klipper needs a restart afterwards."
+            ask_yn "Remove Shake&Tune?" n || { echo "Nothing changed."; return 0; }
+            # Shake&Tune has no uninstaller; these are the steps its README implies (remove [shaketune], the extras link, the folder, the update section)
+            if grep -q 'include shaketune.cfg' "$cfgd/printer.cfg" 2>/dev/null; then cp "$cfgd/printer.cfg" "$cfgd/printer.cfg.wm-before-shaketune-removal-$STAMP"; sed -i '/include shaketune.cfg/d' "$cfgd/printer.cfg"; print_info "Removed the Shake&Tune include from printer.cfg (copy: printer.cfg.wm-before-shaketune-removal-$STAMP)"; fi
+            if grep -rqs '^\[shaketune\]' "$cfgd/printer.cfg" 2>/dev/null; then print_warning "printer.cfg still has its own [shaketune] section. Klipper will not start without the extension: delete that section too."; fi
+            rm_path "$cfgd/shaketune.cfg" "$HOME_DIR/klipper/klippy/extras/shaketune" "$HOME_DIR/klippain_shaketune"
+            moonraker_drop_update_section Klippain-ShakeTune
+            WANT_SHAKETUNE=0; save_answers
+            print_success "Shake&Tune removed. Restart Klipper from Fluidd when you are ready." ;;
         network-manager)
             if [ ! -f "$NETMGR_STATE" ]; then print_info "This installer did not switch the Pi to NetworkManager (it was already in use, or never installed), so there is nothing to switch back. Not touching your network setup."; return 0; fi
             echo "  This switches the Pi back to dhcpcd: dhcpcd is enabled and NetworkManager is disabled. It takes effect at the next reboot; nothing restarts now. The network-manager package stays installed. KlipperScreen's Network panel stops working."
@@ -1752,7 +1805,7 @@ PY
         all)
             local word c any=0
             echo "  This is what will be removed (what is installed now):"
-            for c in screen webcam timelapse shell-command obico octoapp octoeverywhere fluidd moonraker klipper; do
+            for c in screen webcam timelapse shell-command shaketune obico octoapp octoeverywhere fluidd moonraker klipper; do
                 [ "$(addon_status "$c")" = "not installed" ] && continue
                 echo "    - $c  [$(addon_status "$c")]"; any=1
             done
@@ -1762,7 +1815,7 @@ PY
             echo "  Your printer data (~/printer_data), your backups and the installer files are NOT touched; remove them separately."
             read -r -p "  Type REMOVE (capital letters) to confirm, anything else cancels: " word || word=""
             [ "$word" = REMOVE ] || { echo "Nothing changed."; return 0; }
-            for c in screen webcam timelapse shell-command obico octoapp octoeverywhere fluidd moonraker klipper; do
+            for c in screen webcam timelapse shell-command shaketune obico octoapp octoeverywhere fluidd moonraker klipper; do
                 [ "$(addon_status "$c")" = "not installed" ] && continue
                 ( ARG1="$c"; REMOVE_CONFIRMED=1; FORCE=1; do_remove_addon )
             done
@@ -1772,7 +1825,7 @@ PY
         erase)
             local word c g paths f
             echo "  ERASE EVERYTHING. This is what will be deleted:"
-            for c in screen webcam timelapse shell-command obico octoapp octoeverywhere fluidd moonraker klipper; do
+            for c in screen webcam timelapse shell-command shaketune obico octoapp octoeverywhere fluidd moonraker klipper; do
                 [ "$(addon_status "$c")" = "not installed" ] && continue
                 echo "    - $c  [$(addon_status "$c")]"
             done
@@ -1787,7 +1840,7 @@ PY
             echo "  Each add-on's own uninstaller runs and may ask its own questions."
             read -r -p "  Type ERASE (capital letters) to confirm, anything else cancels: " word || word=""
             [ "$word" = ERASE ] || { echo "Nothing changed."; return 0; }
-            for c in screen webcam timelapse shell-command obico octoapp octoeverywhere fluidd moonraker klipper; do
+            for c in screen webcam timelapse shell-command shaketune obico octoapp octoeverywhere fluidd moonraker klipper; do
                 [ "$(addon_status "$c")" = "not installed" ] && continue
                 ( ARG1="$c"; REMOVE_CONFIRMED=1; FORCE=1; do_remove_addon )
             done
@@ -1804,7 +1857,7 @@ PY
                 done
             done
             print_success "Everything was erased. Kept: the installer folder ($REPO_DIR). Install again with: cd $REPO_DIR && ./installer.sh" ;;
-        *) die_with_fix "unknown name '${name}'." "use one of: screen, network-manager, webcam, timelapse, shell-command, obico, octoapp, octoeverywhere, fluidd, moonraker, klipper, data, system, cleanup, all, erase." ;;
+        *) die_with_fix "unknown name '${name}'." "use one of: screen, network-manager, webcam, timelapse, shell-command, shaketune, obico, octoapp, octoeverywhere, fluidd, moonraker, klipper, data, system, cleanup, all, erase." ;;
     esac
 }
 
@@ -1825,6 +1878,7 @@ addon_status() {   # name -> installed|running|not installed
         webcam)   [ -d "$HOME_DIR/crowsnest" ] && { [ "$(service_state crowsnest)" = active ] && echo running || echo installed; } || echo "not installed" ;;
         timelapse) [ -d "$HOME_DIR/moonraker-timelapse" ] && echo installed || echo "not installed" ;;
         shell-command) [ -f "$HOME_DIR/klipper/klippy/extras/gcode_shell_command.py" ] && echo installed || echo "not installed" ;;
+        shaketune) [ -L "$HOME_DIR/klipper/klippy/extras/shaketune" ] && echo installed || { [ -d "$HOME_DIR/klippain_shaketune" ] && echo "downloaded, not linked" || echo "not installed"; } ;;
         fluidd)   [ -d "$HOME_DIR/fluidd" ] && echo installed || echo "not installed" ;;
         moonraker) [ -d "$HOME_DIR/moonraker" ] && echo installed || echo "not installed" ;;
         klipper)  [ -d "$HOME_DIR/klipper" ] && echo installed || echo "not installed" ;;
@@ -1870,9 +1924,9 @@ menu_updates() {
 }
 
 menu_addons() {
-    local k items=(screen network-manager webcam timelapse shell-command obico octoapp octoeverywhere)
-    declare -A label=([screen]="Touchscreen (KlipperScreen)" [network-manager]="NetworkManager (Network panel)" [webcam]="Webcam (crowsnest)" [timelapse]="Timelapse" [shell-command]="Klipper gcode shell command" [obico]="Obico for Klipper" [octoapp]="OctoApp" [octoeverywhere]="OctoEverywhere")
-    declare -A help=([network-manager]="Wi-Fi choice on the screen. Can drop the network until a reboot" [screen]="Screen plugged into the Pi, with the ZR Tools page" [webcam]="USB camera streams for Fluidd" [timelapse]="Moonraker timelapse + ffmpeg" [shell-command]="RUN_SHELL_COMMAND: run Linux commands from G-code" [obico]="Remote view and failure detection (obico.io account)" [octoapp]="Phone app notifications and control" [octoeverywhere]="Remote access, webcam and notifications (free account)")
+    local k items=(screen network-manager webcam timelapse shell-command shaketune obico octoapp octoeverywhere)
+    declare -A label=([screen]="Touchscreen (KlipperScreen)" [shaketune]="Klippain Shake&Tune" [network-manager]="NetworkManager (Network panel)" [webcam]="Webcam (crowsnest)" [timelapse]="Timelapse" [shell-command]="Klipper gcode shell command" [obico]="Obico for Klipper" [octoapp]="OctoApp" [octoeverywhere]="OctoEverywhere")
+    declare -A help=([shaketune]="Input shaper and vibration graphs (by Frix-x)" [network-manager]="Wi-Fi choice on the screen. Can drop the network until a reboot" [screen]="Screen plugged into the Pi, with the ZR Tools page" [webcam]="USB camera streams for Fluidd" [timelapse]="Moonraker timelapse + ffmpeg" [shell-command]="RUN_SHELL_COMMAND: run Linux commands from G-code" [obico]="Remote view and failure detection (obico.io account)" [octoapp]="Phone app notifications and control" [octoeverywhere]="Remote access, webcam and notifications (free account)")
     while true; do
         echo; echo "  Add-ons"
         local n=0; for k in "${items[@]}"; do n=$((n+1)); menu_item "$n" "${label[$k]}" "[$(addon_status "$k")] ${help[$k]}"; done
@@ -1954,8 +2008,8 @@ menu_restore() {   # shows where the backups are kept and lets you choose one by
 }
 
 menu_uninstall() {
-    local k n items=(screen network-manager webcam timelapse shell-command obico octoapp octoeverywhere fluidd moonraker klipper data system cleanup all erase)
-    declare -A label=([screen]="Touchscreen (KlipperScreen)" [network-manager]="NetworkManager (switch back to dhcpcd)" [webcam]="Webcam (crowsnest)" [timelapse]="Timelapse" [shell-command]="Klipper gcode shell command" [obico]="Obico for Klipper" [octoapp]="OctoApp" [octoeverywhere]="OctoEverywhere" [fluidd]="Fluidd web page" [moonraker]="Moonraker" [klipper]="Klipper" [data]="My printer data" [system]="System files" [cleanup]="Clean up installer files" [all]="All programs" [erase]="Erase everything")
+    local k n items=(screen network-manager webcam timelapse shell-command shaketune obico octoapp octoeverywhere fluidd moonraker klipper data system cleanup all erase)
+    declare -A label=([screen]="Touchscreen (KlipperScreen)" [network-manager]="NetworkManager (switch back to dhcpcd)" [webcam]="Webcam (crowsnest)" [timelapse]="Timelapse" [shell-command]="Klipper gcode shell command" [shaketune]="Klippain Shake&Tune" [obico]="Obico for Klipper" [octoapp]="OctoApp" [octoeverywhere]="OctoEverywhere" [fluidd]="Fluidd web page" [moonraker]="Moonraker" [klipper]="Klipper" [data]="My printer data" [system]="System files" [cleanup]="Clean up installer files" [all]="All programs" [erase]="Erase everything")
     declare -A help=([network-manager]="Only if this installer switched you to it" [fluidd]="The page you open in the browser, with its nginx site" [moonraker]="The web API Fluidd and the add-ons use" [klipper]="The printer firmware host" [data]="printer.cfg, calibration, database, gcode files (a backup is made first)" [system]="Services, nginx files and the can0 rule the installer added" [cleanup]="Old backups, support bundles, moved-aside folders, saved copies, the installer folder" [all]="Every program above and the system files. Keeps my printer data, backups and installer files" [erase]="Programs, printer data, backups, logs and every installer file. Keeps only the installer folder")
     while true; do
         echo; echo "  Uninstall"; echo "  Choose what to remove. Each choice explains what goes and asks before it changes anything."
@@ -1993,7 +2047,7 @@ do_menu() {
         echo; menu_status; echo
         menu_item 1 "Install or reinstall" "Sets up Klipper, Moonraker and Fluidd; asks a few plain questions"
         menu_item 2 "Update" "See what is new, then update (your printer_data is kept)"
-        menu_item 3 "Add-ons" "Touchscreen, webcam, timelapse, shell command, Obico, OctoApp, OctoEverywhere"
+        menu_item 3 "Add-ons" "Touchscreen, webcam, timelapse, shell command, Shake&Tune, Obico, OctoApp, OctoEverywhere"
         menu_item 4 "Check and fix" "Doctor, repair, hardware test"
         menu_item 5 "Backup and restore" "Save and restore config, calibration and database"
         menu_item 6 "Uninstall" "Remove any add-on, Fluidd, Moonraker, Klipper, your data, or erase everything"
@@ -2095,7 +2149,7 @@ show_plan
 guard_not_printing
 save_answers
 step_packages; step_groups; step_python; step_unpack; step_model; step_venvs; step_modules
-step_services; step_nginx; step_can; step_panel; step_screen; step_netmgr; step_timelapse; step_shellcmd; step_remote; step_crowsnest; step_start
+step_services; step_nginx; step_can; step_panel; step_screen; step_netmgr; step_timelapse; step_shellcmd; step_shaketune; step_remote; step_crowsnest; step_start
 save_answers
 self_test
 if [ "$AUTOSTART" = 1 ] && [ "$DRY" != 1 ]; then do_first_start auto || true; fi

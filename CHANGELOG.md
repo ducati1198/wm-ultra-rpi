@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.13.0
+
+- **Install no longer asks about Obico, OctoApp and OctoEverywhere.** They need an account and their own questions, so they are offered only under Add-ons (or `--obico on`, `--octoapp on`, `--octoeverywhere on`). The plan shows them as "no (add later: menu, Add-ons)".
+- **New add-on: Klippain Shake&Tune** (by Frix-x, pinned to a tested commit). Menu → Add-ons, or `--shaketune on`. It does the steps of the maker's `install.sh` without its restarts of Klipper and Moonraker: `libopenblas-dev`, Python packages in `~/klippy-env`, the link in Klipper's extras, `shaketune.cfg` + `[include shaketune.cfg]` (printer.cfg copy kept), and the Fluidd update entry. If the import check fails it is not linked and Klipper stays unchanged. Removal: Uninstall → Shake&Tune (or `--remove shaketune`), also covered by All programs and Erase everything. Not yet tried on a WonderMaker printer.
+
 ## 1.12.0
 
 - **Uninstall → Erase everything** (`--remove erase`): removes every program, the system files, NetworkManager's switch (if the installer made it), your printer data (`~/printer_data`, `~/TM_T1`) and every installer file (backups, support bundles, logs, the copy from the old board, moved-aside folders, saved copies, the records). It lists all of it first, makes no backup, and you must type `ERASE`. Only the installer folder, and the log of that run, stay.

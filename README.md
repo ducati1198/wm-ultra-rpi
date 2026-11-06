@@ -201,7 +201,7 @@ The installer first asks **which printer you have** (ZR Ultra or ZR Ultra-S; or 
 | Fluidd panel | optional, see 5. The panel is **downloaded from [wm-ultra-fluidd-acepro-panel](https://github.com/ducati1198/wm-ultra-fluidd-acepro-panel) every time** (so you always get its latest), checked against the checksum published next to it. It needs internet (no copy is kept in this repo); if the download fails the web page is skipped with a warning and `--update` retries. `--update` installs a newer panel when there is one |
 | Timelapse | `ffmpeg` and `moonraker-timelapse` at a pinned commit (see `config/pins/addons.txt`), downloaded from mainsail-crew on GitHub and checked |
 | Klipper gcode shell command (installed automatically; `--shell-command off` skips it) | `config/gcode_shell_command.py`, copied into `~/klipper/klippy/extras/`. It is the module by Arksine (GPLv3, the same one KIAUH installs) and is kept in this repository, so no download is needed |
-| Obico, OctoApp, OctoEverywhere (optional, each asked, default no) | the makers' own projects, cloned from GitHub into `~/moonraker-obico`, `~/octoapp`, `~/octoeverywhere` and installed with their own installers, pointed at this Pi's Moonraker. See "Remote access add-ons" below |
+| Obico, OctoApp, OctoEverywhere (optional add-ons, not asked during the install; menu → Add-ons) | the makers' own projects, cloned from GitHub into `~/moonraker-obico`, `~/octoapp`, `~/octoeverywhere` and installed with their own installers, pointed at this Pi's Moonraker. See "Remote access add-ons" below |
 | Webcams | `crowsnest` at a pinned commit (see `config/pins/addons.txt`), installed unattended (builds `ustreamer`); your camera goes in `~/printer_data/config/crowsnest.conf` |
 
 ### 3.3 Safety checks
@@ -548,9 +548,13 @@ verbose: True
 
 Run it with `RUN_SHELL_COMMAND CMD=hello`; extra words go in `PARAMS="a b"`. Commands run as the Pi user `t13dp` and are stopped after `timeout` seconds. Only add commands you trust, since anything that can send G-code to the printer (Fluidd console, a sliced file) can start them. If you remove the extension while `printer.cfg` still has a `[gcode_shell_command ...]` section, Klipper will not start. `--doctor` checks that the file is in place, and `--uninstall` removes it.
 
+## Klippain Shake&Tune (optional add-on)
+
+[Klippain Shake&Tune](https://github.com/Frix-x/klippain-shaketune) by Frix-x makes input shaper and vibration graphs. Add it from the menu (Add-ons) or with `./installer.sh --update --shaketune on`. The installer follows the maker's install steps but never restarts Klipper or Moonraker: it installs `libopenblas-dev`, clones the pinned version to `~/klippain_shaketune`, installs its Python packages in `~/klippy-env`, links it into Klipper's extras (only if it imports), adds `shaketune.cfg` and `[include shaketune.cfg]` to `printer.cfg` (a copy is kept) and a Fluidd update entry. Restart Klipper from Fluidd afterwards. It uses the `[resonance_tester]` and accelerometer already in WonderMaker's config. Not yet tried on a WonderMaker printer. Remove it with Uninstall → Shake&Tune.
+
 ## Remote access add-ons: Obico, OctoApp, OctoEverywhere (optional)
 
-Three optional services that let you watch and control the printer from outside the house, from a phone app, and get notifications. Each is made by someone else, needs an account of yours, and sends data to its own service: install only what you want. The installer asks about each one (default no), or use `--obico on`, `--octoapp on`, `--octoeverywhere on` (`off` to skip). All three are installed **next to** WonderMaker's Klipper and Moonraker: each gets its own Python environment, so the Python 3.9 environments used by Klipper and Moonraker are not touched.
+Three optional services that let you watch and control the printer from outside the house, from a phone app, and get notifications. Each is made by someone else, needs an account of yours, and sends data to its own service: install only what you want. They are not part of the install questions: add them from the menu (Add-ons) or use `--obico on`, `--octoapp on`, `--octoeverywhere on` (`off` to skip). All three are installed **next to** WonderMaker's Klipper and Moonraker: each gets its own Python environment, so the Python 3.9 environments used by Klipper and Moonraker are not touched.
 
 | Add-on | Installed with | Link it to your account |
 |---|---|---|
@@ -587,7 +591,7 @@ WonderMaker Ultra Raspberry Pi replacement - installer 1.12.0
 
    1) Install or reinstall         Sets up Klipper, Moonraker and Fluidd; asks a few plain questions
    2) Update                       See what is new, then update (your printer_data is kept)
-   3) Add-ons                      Touchscreen, webcam, timelapse, shell command, Obico, OctoApp, OctoEverywhere
+   3) Add-ons                      Touchscreen, webcam, timelapse, shell command, Klippain Shake&Tune, Obico, OctoApp, OctoEverywhere
    4) Check and fix                Doctor, repair, hardware test
    5) Backup and restore           Save and restore config, calibration and database
    6) Uninstall                    Remove any add-on, Fluidd, Moonraker, Klipper, your data, or erase everything
@@ -597,7 +601,7 @@ WonderMaker Ultra Raspberry Pi replacement - installer 1.12.0
 
 - **Status on top:** the version, whether Klipper, Moonraker and nginx are running, and (if the Pi is online) whether GitHub has newer changes.
 - **A print stops changes:** while a print is running the menu says so and every entry that changes something refuses, as the command line does. Looking (status, quick check) still works.
-- **Add-ons** shows `[installed]`, `[running]` or `[not installed]` for each add-on. Pick one to install it, or to remove it after a confirmation (`./installer.sh --remove obico|octoapp|octoeverywhere|shell-command`). Removing uses the makers' own uninstallers where they have one; your account on their website stays. Removing Obico also removes the include line it added to `printer.cfg` (a copy is saved first), because Klipper would not start with it pointing at a deleted file. Removing the shell command extension is refused while `printer.cfg` still has a `[gcode_shell_command ...]` section.
+- **Add-ons** shows `[installed]`, `[running]` or `[not installed]` for each add-on. Pick one to install it, or to remove it after a confirmation (`./installer.sh --remove obico|octoapp|octoeverywhere|shell-command|shaketune`). Removing uses the makers' own uninstallers where they have one; your account on their website stays. Removing Obico also removes the include line it added to `printer.cfg` (a copy is saved first), because Klipper would not start with it pointing at a deleted file. Removing the shell command extension is refused while `printer.cfg` still has a `[gcode_shell_command ...]` section.
 - **Backup and restore:** *Restore a backup* shows the folder the backups are kept in (`~/wm-backups`) and lists the backup files there, newest first, with size and date. Press the number of the one you want; a safety copy of the current settings is made before anything is replaced. The last number lets you type the path of a backup file somewhere else.
 - **Uninstall** (menu entry 6) lists everything the installer puts on the Pi, each with `[installed]` or `[not installed]`. Pick a number to see what goes and confirm; nothing changes before you confirm. The same removals work from the command line with `./installer.sh --remove NAME`:
 
