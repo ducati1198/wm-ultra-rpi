@@ -437,15 +437,24 @@ detect_screen() {  # prints "WIDTHxHEIGHT touch|notouch" (size empty when no scr
     echo "${res:-} $touch"
 }
 
-screen_density_hint() {  # WIDTHxHEIGHT -> compact|comfortable
-    local w="${1%%x*}"; [[ "$w" =~ ^[0-9]+$ ]] || { echo compact; return; }
-    [ "$w" -le 900 ] && echo compact || echo comfortable
+screen_density_hint() {  # WIDTHxHEIGHT -> compact|comfortable (short side <= 520 or long side <= 900 is compact)
+    local w="${1%%x*}" h="${1##*x}"
+    [[ "$w" =~ ^[0-9]+$ ]] || { echo compact; return; }
+    if ! [[ "$h" =~ ^[0-9]+$ ]]; then [ "$w" -le 900 ] && echo compact || echo comfortable; return; fi
+    local s=$w l=$h; [ "$h" -lt "$w" ] && { s=$h; l=$w; }
+    if [ "$s" -le 520 ] || [ "$l" -le 900 ]; then echo compact; else echo comfortable; fi
+}
+
+screen_orientation() {  # WIDTHxHEIGHT -> wide|tall
+    local w="${1%%x*}" h="${1##*x}"
+    [[ "$w" =~ ^[0-9]+$ && "$h" =~ ^[0-9]+$ ]] && [ "$h" -gt "$w" ] && echo tall || echo wide
 }
 
 do_screen_test() {
     print_header "Screen test (read-only)"
     local r t; read -r r t < <(detect_screen)
-    if [ -n "$r" ]; then print_success "Screen found: $r (ZR Tools size: comfortable by default; Auto would pick $(screen_density_hint "$r"))"; else print_warning "No screen found on the Pi's video output."; fi
+    if [ -n "$r" ]; then print_success "Screen found: $r (ZR Tools size: comfortable by default; Auto would pick $(screen_density_hint "$r"))"
+        print_success "Orientation: $(screen_orientation "$r") (ZR Tools lays itself out for wide and tall screens)"; else print_warning "No screen found on the Pi's video output."; fi
     [ "$t" = touch ] && print_success "Touch device found." || print_warning "No touch device found (a USB touch cable, or the screen has no touch)."
     echo "  Rotation is an operating-system setting, see README 'Touchscreen'."
 }

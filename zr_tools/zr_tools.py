@@ -123,8 +123,11 @@ class Panel(ViewsMixin, ScreenPanel):
     # layout shell: A = card grid hub, C = big touch with a bottom tab bar
     # ------------------------------------------------------------------
     def _apply_settings(self):
-        self.density = L.resolve_density(self.settings["density"], getattr(self._screen, "width", 0))
-        self.sz = L.sizes(self.density)
+        width, height = getattr(self._screen, "width", 0), getattr(self._screen, "height", 0)
+        self.portrait = self._is_portrait(width, height)
+        self.density = L.resolve_density(self.settings["density"], width, height)
+        self.sz = L.sizes(self.density, self.portrait, width, height)
+        self.scale, self.tiny = self.sz["scale"], self.sz["tiny"]
         self._add_css()
         if self.nav is not None:
             self.outer.remove(self.nav)
@@ -134,14 +137,21 @@ class Panel(ViewsMixin, ScreenPanel):
             self.outer.pack_end(self.nav, False, False, 0)
             self.nav.show_all()
 
+    @staticmethod
+    def _is_portrait(width, height):
+        """Tall screen (480x800, 600x1024)?"""
+        return bool(L.screen_profile(width, height)["portrait"])
+
     def _nav_entries(self):
         e = [("toolchanger", "Toolheads", self.show_main, ("main",)),
              ("filament", "Filament", self.show_filament, ("tool", "tool_edit")),
-             ("heat-up", "Climate", self.show_chamber, ("chamber",)),
-             ("settings", "Calibrate", self.show_utilities, ("utilities",))]
+             ("heat-up", "Climate", self.show_chamber, ("chamber",))]
+        if not self.tiny:            # on a 3 to 4 inch screen Calibrate moves into More to keep the tabs big enough to hit
+            e.append(("settings", "Calibrate", self.show_utilities, ("utilities",)))
         if L.has_ace(self.st):
             e.append(("spool", "ACE", self.show_ace, ("ace",)))
-        e.append(("main", "More", self.show_more, ("more", "hub", "collision", "extras", "system", "settings", "mapping")))
+        more = ("more", "hub", "collision", "extras", "system", "settings", "mapping")
+        e.append(("main", "More", self.show_more, more + (("utilities",) if self.tiny else ())))
         return e
 
     def _make_nav(self):
@@ -149,7 +159,7 @@ class Panel(ViewsMixin, ScreenPanel):
         bar.set_homogeneous(True)
         self.nav_btns = {}
         for icon, label, cb, views in self._nav_entries():
-            b = self._tab_button(icon, label, cb)
+            b = self._tab_button(icon, L.short_label(label, self.portrait, self.density), cb)
             b.set_size_request(-1, self.sz["nav_h"])
             bar.pack_start(b, True, True, 0)
             self.nav_btns[label] = (b, views)
@@ -537,20 +547,43 @@ class Panel(ViewsMixin, ScreenPanel):
         self.view = "main"
         self._clear()
 
-        top = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         self.w["p_car"] = self._pill("On carriage: --", "info")
         self.w["p_state"] = self._pill("Printer: --", "info")
         self.w["p_ch"] = self._pill("", "info")
-        top.pack_start(self.w["p_car"], False, False, 0)
-        top.pack_start(self.w["p_state"], False, False, 0)
-        top.pack_end(self.w["p_ch"], False, False, 0)
+        if self.portrait:
+            # Tall screen: the three pills would not fit in one row, so the chamber pill gets its own row.
+            top = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+            row1 = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+            row1.pack_start(self.w["p_car"], False, False, 0)
+            row1.pack_start(self.w["p_state"], False, False, 0)
+            top.pack_start(row1, False, False, 0)
+            top.pack_start(self.w["p_ch"], False, False, 0)
+        else:
+            top = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+            top.pack_start(self.w["p_car"], False, False, 0)
+            top.pack_start(self.w["p_state"], False, False, 0)
+            top.pack_end(self.w["p_ch"], False, False, 0)
         self.root.pack_start(top, False, False, 0)
 
-        cards = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        cards.set_homogeneous(True)
         self.w["cards"] = []
-        for i in range(NTOOLS):
-            cards.pack_start(self._make_card(i), True, True, 0)
+        if self.portrait:
+            # Tall screen: the cards sit 2 x 2.
+            cards = Gtk.Grid()
+            cards.set_row_spacing(8)
+            cards.set_column_spacing(8)
+            cards.set_column_homogeneous(True)
+            cards.set_row_homogeneous(True)
+            for i in range(NTOOLS):
+                card = self._make_card(i)
+                card.set_hexpand(True)
+                card.set_vexpand(True)
+                cards.attach(card, i % self.sz["tool_cols"], i // self.sz["tool_cols"], 1, 1)
+        else:
+            # Wide screen: four cards in a row (unchanged).
+            cards = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+            cards.set_homogeneous(True)
+            for i in range(NTOOLS):
+                cards.pack_start(self._make_card(i), True, True, 0)
         self.root.pack_start(cards, True, True, 0)
         self.root.show_all()
         self._refresh_view()
@@ -650,7 +683,9 @@ class Panel(ViewsMixin, ScreenPanel):
         self.root.pack_start(self._header("Toolhead %d (T%d)" % (i + 1, i)), False, False, 0)
 
         big = self.density == "comfortable"
-        page = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        # Wide screen: the spool card on the left, the actions on the right.
+        # Tall screen: the spool card is a strip on top and the actions are below it.
+        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL if self.portrait else Gtk.Orientation.HORIZONTAL, spacing=10)
 
         card = Gtk.EventBox()
         card.get_style_context().add_class("zr_card")
@@ -658,15 +693,24 @@ class Panel(ViewsMixin, ScreenPanel):
         for m in ("top", "bottom", "start", "end"):
             getattr(col, "set_margin_" + m)(8)
         self.w["e_swatch"] = self._spool(110 if big else 84)
-        col.pack_start(self.w["e_swatch"], True, True, 0)
         self.w["h_mat"] = self._label("", "zr_mat")
         self.w["h_col"] = self._label("", "zr_small")
         self.w["h_chip"] = self._pill("", "ready")
         self.w["h_state"] = self._label("", "zr_small")
-        for k in ("h_mat", "h_col", "h_chip", "h_state"):
-            col.pack_start(self.w[k], False, False, 0)
+        if self.portrait:
+            strip = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+            strip.pack_start(self.w["e_swatch"], False, False, 0)
+            texts = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+            for k in ("h_mat", "h_col", "h_chip", "h_state"):
+                texts.pack_start(self.w[k], False, False, 0)
+            strip.pack_start(texts, True, True, 0)
+            col.pack_start(strip, True, True, 0)
+        else:
+            col.pack_start(self.w["e_swatch"], True, True, 0)
+            for k in ("h_mat", "h_col", "h_chip", "h_state"):
+                col.pack_start(self.w[k], False, False, 0)
+            card.set_size_request(190 if big else 150, -1)
         card.add(col)
-        card.set_size_request(190 if big else 150, -1)
         page.pack_start(card, False, False, 0)
 
         actions = Gtk.Grid()
@@ -727,7 +771,7 @@ class Panel(ViewsMixin, ScreenPanel):
         self.w["dots"] = {}
         for n, (name, col) in enumerate(COLOR_PRESETS):
             dot = Gtk.EventBox()
-            dot.set_size_request(64, 64)
+            dot.set_size_request(self.sz["dot"], self.sz["dot"])
             dot.set_halign(Gtk.Align.CENTER)
             dot.get_style_context().add_class("zr_dot")
             self._set_swatch(dot, col)
@@ -945,9 +989,10 @@ class Panel(ViewsMixin, ScreenPanel):
         self.w["map_btns"] = {}
         self.w["map_sw"] = {}
         for t in range(NTOOLS):
-            grid.attach(self._label(f"Slicer T{t}  ->"), 0, t, 1, 1)
+            narrow = self.portrait and self.density == "compact"     # 480 px: "T0 ->" and "1".."4"
+            grid.attach(self._label(f"T{t} ->" if narrow else f"Slicer T{t}  ->"), 0, t, 1, 1)
             for h in range(NTOOLS):
-                b = Gtk.Button(label=f"Head {h + 1}")
+                b = Gtk.Button(label=f"{h + 1}" if narrow else f"Head {h + 1}")
                 b.set_size_request(-1, min(self.sz["btn_h"], 42))
                 b.connect("clicked", lambda _w, tt=t, hh=h: self._map(tt, hh))
                 grid.attach(b, 1 + h, t, 1, 1)
@@ -1016,7 +1061,7 @@ class Panel(ViewsMixin, ScreenPanel):
         for n, (icon, text, script, question) in enumerate(items):
             b = self._button(icon, text, "color%d" % (1 + n % 4), self._utility, text, script, question)
             b.set_size_request(-1, self.sz["tile_h"])
-            grid.attach(b, n % 3, n // 3, 1, 1)
+            grid.attach(b, n % self.sz["util_cols"], n // self.sz["util_cols"], 1, 1)
         self.root.pack_start(self._scrolled(grid), True, True, 0)
         self.root.show_all()
 
@@ -1116,7 +1161,7 @@ class Panel(ViewsMixin, ScreenPanel):
             logging.debug(f"ZR: refresh error: {e}")
 
     def _add_css(self):
-        css = L.build_css(self.settings.get("theme"), self.settings.get("style"), self.density).encode()
+        css = L.build_css(self.settings.get("theme"), self.settings.get("style"), self.density, self.scale).encode()
         if getattr(self, "_css_provider", None) is None:
             self._css_provider = Gtk.CssProvider()
             Gtk.StyleContext.add_provider_for_screen(

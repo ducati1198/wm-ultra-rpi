@@ -87,6 +87,8 @@ class ViewsMixin:
                       ("settings", "Calibration", self.show_utilities)]
         if L.has_ace(st):
             items.append(("spool", "ACE Pro", self.show_ace))
+        if not include_main and getattr(self, "tiny", False):     # the Calibrate tab is hidden on a tiny screen
+            items.append(("settings", "Calibration", self.show_utilities))
         items += [("shuffle", "Choose toolheads", self.show_mapping),
                   ("fan", "Fans", lambda: self._open_stock("fan", "Fan")),
                   ("z-farther", "Z offset", lambda: self._open_stock("fine_tune", "Fine tuning")),

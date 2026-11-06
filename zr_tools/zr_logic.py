@@ -10,7 +10,12 @@ LAYOUTS = ("tabs", "grid")          # C (big touch, tabs) and A (card grid)
 DENSITIES = ("auto", "compact", "comfortable")
 THEMES = ("dark", "light")
 STYLES = ("soft", "flat", "bold", "classic")    # the look of cards, chips and colour dots
-COMPACT_MAX_WIDTH = 900             # 800x480 (5 inch) is compact, 1024x600 (7 inch) is comfortable
+COMPACT_MAX_WIDTH = 900             # the long side: 800x480 and 480x800 are compact, 1024x600 and 600x1024 are comfortable
+TINY_MAX_SHORT = 400                # the short side: 480x320 and 480x272 (3.5 and 4 inch) get the "tiny" layout
+WIDE_MIN_LONG = 1200                # the long side: 1280x800 and up (9 to 10 inch) get more columns
+SCALE_MIN, SCALE_MAX = 0.75, 1.5    # buttons and text never shrink or grow more than this
+REF_SHORT = {"compact": 480, "comfortable": 600}   # the short side the base sizes were made for
+COMPACT_MAX_SHORT = 520             # the short side: 480 (5 inch class) is compact, 600 (7 inch 1024x600) is comfortable
 
 
 def load_settings(path=None):
@@ -41,17 +46,69 @@ def save_settings(settings, path=None):
     os.replace(tmp, path)
 
 
-def resolve_density(setting, width):
+def _px(value):
+    """A pixel count, or 0 when the value is missing or not a number."""
+    return int(value) if isinstance(value, (int, float)) and not isinstance(value, bool) and value > 0 else 0
+
+
+def screen_profile(width, height=None):
+    """Orientation and size class of the screen, from its pixels.
+    portrait: taller than wide (480x800, 600x1024); landscape otherwise (800x480, 1024x600).
+    class: "small" = 800x480 or smaller (a 5 inch, and many 7 inch, screens), "large" = 1024x600 and up."""
+    w, h = _px(width), _px(height)
+    portrait = bool(w and h and h > w)
+    short, long_ = (min(w, h), max(w, h)) if (w and h) else (w, w)
+    small = (short <= COMPACT_MAX_SHORT) or (long_ <= COMPACT_MAX_WIDTH)
+    known = bool(w and h)
+    return {"portrait": portrait, "class": "small" if small else "large", "width": w, "height": h,
+            "tiny": bool(known and short <= TINY_MAX_SHORT),
+            "wide": bool(known and not portrait and long_ >= WIDE_MIN_LONG)}
+
+
+def scale_factor(density, width, height=None):
+    """How much to grow or shrink buttons and text for the real pixel size: 1.0 at 800x480 (compact) and 1024x600
+    (comfortable), smaller below, larger above, within SCALE_MIN..SCALE_MAX. 1.0 when the height is unknown."""
+    w, h = _px(width), _px(height)
+    if not (w and h):
+        return 1.0
+    ref = REF_SHORT.get(density, REF_SHORT["compact"])
+    return round(max(SCALE_MIN, min(SCALE_MAX, min(w, h) / float(ref))), 2)
+
+
+def resolve_density(setting, width, height=None):
     if setting in ("compact", "comfortable"):
         return setting
-    return "compact" if (width or 0) <= COMPACT_MAX_WIDTH else "comfortable"
+    return "compact" if screen_profile(width, height)["class"] == "small" else "comfortable"
 
 
-def sizes(density):
-    """Pixel sizes used by the views for a density."""
+def sizes(density, portrait=False, width=None, height=None):
+    """Pixel sizes and column counts used by the views for a density and an orientation."""
     if density == "compact":
-        return {"btn_h": 40, "tile_h": 44, "nav_h": 52, "cols": 2}
-    return {"btn_h": 54, "tile_h": 60, "nav_h": 64, "cols": 3}
+        out = {"btn_h": 40, "tile_h": 44, "nav_h": 52, "cols": 2}
+    else:
+        out = {"btn_h": 54, "tile_h": 60, "nav_h": 64, "cols": 3}
+    prof = screen_profile(width, height)
+    k = scale_factor(density, width, height)
+    for key in ("btn_h", "tile_h", "nav_h"):
+        out[key] = int(round(out[key] * k))
+    out["scale"] = k
+    out["tiny"] = prof["tiny"]
+    out["portrait"] = bool(portrait)
+    out["tool_cols"] = 2 if portrait else 4        # toolhead cards per row: 2x2 on a tall screen
+    out["util_cols"] = 2 if portrait else 3        # calibration tiles per row
+    if portrait:
+        out["cols"] = 2                            # hub and More tiles
+    if prof["wide"] and density == "comfortable":
+        out["cols"] = out["util_cols"] = 4        # a 9 to 10 inch screen has room for more tiles per row
+    out["dot"] = int(round((56 if (portrait and density == "compact") else 64) * k))   # round colour swatches in the editor
+    return out
+
+
+def short_label(label, portrait, density):
+    """Tab and button labels shortened on a narrow (5 inch, tall) screen, where six tabs share 480 px."""
+    if portrait and density == "compact":
+        return {"Toolheads": "Heads", "Calibrate": "Calib."}.get(label, label)
+    return label
 
 
 # --------------------------------------------------------------------------------------
@@ -352,10 +409,11 @@ _STYLE_TOKENS = {
 }
 
 
-def build_css(theme, style, density="compact"):
+def build_css(theme, style, density="compact", scale=1.0):
     """Design A: tall rounded cards, status chips, a rounded tab bar, big action buttons. Plain GTK3 CSS."""
     t = _STYLE_TOKENS.get(style) or _STYLE_TOKENS["soft"]
     big = density == "comfortable"
+    k = scale if isinstance(scale, (int, float)) and scale > 0 else 1.0
     light = theme == "light"
     if light:
         bg, card, card_on, edge, small, hint = "#eef1f4", "#ffffff", "#e4eefc", "#cfd6de", "#44505c", "#66727e"
@@ -391,12 +449,13 @@ def build_css(theme, style, density="compact"):
     .zr_btn_red { background-color: #c0392b; border-color: #c0392b; color: #ffffff; }
     .zr_selected { background-image: none; background-color: %(acc)s; border-color: %(acc)s; color: #ffffff; }
     .zr_section { font-weight: bold; padding-top: 6px; }
-    .zr_small { font-size: 85%%; color: %(small)s; }
-    .zr_hint { font-size: 85%%; color: %(hint)s; }
+    .zr_small { font-size: %(small_pct)s; color: %(small)s; }
+    .zr_hint { font-size: %(small_pct)s; color: %(hint)s; }
     scrollbar.vertical { min-width: 18px; }
     scrollbar slider { min-width: 14px; min-height: 40px; border-radius: 8px; background-color: %(edge)s; }
     """ % {"edge": edge, "r": r, "sr": max(r // 2, 4), "card": card, "card_on": card_on, "acc": acc, "text": text,
            "small": small, "hint": hint, "dot_edge": dot_edge,
            "ready_bg": ready[0], "ready_fg": ready[1], "active_bg": active[0], "active_fg": active[1],
            "empty_bg": empty[0], "empty_fg": empty[1],
-           "pill": "100%" if big else "85%", "title": "120%" if big else "100%", "mat": "130%" if big else "110%"}
+           "pill": "%d%%" % round((100 if big else 85) * k), "title": "%d%%" % round((120 if big else 100) * k),
+           "mat": "%d%%" % round((130 if big else 110) * k), "small_pct": "%d%%" % round(85 * k)}

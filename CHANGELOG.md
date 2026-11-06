@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.2.0
+
+- KlipperScreen / ZR Tools now fits 5 inch (800x480, 480x800) and 7 inch (1024x600, 600x1024, 800x480) screens, wide and tall. On a tall screen the toolhead cards sit 2 x 2, the toolhead page stacks, and the mapping and tabs use short labels.
+- Buttons, text and colour dots scale from the real pixel size (75% to 150%); 800x480 and 1024x600 look as before.
+- Tiny screens (short side 400 px or less, 480x320 and 480x272): Calibrate moves from the tab bar into More. Wide screens (1280x800 and up): 4 tiles per row.
+- Auto size looks at both sides of the screen. `--screen-test` also shows whether the screen is wide or tall.
+- Tests for the screen profile, the scaling and every page at 11 sizes. The tall, tiny, wide and 7 inch layouts have not been seen on a real screen yet.
+
 ## 1.1.0
 
 - Version renumbered to 1.1.0 so it matches [acepro-any-klipper](https://github.com/ducati1198/acepro-any-klipper) 1.1.0. No code changes. The earlier numbers below are kept as history.

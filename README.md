@@ -322,7 +322,24 @@ The installer asks **"Add a touchscreen?"** (default yes). Skip it with `--scree
 
 What it does: installs [KlipperScreen](https://github.com/KlipperScreen/KlipperScreen) pinned to one tested commit (`34610ce`, so a later upstream change cannot break it), copies the ZR Tools panel into it, adds the helper macros (`zr_tools.cfg`) to `printer.cfg` and enables the `KlipperScreen` service. KlipperScreen's own home screen and menus stay as they are; ZR Tools is one extra menu entry.
 
-The screen is detected for you (the video output and the touch device through udev). The default size is **Comfortable** (big touch buttons); on the Settings page you can pick Compact, or Auto (compact below 900 px wide, comfortable above). On a 5 inch and a 7 inch screen both layouts work.
+The screen is detected for you (the video output and the touch device through udev). The default size is **Comfortable** (big touch buttons); on the Settings page you can pick Compact, or Auto.
+
+**Screen sizes and orientation.** ZR Tools adapts to the size and to wide or tall screens. The sizes it is built for:
+
+| Screen | Wide (horizontal) | Tall (vertical) | Auto size picks |
+|---|---|---|---|
+| 5 inch | 800x480 | 480x800 | Compact |
+| 7 inch | 1024x600 | 600x1024 | Comfortable |
+| 7 inch | 800x480 | 480x800 | Compact |
+
+Other sizes are scaled from the real pixel size: buttons, text and colour dots shrink or grow with the screen (never below 75% or above 150% of the sizes above, so 800x480 and 1024x600 look exactly as before). Two more cases:
+
+- **Tiny screens** (short side 400 px or less, such as 3.5 or 4 inch at 480x320 or 480x272): the tab bar keeps five tabs at most, because Calibrate moves into **More**.
+- **Wide screens** (1280x800 and up, 9 to 10 inch): the hub and Calibrate pages show 4 tiles per row instead of 3.
+
+Auto uses Compact when the short side is 520 px or less, or the long side is 900 px or less. On a tall screen the four toolhead cards sit 2 x 2 instead of in a row, the toolhead page puts the spool card on top as a strip, the tool mapping uses short labels (`T0 ->`, `1` to `4`), and the bottom tabs use short names (Heads, Calib.) when the width is tight. Tall or wide is read from the screen size, so it follows the rotation you set in the operating system (see **Rotation** below). `--screen-test` shows the size, Auto's pick and whether the screen is wide or tall.
+
+> **Not yet seen on a screen.** The wide 800x480 layout was captured on a real screen board (images below). The tall layouts, the 7 inch sizes, and the tiny (480x320) and wide (1280x800) cases were only checked with automated tests, which cannot show how they look. Please send a photo if something is cut off or too small.
 
 **ZR Tools pages:** Toolheads (select, heat, load, unload, purge, colour, material), Filament, Climate (chamber, air filter), Calibrate (only the macros that exist on your printer: Z and XY offsets, bed mesh, PID, wipe position, input shaper via the accelerometer), **ACE Pro** (only when an ACE Pro is present: slots, load/unload, feed assist, dryer presets, endless spool), More (collision detection settings, **read-only**; timelapse; restart; system page with Pi temperature, power flags, can0, Klipper state, the Fluidd address (the one entered under Pi address) and a backup button) and Settings. Fan, Z offset, pressure advance and camera use KlipperScreen's own pages. The emergency stop is KlipperScreen's own button, shown while printing.
 
@@ -347,7 +364,7 @@ The screen is detected for you (the video output and the touch device through ud
 
 The `grid` layout shows the same pages as cards instead of tabs; it has not been photographed yet.
 
-**Rotation** is an operating-system setting, not a ZR Tools one. On X11 use `xrandr --output <name> --rotate left` (and a matching touch matrix); for Weston, `transform=90` in `weston.ini`. See the KlipperScreen documentation.
+**Rotation** is an operating-system setting, not a ZR Tools one, and the installer does not change it. ZR Tools follows the size X reports after the rotation. On X11 use `xrandr --output <name> --rotate left` (and a matching touch matrix); for Weston, `transform=90` in `weston.ini`. See the KlipperScreen documentation.
 
 `--update`, `--repair` and `--doctor` copy the panel files back if a KlipperScreen update removed them. Using the original WonderMaker screen board as the KlipperScreen is section 7.
 

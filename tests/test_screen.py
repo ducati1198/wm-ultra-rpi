@@ -66,6 +66,60 @@ class Logic(unittest.TestCase):
         self.assertEqual(L.resolve_density("compact", 1280), "compact")
         self.assertEqual(L.resolve_density("auto", None), "compact")
 
+    def test_screen_profile(self):
+        P = L.screen_profile
+        self.assertEqual((P(800, 480)["portrait"], P(800, 480)["class"]), (False, "small"))
+        self.assertEqual((P(480, 800)["portrait"], P(480, 800)["class"]), (True, "small"))
+        self.assertEqual((P(1024, 600)["portrait"], P(1024, 600)["class"]), (False, "large"))
+        self.assertEqual((P(600, 1024)["portrait"], P(600, 1024)["class"]), (True, "large"))
+        self.assertEqual(P(800, None)["class"], "small")          # old width-only rule
+        self.assertEqual(P(1024, None)["class"], "large")
+        self.assertEqual(P(object(), object())["class"], "small")  # junk is tolerated
+
+    def test_sizes_and_labels(self):
+        wide, tall = L.sizes("compact", False), L.sizes("compact", True)
+        self.assertEqual((wide["tool_cols"], tall["tool_cols"]), (4, 2))
+        self.assertEqual(tall["cols"], 2)
+        for d in ("compact", "comfortable"):
+            for pt in (False, True):
+                z = L.sizes(d, pt)
+                for k in ("btn_h", "tile_h", "nav_h", "cols", "tool_cols", "util_cols", "dot"):
+                    self.assertGreater(z[k], 0, (d, pt, k))
+        self.assertEqual(L.short_label("Toolheads", True, "compact"), "Heads")
+        self.assertEqual(L.short_label("Toolheads", False, "compact"), "Toolheads")
+        self.assertEqual(L.short_label("Toolheads", True, "comfortable"), "Toolheads")
+
+    def test_scaling_tiny_and_wide(self):
+        # the sizes the layouts were made for do not change
+        self.assertEqual(L.scale_factor("compact", 800, 480), 1.0)
+        self.assertEqual(L.scale_factor("comfortable", 1024, 600), 1.0)
+        self.assertEqual(L.scale_factor("compact", 480, 800), 1.0)          # orientation does not matter
+        self.assertEqual(L.sizes("compact", False, 800, 480)["btn_h"], 40)
+        self.assertEqual(L.sizes("comfortable", False, 1024, 600)["btn_h"], 54)
+        # smaller and larger screens scale, within limits
+        self.assertLess(L.sizes("compact", False, 480, 320)["btn_h"], 40)
+        self.assertEqual(L.scale_factor("compact", 320, 240), L.SCALE_MIN)
+        self.assertGreater(L.sizes("comfortable", False, 1280, 800)["btn_h"], 54)
+        self.assertEqual(L.scale_factor("comfortable", 3840, 2160), L.SCALE_MAX)
+        self.assertEqual(L.scale_factor("compact", 800, None), 1.0)         # unknown height
+        self.assertEqual(L.scale_factor("compact", object(), object()), 1.0)
+        # tiny: 480x320, 480x272 and tall; not 800x480
+        for w, h in ((480, 320), (320, 480), (480, 272)):
+            self.assertTrue(L.screen_profile(w, h)["tiny"], (w, h))
+            self.assertTrue(L.sizes("compact", h > w, w, h)["tiny"])
+        self.assertFalse(L.screen_profile(800, 480)["tiny"])
+        self.assertFalse(L.screen_profile(800, None)["tiny"])
+        # wide: 1280x800 and up, landscape only
+        self.assertTrue(L.screen_profile(1280, 800)["wide"])
+        self.assertFalse(L.screen_profile(800, 1280)["wide"])
+        self.assertFalse(L.screen_profile(1024, 600)["wide"])
+        self.assertEqual(L.sizes("comfortable", False, 1280, 800)["cols"], 4)
+        self.assertEqual(L.sizes("comfortable", False, 1024, 600)["cols"], 3)
+        # text scales with the screen and the css still builds
+        self.assertIn("font-size: 100%", L.build_css("dark", "soft", "compact", 1.0))
+        self.assertIn("font-size: 75%", L.build_css("dark", "soft", "compact", 0.75))
+        self.assertNotIn("%(", L.build_css("light", "bold", "comfortable", 1.5))
+
     def test_has_ace(self):
         self.assertFalse(L.has_ace({}))
         self.assertTrue(L.has_ace({"gcode_macro _WM_ACE": {"mode": "idle"}}))
@@ -192,7 +246,7 @@ class Smoke(unittest.TestCase):
         cls.home = tempfile.mkdtemp()
         cls.patch = mock.patch.object(sys.modules["gi.repository"].__class__, "__x__", create=True)
 
-    def make(self, layout="tabs", width=1024, ace=False):
+    def make(self, layout="tabs", width=1024, ace=False, height=None):
         for m in [m for m in sys.modules if m.startswith("panels")]:
             del sys.modules[m]
         import importlib
@@ -202,6 +256,8 @@ class Smoke(unittest.TestCase):
         zl.save_settings({"layout": layout, "density": "auto", "theme": "dark"}, zl.SETTINGS_FILE)
         zr.L.SETTINGS_FILE = zl.SETTINGS_FILE
         screen = mock.MagicMock(); screen.width = width
+        if height is not None:
+            screen.height = height
         screen.printer.get_config_section_list.return_value = [
             "gcode_macro CALIBRATE_TOOL_Z_OFFSET", "gcode_macro TIMELAPSE_RENDER", "heater_bed", "lis2dw", "resonance_tester",
             "extruder", "extruder1", "gcode_macro T0", "gcode_macro T1"]
@@ -243,6 +299,19 @@ class Smoke(unittest.TestCase):
     def test_all_views_grid_layout_compact(self):
         p, _ = self.make("grid", width=800); self.every_view(p)
         self.assertEqual(p.density, "compact")
+
+    def test_all_views_five_and_seven_inch_both_ways(self):
+        # 5" 800x480, 7" 1024x600 and 7" 800x480, each wide and tall, in both layouts
+        for layout in ("tabs", "grid"):
+            for w, h in ((800, 480), (480, 800), (1024, 600), (600, 1024), (480, 320), (320, 480), (480, 272), (1280, 800), (1920, 1080)):
+                p, _ = self.make(layout, width=w, height=h, ace=True)
+                self.every_view(p)
+                p.show_ace(); p._refresh_view()
+                self.assertEqual(p.portrait, h > w, (layout, w, h))
+                self.assertEqual(p.density, "compact" if (min(w, h) <= 520 or max(w, h) <= 900) else "comfortable", (layout, w, h))
+                self.assertEqual(p.tiny, min(w, h) <= 400, (layout, w, h))
+                if layout == "tabs":
+                    self.assertEqual("Calibrate" in p.nav_btns, min(w, h) > 400, (w, h))
 
     def test_ace_views_and_actions(self):
         p, screen = self.make("tabs", ace=True)
