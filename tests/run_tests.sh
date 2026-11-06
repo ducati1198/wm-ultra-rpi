@@ -88,7 +88,9 @@ check "bundled gcode_shell_command.py compiles and registers RUN_SHELL_COMMAND" 
 check "--shell-command needs on or off" "! bash $ROOT/installer.sh --shell-command maybe"
 mkstage "$T/stage_sc"; HS="$T/hs"; mkdir -p "$HS"
 OUT="$(inst "$HS" --from-stage "$T/stage_sc" --screen off)"
-check "shell command is NOT installed unless asked for" "[ ! -e $HS/klipper/klippy/extras/gcode_shell_command.py ]"
+check "shell command is installed by default, with no question" "cmp -s $ROOT/config/gcode_shell_command.py $HS/klipper/klippy/extras/gcode_shell_command.py"
+check "the shell command install asks no question" "! echo \"$OUT\" | grep -qi 'Install the Klipper gcode shell'"
+rm -f "$HS/klipper/klippy/extras/gcode_shell_command.py"
 OUT="$(inst "$HS" --update --shell-command on)"
 check "--update --shell-command on installs it" "cmp -s $ROOT/config/gcode_shell_command.py $HS/klipper/klippy/extras/gcode_shell_command.py"
 printf 'y\n' | WM_HOME="$HS" WM_INSTALLER_TEST=1 bash "$ROOT/installer.sh" --uninstall >/dev/null 2>&1
@@ -111,7 +113,7 @@ OUT="$(inst "$HR" --from-stage "$T/stage_r" --screen off)"
 check "none of the three is installed unless asked for" "[ ! -e $HR/octoapp ] && [ ! -e $HR/octoeverywhere ] && [ ! -e $HR/moonraker-obico ]"
 printf '[server]\nport: 7125\n[authorization]\ntrusted_clients:\n    127.0.0.0/8\n' > "$HR/printer_data/config/moonraker.conf"
 OUT="$(inst "$HR" --update --obico on --octoapp on --octoeverywhere on)"
-check "--update --obico on downloads and installs Obico against this Moonraker" "[ -d $HR/moonraker-obico ] && grep -q 'obico install.sh -H 127.0.0.1 -p 7125 -C $HR/printer_data/config/moonraker.conf -L' $HR/.sudo.log"
+check "--update --obico on downloads and installs Obico against this Moonraker" "[ -d $HR/moonraker-obico ] && grep -q 'obico install.sh -H 127.0.0.1 -p 7125 -C $HR/printer_data/config/moonraker.conf -S https://app.obico.io -L' $HR/.sudo.log"
 check "OctoApp is pointed at moonraker.conf and moonraker.service" "[ -d $HR/octoapp ] && grep -q 'octoapp install.sh $HR/printer_data/config/moonraker.conf moonraker.service' $HR/.sudo.log"
 check "OctoEverywhere is pointed at moonraker.conf and moonraker.service" "[ -d $HR/octoeverywhere ] && grep -q 'octoeverywhere install.sh $HR/printer_data/config/moonraker.conf moonraker.service' $HR/.sudo.log"
 check "the linking step is left to the user and explained" "echo \"$OUT\" | grep -q 'link.sh -c'"
@@ -149,6 +151,34 @@ check "--remove shell-command refuses while printer.cfg still uses it" "! M 'y\n
 rm -f "$HR/printer_data/config/x.cfg"
 check "--remove shell-command removes the file" "M 'y\n' $HR --remove shell-command | grep -q 'Removed' && [ ! -e $HR/klipper/klippy/extras/gcode_shell_command.py ]"
 check "--webcam off is accepted with --update" "inst $HR --update --webcam off | grep -q 'Update finished'"
+
+echo "== Obico server choice and one SSH password"
+check "--obico-server needs a web address" "! bash $ROOT/installer.sh --obico-server not-a-url"
+check "Obico defaults to app.obico.io and saves it" "grep -q 'OBICO_SERVER=https://app.obico.io' $HR/wm-rpi-backup/install.conf"
+OB="$T/ob"; mkdir -p "$OB"; mkstage "$T/stage_ob"; inst "$OB" --from-stage "$T/stage_ob" --screen off >/dev/null; printf '[server]\nport: 7125\n' > "$OB/printer_data/config/moonraker.conf"
+inst "$OB" --update --obico on --obico-server http://192.0.2.9:3334/ >/dev/null
+check "--obico-server (own server) is passed to Obico's installer, without the trailing slash" "grep -q -- '-S http://192.0.2.9:3334 -L' $OB/.sudo.log && grep -q 'OBICO_SERVER=http://192.0.2.9:3334$' $OB/wm-rpi-backup/install.conf"
+OB2="$T/ob2"; mkdir -p "$OB2"; inst "$OB2" --from-stage "$T/stage_ob" --screen off >/dev/null; printf '[server]\nport: 7125\n' > "$OB2/printer_data/config/moonraker.conf"
+printf 'y\n2\nhttp://obico.example:3334\n' | WM_HOME="$OB2" WM_INSTALLER_TEST=1 bash "$ROOT/installer.sh" --update --obico on >/dev/null 2>&1
+check "asked: choosing my own server and typing its address" "grep -q -- '-S http://obico.example:3334 -L' $OB2/.sudo.log"
+OB3="$T/ob3"; mkdir -p "$OB3"; inst "$OB3" --from-stage "$T/stage_ob" --screen off >/dev/null; printf '[server]\nport: 7125\n' > "$OB3/printer_data/config/moonraker.conf"
+printf 'y\n2\nnonsense\nalso bad\nstill bad\n' | WM_HOME="$OB3" WM_INSTALLER_TEST=1 bash "$ROOT/installer.sh" --update --obico on >/dev/null 2>&1
+check "asked: three bad addresses fall back to app.obico.io" "grep -q -- '-S https://app.obico.io -L' $OB3/.sudo.log"
+OB4="$T/ob4"; mkdir -p "$OB4"; inst "$OB4" --from-stage "$T/stage_ob" --screen off >/dev/null; printf '[server]\nport: 7125\n' > "$OB4/printer_data/config/moonraker.conf"
+printf 'y\n1\n' | WM_HOME="$OB4" WM_INSTALLER_TEST=1 bash "$ROOT/installer.sh" --update --obico on >/dev/null 2>&1
+check "asked: choosing Obico's website" "grep -q -- '-S https://app.obico.io -L' $OB4/.sudo.log"
+# one SSH connection for the whole pull from the old board (a fake ssh records its options)
+mkdir -p "$T/fakebin"; cat > "$T/fakebin/ssh" <<'FAKE'
+#!/bin/bash
+echo "$*" >> "$FAKE_SSH_LOG"
+case "$*" in *"-O exit"*) exit 0 ;; *"test -d"*) exit 0 ;; *"tar czf"*) printf 'x' ; exit 0 ;; esac
+exit 0
+FAKE
+chmod +x "$T/fakebin/ssh"; : > "$T/ssh.log"
+PATH="$T/fakebin:$PATH" FAKE_SSH_LOG="$T/ssh.log" bash "$ROOT/scripts/pull_from_board.sh" 192.0.2.5 "$T/pulled" >/dev/null 2>&1
+check "board pull: every ssh call reuses one connection (ControlMaster/ControlPath)" "[ \$(grep -c 'ControlMaster=auto' $T/ssh.log) -ge 4 ] && ! grep -v 'ControlPath=' $T/ssh.log | grep -q ."
+check "board pull: the shared connection is closed at the end" "grep -q -- '-O exit' $T/ssh.log"
+check "board pull: still produces the three archives" "[ -f $T/pulled/klipper.tgz ] && [ -f $T/pulled/moonraker.tgz ] && [ -f $T/pulled/data.tgz ]"
 
 echo "== check-updates and zr_tools.cfg backup"
 mkdir -p "$T/cu"; ( cd "$T/cu" && git init -q --bare origin.git && git clone -q origin.git work 2>/dev/null && cd work && git config user.email t@t && git config user.name t && echo 1.0.0 > VERSION && git add -A && git commit -q -m first && git push -q origin HEAD:main 2>/dev/null; git branch -q -M main; git push -q -u origin main 2>/dev/null; cd .. && git clone -q origin.git copy && cd copy && git checkout -q main 2>/dev/null; cd ../work && echo 1.1.0 > VERSION && git commit -q -am "new thing" && git push -q origin main )

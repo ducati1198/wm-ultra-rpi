@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.7.0
+
+- Copying from the old board over SSH asks for the password **once**. Before, klipper, moonraker and the data were three more connections, so the password was asked for each. All steps now share one connection (SSH ControlMaster), which is closed at the end.
+- The Klipper gcode shell command extension is installed automatically, with no question (`--shell-command off` skips it). It still does nothing until you add a `[gcode_shell_command ...]` section.
+- Obico: the installer now asks whether to use Obico's website (app.obico.io) or your own self-hosted server, and asks for the server address. It is remembered. `--obico-server URL` gives it up front; `--yes` uses app.obico.io.
+
 ## 1.6.0
 
 - New numbered menu: `./installer.sh --menu`, which also opens by itself when you run `./installer.sh` with no options at a terminal on a Pi that is already installed (a first-time install is unchanged; `--install` skips the menu). Sections: install, update (see what is new, then update), add-ons, check and fix, backup and restore, touchscreen settings, advanced. Each entry runs the same installer option, so there is one code path.

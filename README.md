@@ -176,7 +176,7 @@ chmod +x installer.sh
 
 The installer first asks **which printer you have** (ZR Ultra or ZR Ultra-S; or give `--model ultra|ultra-s`) and then **where the WonderMaker software is**:
 
-1. **The original screen board is reachable (SSH). Recommended.** If your WonderMaker screen board starts and is on your network, use this one: the installer fetches `printer_data` (config, calibration, saved variables), `klipper`, `moonraker`, `fluidd` and the factory settings from it, so the Pi gets exactly what your printer ran, with your own settings and the original compiled modules. Find its IP in your router, then `./installer.sh --from-board <IP>`. The default WonderMaker login is user `t13dp`, password `TM88888`. Only `tar` is run there, nothing is written.
+1. **The original screen board is reachable (SSH). Recommended.** If your WonderMaker screen board starts and is on your network, use this one: the installer fetches `printer_data` (config, calibration, saved variables), `klipper`, `moonraker`, `fluidd` and the factory settings from it, so the Pi gets exactly what your printer ran, with your own settings and the original compiled modules. Find its IP in your router, then `./installer.sh --from-board <IP>`. The default WonderMaker login is user `t13dp`, password `TM88888`. The password is typed **once**: the installer opens one SSH connection and reuses it for klipper, moonraker and your data. Only `tar` is run there, nothing is written.
 2. **Nothing at all: the factory files inside this repository** (`--from-github`). The repo carries the original Klipper and Moonraker (both GPL v3, license included) and the factory settings, with SHA256 checksums that are verified first. There is a folder for each model: [`factory/ultra/`](factory/ultra) and [`factory/ultra-s/`](factory/ultra-s). See [factory/README.md](factory/README.md).
 
    WonderMaker's **5 compiled modules** (`cs1237`, `hx711`, `heater_air_core`, `heater_feng`, `xy_offset_calibrator_core`: heaters, load cells, calibration) are bundled in the repo too, copied unchanged from an Ultra-S and checked against their factory checksums. They are WonderMaker's binaries (no published license): see the takedown note in [factory/README.md](factory/README.md). `--modules DIR` uses your own copies instead.
@@ -199,7 +199,7 @@ The installer first asks **which printer you have** (ZR Ultra or ZR Ultra-S; or 
 | CAN rule | brings `can0` up at 1 Mbit when the main board appears |
 | Fluidd panel | optional, see 5. The panel is **downloaded from [wm-ultra-fluidd-acepro-panel](https://github.com/ducati1198/wm-ultra-fluidd-acepro-panel) every time** (so you always get its latest), checked against the checksum published next to it. It needs internet (no copy is kept in this repo); if the download fails the web page is skipped with a warning and `--update` retries. `--update` installs a newer panel when there is one |
 | Timelapse | `ffmpeg` and `moonraker-timelapse` at a pinned commit (see `config/pins/addons.txt`), downloaded from mainsail-crew on GitHub and checked |
-| Klipper gcode shell command (optional, asked, default no) | `config/gcode_shell_command.py`, copied into `~/klipper/klippy/extras/`. It is the module by Arksine (GPLv3, the same one KIAUH installs) and is kept in this repository, so no download is needed |
+| Klipper gcode shell command (installed automatically; `--shell-command off` skips it) | `config/gcode_shell_command.py`, copied into `~/klipper/klippy/extras/`. It is the module by Arksine (GPLv3, the same one KIAUH installs) and is kept in this repository, so no download is needed |
 | Obico, OctoApp, OctoEverywhere (optional, each asked, default no) | the makers' own projects, cloned from GitHub into `~/moonraker-obico`, `~/octoapp`, `~/octoeverywhere` and installed with their own installers, pointed at this Pi's Moonraker. See "Remote access add-ons" below |
 | Webcams | `crowsnest` at a pinned commit (see `config/pins/addons.txt`), installed unattended (builds `ustreamer`); your camera goes in `~/printer_data/config/crowsnest.conf` |
 
@@ -221,7 +221,7 @@ The installer first asks **which printer you have** (ZR Ultra or ZR Ultra-S; or 
 | `./installer.sh --from-github --model ultra --modules DIR` | use the factory files in this repo; modules from your printer |
 | `./installer.sh --check` | report problems, change nothing |
 | `./installer.sh --dry-run` | show the plan and what would change |
-| `./installer.sh --shell-command on` | with `--update` or a first install: adds the Klipper gcode shell command extension (`off` stops updating it; the file stays) |
+| `./installer.sh --shell-command on` | with `--update` or a first install: installs or skips the Klipper gcode shell command extension (it is installed by default; `off` stops updating it and the file stays) |
 | `./installer.sh --obico on` / `--octoapp on` / `--octoeverywhere on` | with `--update` or a first install: adds that remote-access add-on (see below) |
 | `./installer.sh --screen-remove` | removes KlipperScreen from the Pi (Klipper, Moonraker, Fluidd stay) |
 | `./installer.sh --first-start` | checks with the main board connected, fixes `canbus_uuid` (asks, keeps a copy), then enables and starts Klipper and the other services |
@@ -532,9 +532,9 @@ tests/                  run_tests.sh (installer, fake home) and test_screen.py (
 
 Klipper, Moonraker and Fluidd are their own projects and licenses. The Anycubic ACE Pro and WonderMaker are trademarks of their owners; this project is unaffiliated. Layout inspired by [acepro-any-klipper](https://github.com/ducati1198/acepro-any-klipper). The Fluidd Toolheads card, the ACE Pro driver config and the OrcaSlicer plugin live in [wm-ultra-fluidd-acepro-panel](https://github.com/ducati1198/wm-ultra-fluidd-acepro-panel) ([plugin](https://github.com/ducati1198/wm-ultra-fluidd-acepro-panel/tree/main/orca_plugin)). This repository is under the GPL v3, see [LICENSE](LICENSE).
 
-## Klipper gcode shell command (optional)
+## Klipper gcode shell command (installed automatically)
 
-`./installer.sh --shell-command on` (or answer yes when the installer asks; the default is no) copies Arksine's `gcode_shell_command` module into Klipper. It adds one command, `RUN_SHELL_COMMAND CMD=name`, which runs a Linux command or script from a G-code macro. It does nothing until you define a command in `printer.cfg` and restart Klipper:
+The installer copies it into Klipper without asking (`--shell-command off` skips it, and the menu can remove it). It copies Arksine's `gcode_shell_command` module into Klipper. It adds one command, `RUN_SHELL_COMMAND CMD=name`, which runs a Linux command or script from a G-code macro. It does nothing until you define a command in `printer.cfg` and restart Klipper:
 
 ```
 [gcode_shell_command hello]
@@ -551,9 +551,11 @@ Three optional services that let you watch and control the printer from outside 
 
 | Add-on | Installed with | Link it to your account |
 |---|---|---|
-| **Obico** (app.obico.io or your own server) | `git clone` of moonraker-obico, then its `install.sh` with this Pi's Moonraker details (127.0.0.1, the port from `moonraker.conf`, no linking) | `~/moonraker-obico/scripts/link.sh -c ~/printer_data/config/moonraker-obico.cfg` shows a 6-digit code to type at app.obico.io. Restart Klipper after (Obico adds `[include moonraker_obico_macros.cfg]` to `printer.cfg`; a copy of `printer.cfg` is saved first) |
+| **Obico** (Obico's website, or your own self-hosted server: the installer asks which) | `git clone` of moonraker-obico, then its `install.sh` with this Pi's Moonraker details (127.0.0.1, the port from `moonraker.conf`) and the server you chose, no linking | `~/moonraker-obico/scripts/link.sh -c ~/printer_data/config/moonraker-obico.cfg` shows a 6-digit code to type at app.obico.io. Restart Klipper after (Obico adds `[include moonraker_obico_macros.cfg]` to `printer.cfg`; a copy of `printer.cfg` is saved first) |
 | **OctoApp** | OctoApp's own method 1c: `git clone` then `./install.sh <moonraker.conf> moonraker.service` | open the OctoApp phone app on the same network; it registers by itself |
 | **OctoEverywhere** | `git clone` then `./install.sh <moonraker.conf> moonraker.service` | its installer prints a link to open in a browser |
+
+**Obico server:** when you choose Obico the installer asks *Obico's website (app.obico.io, free account)* or *my own self-hosted Obico server* (you type its address, for example `http://obico.local:3334`). The answer is saved. You can also give it up front: `./installer.sh --update --obico on --obico-server https://app.obico.io`. With `--yes` it uses app.obico.io.
 
 OctoApp and OctoEverywhere ask questions while they install, so the installer only starts them when you run it in a terminal without `--yes`. Otherwise it downloads them and prints the exact command to finish (`cd ~/octoapp && ./install.sh ~/printer_data/config/moonraker.conf moonraker.service`).
 

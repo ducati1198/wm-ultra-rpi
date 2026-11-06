@@ -10,7 +10,11 @@ set -eu
 BOARD="${1:-}"; STAGE="${2:-./stage}"; RUSER="${3:-t13dp}"
 [ -n "$BOARD" ] || { echo "Usage: $0 <board-ip> [stage-dir] [ssh-user]"; exit 1; }
 mkdir -p "$STAGE"
-SSH=(ssh -o StrictHostKeyChecking=accept-new -o ServerAliveInterval=15 "$RUSER@$BOARD")
+# One SSH connection for all steps: the first command asks for the password, the others reuse that connection
+# (ControlMaster), so the password is typed once, not once per step. The connection is closed when this script ends.
+CTL_DIR="$(mktemp -d /tmp/wmpull.XXXXXX)"
+trap 'ssh -O exit -o ControlPath="$CTL_DIR/c" "$RUSER@$BOARD" 2>/dev/null; rm -rf "$CTL_DIR"' EXIT
+SSH=(ssh -o StrictHostKeyChecking=accept-new -o ServerAliveInterval=15 -o ControlMaster=auto -o "ControlPath=$CTL_DIR/c" -o ControlPersist=600 "$RUSER@$BOARD")
 if [ -n "${WM_SSH_PASSWORD:-}" ] && command -v sshpass >/dev/null; then SSH=(sshpass -e "${SSH[@]}"); export SSHPASS="$WM_SSH_PASSWORD"; fi
 
 echo "Checking the board ($RUSER@$BOARD)..."

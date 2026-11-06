@@ -25,11 +25,12 @@
 # ./installer.sh --enable-klipper      same as --first-start
 # ./installer.sh --disable-klipper     stop Klipper and stop it from starting at boot
 # ./installer.sh --uninstall           remove what the installer added to the system (your files in ~ stay)
-# ./installer.sh --shell-command on|off   optional Klipper "gcode shell command" extension: RUN_SHELL_COMMAND CMD=name runs a Linux command from G-code (asked if not given; default no)
+# ./installer.sh --shell-command on|off   the Klipper "gcode shell command" extension (RUN_SHELL_COMMAND CMD=name runs a Linux command from G-code). Installed automatically; off skips it
 # ./installer.sh --menu                numbered menu (install, update, add-ons, check and fix, backup, screen, advanced). Opens by itself when you run ./installer.sh with no options on a Pi that is already installed
 # ./installer.sh --install             the normal install (skips the menu)
 # ./installer.sh --remove NAME         remove an add-on after asking: obico, octoapp, octoeverywhere or shell-command (the makers' own uninstallers; your account stays on their website)
 # ./installer.sh --webcam on|off       crowsnest webcam service;  --timelapse on|off   Moonraker timelapse (both used with --update)
+# ./installer.sh --obico-server URL    which Obico to connect to: https://app.obico.io (Obico's website, the default) or your own self-hosted server. Asked when you choose Obico
 # ./installer.sh --obico on|off        optional remote access: Obico for Klipper (moonraker-obico). Also --octoapp on|off and --octoeverywhere on|off. Each is asked (default no)
 # ./installer.sh --screen on|off|macros   KlipperScreen on the Pi (on), nothing (off), or only the ZR Tools macros (macros: for the WonderMaker screen board). Asked if not given; default on
 # ./installer.sh --screen-layout tabs|grid   touch layout: tabs = big buttons + bottom tabs (default), grid = card grid
@@ -63,7 +64,7 @@ TESTING="${WM_INSTALLER_TEST:-0}"        # 1 = no sudo, no apt, no systemctl, no
 MODE="install"
 DRY=0
 SRC_KIND=""; SRC_ARG=""; MODEL="ultra-s"; MODULES_DIR=""; FROM_FACTORY=0
-WANT_PANEL=1; WANT_SCREEN=ask; WANT_TIMELAPSE=1; WANT_CROWSNEST=1; CLI_REMOTE=""; WANT_SHELLCMD=ask; WANT_OBICO=ask; WANT_OCTOAPP=ask; WANT_OCTOEVERYWHERE=ask
+WANT_PANEL=1; WANT_SCREEN=ask; WANT_TIMELAPSE=1; WANT_CROWSNEST=1; CLI_REMOTE=""; WANT_SHELLCMD=1; OBICO_SERVER=""; CLI_OBICO_SERVER=""; WANT_OBICO=ask; WANT_OCTOAPP=ask; WANT_OCTOEVERYWHERE=ask
 SCREEN_LAYOUT=""; SCREEN_BACKEND="x11"; REPO_DIR="$SCRIPT_DIR"
 STAMP="$(date +%Y%m%d-%H%M%S)"
 BACKUP_ROOT="$HOME_DIR/wm-rpi-backup"
@@ -132,6 +133,7 @@ while [ $# -gt 0 ]; do
         --backup)       MODE=backup; case "${2:-}" in ""|--*) ;; *) ARG1="$2"; shift ;; esac ;;
         --restore)      MODE=restore; ARG1="${2:-}"; shift ;;
         --support-bundle) MODE=bundle ;;
+        --obico-server) case "${2:-}" in http://*|https://*) OBICO_SERVER="${2%/}"; CLI_OBICO_SERVER="$OBICO_SERVER" ;; *) print_error "--obico-server needs a web address such as https://app.obico.io or http://obico.local:3334"; exit 1 ;; esac; shift ;;
         --shell-command) case "${2:-}" in on|yes|1) WANT_SHELLCMD=1 ;; off|no|0) WANT_SHELLCMD=0 ;; *) print_error "--shell-command needs on or off"; exit 1 ;; esac; CLI_SHELLCMD="$WANT_SHELLCMD"; shift ;;
         --obico)        case "${2:-}" in on|yes|1) WANT_OBICO=1 ;; off|no|0) WANT_OBICO=0 ;; *) print_error "--obico needs on or off"; exit 1 ;; esac; CLI_REMOTE="$CLI_REMOTE obico"; CLI_OBICO="$WANT_OBICO"; shift ;;
         --octoapp)      case "${2:-}" in on|yes|1) WANT_OCTOAPP=1 ;; off|no|0) WANT_OCTOAPP=0 ;; *) print_error "--octoapp needs on or off"; exit 1 ;; esac; CLI_REMOTE="$CLI_REMOTE octoapp"; CLI_OCTOAPP="$WANT_OCTOAPP"; shift ;;
@@ -639,23 +641,42 @@ remote_note_update_manager() {
     print_info "The add-on adds an [update_manager ...] section to moonraker.conf so Fluidd can update it. Fluidd may then also list Klipper and Moonraker as not updatable (they are not git clones here): do not press update on those two; use ./installer.sh --update."
 }
 
+obico_choose_server() {   # Obico's website or your own server; asked once and remembered
+    [ -n "$OBICO_SERVER" ] && return 0
+    OBICO_SERVER="https://app.obico.io"
+    [ "${WM_ASSUME_YES:-0}" = 1 ] && return 0
+    echo "  Obico can connect to:"
+    echo "    1) Obico's own website (app.obico.io, free account)   <- default"
+    echo "    2) My own self-hosted Obico server"
+    local c u tries=0; read -r -p "$(echo -e "${YELLOW}?${NC} Choose 1 or 2 [1]: ")" c || c=1
+    [ "$c" = 2 ] || { print_success "Obico: app.obico.io"; return 0; }
+    while [ "$tries" -lt 3 ]; do
+        read -r -p "  Address of your Obico server (for example http://obico.local:3334): " u || break
+        u="${u%/}"
+        case "$u" in http://?*|https://?*) case "$u" in *" "*) ;; *) OBICO_SERVER="$u"; print_success "Obico server: $OBICO_SERVER"; return 0 ;; esac ;; esac
+        print_warning "That is not a web address (it must start with http:// or https:// and have no spaces)."; tries=$((tries+1))
+    done
+    print_warning "No valid server address given: using app.obico.io. To change it later: ./installer.sh --remove obico, then ./installer.sh --update --obico on --obico-server <address>"
+}
+
 step_obico() {
     [ "$WANT_OBICO" = 1 ] || return 0
     print_header "Step 12c: Obico for Klipper"
     why "moonraker-obico connects Moonraker to Obico (app.obico.io, or your own Obico server): remote view, notifications and failure detection. It uses WonderMaker's [pause_resume], PAUSE/RESUME/CANCEL_PRINT and [exclude_object], which are already in printer.cfg."
     remote_precheck || return 0
+    obico_choose_server
     local dir="$HOME_DIR/moonraker-obico" conf="$HOME_DIR/printer_data/config" port; port="$(remote_moonraker_port)"
     remote_clone https://github.com/TheSpaghettiDetective/moonraker-obico.git "$dir" || { warn_later "Could not download moonraker-obico (network?)."; return 0; }
-    if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would run: $dir/install.sh -H 127.0.0.1 -p $port -C $conf/moonraker.conf -l ~/printer_data/logs -S https://app.obico.io -L${NC}"
-    elif [ "$TESTING" = 1 ]; then echo "[test] obico install.sh -H 127.0.0.1 -p $port -C $conf/moonraker.conf -L" >> "$HOME_DIR/.sudo.log"
+    if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would run: $dir/install.sh -H 127.0.0.1 -p $port -C $conf/moonraker.conf -l ~/printer_data/logs -S $OBICO_SERVER -L${NC}"
+    elif [ "$TESTING" = 1 ]; then echo "[test] obico install.sh -H 127.0.0.1 -p $port -C $conf/moonraker.conf -S $OBICO_SERVER -L" >> "$HOME_DIR/.sudo.log"
     else
         [ -f "$conf/printer.cfg" ] && cp "$conf/printer.cfg" "$conf/printer.cfg.wm-before-obico-$STAMP" && print_info "Obico adds one include line to printer.cfg. A copy was saved as printer.cfg.wm-before-obico-$STAMP"
-        ( cd "$dir" && bash ./install.sh -H 127.0.0.1 -p "$port" -C "$conf/moonraker.conf" -l "$HOME_DIR/printer_data/logs" -S https://app.obico.io -L ) \
+        ( cd "$dir" && bash ./install.sh -H 127.0.0.1 -p "$port" -C "$conf/moonraker.conf" -l "$HOME_DIR/printer_data/logs" -S "$OBICO_SERVER" -L ) \
             || { warn_later "The Obico installer failed (see the output above). Run it again later: cd ~/moonraker-obico && ./install.sh"; return 0; }
     fi
     record "HOMEDIR moonraker-obico"
     remote_note_update_manager
-    print_success "Obico installed. Link your printer to your account (it shows a 6-digit code to type at app.obico.io; a self-hosted server needs -S your-url):"
+    print_success "Obico installed (server: $OBICO_SERVER). Link your printer to your account (it shows a 6-digit code to type at $OBICO_SERVER):"
     echo "      ~/moonraker-obico/scripts/link.sh -c ~/printer_data/config/moonraker-obico.cfg"
     echo "    Then restart Klipper from Fluidd (it adds moonraker_obico_macros.cfg to printer.cfg)."
 }
@@ -758,10 +779,7 @@ questions() {
             if ask_yn "Install $rtext?" n; then printf -v "$rvar" 1; else printf -v "$rvar" 0; fi
         fi
     done
-    if [ "$WANT_SHELLCMD" = ask ]; then
-        echo "  Klipper gcode shell command: lets G-code macros run a Linux command or script (RUN_SHELL_COMMAND). Nothing runs until you add a [gcode_shell_command ...] section to printer.cfg."
-        if ask_yn "Install the Klipper gcode shell command extension?" n; then WANT_SHELLCMD=1; else WANT_SHELLCMD=0; fi
-    fi
+    [ "$WANT_OBICO" = 1 ] && obico_choose_server
     if [ "$WANT_SCREEN" = ask ]; then
         local r t; read -r r t < <(detect_screen)
         [ -n "$r" ] && print_info "A screen is connected: $r"
@@ -890,6 +908,7 @@ KS_PIN=$(addon_pin klipperscreen | cut -d'|' -f2)
 WANT_TIMELAPSE=$WANT_TIMELAPSE
 WANT_CROWSNEST=$WANT_CROWSNEST
 WANT_SHELLCMD=$WANT_SHELLCMD
+OBICO_SERVER=$OBICO_SERVER
 WANT_OBICO=$WANT_OBICO
 WANT_OCTOAPP=$WANT_OCTOAPP
 WANT_OCTOEVERYWHERE=$WANT_OCTOEVERYWHERE
@@ -905,11 +924,12 @@ load_answers() {
         case "$k" in
             VERSION) OLD_VERSION="$v" ;; CROWSNEST_PIN) OLD_CN_PIN="$v" ;; TIMELAPSE_PIN) OLD_TL_PIN="$v" ;; PANEL_SHA) OLD_PANEL_SHA="$v" ;;
             MODEL) [ -n "${MODEL_SET:-}" ] || MODEL="$v" ;; SRC_KIND) : ;;
-            WANT_PANEL|WANT_SCREEN|WANT_TIMELAPSE|WANT_CROWSNEST|WANT_SHELLCMD|WANT_OBICO|WANT_OCTOAPP|WANT_OCTOEVERYWHERE) printf -v "$k" '%s' "$v" ;;
+            WANT_PANEL|WANT_SCREEN|WANT_TIMELAPSE|WANT_CROWSNEST|WANT_SHELLCMD|WANT_OBICO|WANT_OCTOAPP|WANT_OCTOEVERYWHERE|OBICO_SERVER) printf -v "$k" '%s' "$v" ;;
             SCREEN_BACKEND) printf -v "$k" '%s' "$v" ;; KS_PIN) OLD_KS_PIN="$v" ;;
         esac
     done < "$CONF"
     local r; for r in ${CLI_REMOTE:-}; do case "$r" in obico) WANT_OBICO="$CLI_OBICO" ;; octoapp) WANT_OCTOAPP="$CLI_OCTOAPP" ;; octoeverywhere) WANT_OCTOEVERYWHERE="$CLI_OCTOEVERYWHERE" ;; webcam) WANT_CROWSNEST="$CLI_WEBCAM" ;; timelapse) WANT_TIMELAPSE="$CLI_TIMELAPSE" ;; esac; done
+    [ -n "${CLI_OBICO_SERVER:-}" ] && OBICO_SERVER="$CLI_OBICO_SERVER"
     [ -n "${CLI_SHELLCMD:-}" ] && WANT_SHELLCMD="$CLI_SHELLCMD"    # --shell-command on|off given now wins over the saved answer
     return 0
 }
