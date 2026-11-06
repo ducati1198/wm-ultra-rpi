@@ -27,6 +27,11 @@ The idea: a Raspberry Pi takes over the job of the WonderMaker screen/host board
    chmod +x installer.sh && ./installer.sh
    ```
 
+   The menu (press **2** for Update to see its second page):
+
+   ![Installer menu](docs/img/menu-pi-main.png)
+   ![Update page](docs/img/menu-pi-update.png)
+
    *You should see:* a list of steps with a green tick each, then a self-test, then "next steps". It builds software, so let it finish.
 3. **Open `http://<pi address>/` in a browser.** *You should see Fluidd with the Toolheads card.* If the printer's main board is not connected or powered yet, Fluidd shows `ZRU-B001: Screen–Mainboard communication error`. That is expected.
 
@@ -379,6 +384,11 @@ The `grid` layout shows the same pages as cards instead of tabs; it has not been
 `--update`, `--repair` and `--doctor` copy the panel files back if a KlipperScreen update removed them. Using the original WonderMaker screen board as the KlipperScreen is section 7.
 
 ## 7. KlipperScreen on the WonderMaker screen board (optional)
+
+Run `bash scripts/screen_board.sh` on the board to get this menu:
+
+![Screen board menu](docs/img/menu-board-main.png)
+![Screen board update page](docs/img/menu-board-update.png)
 
 > **Tested on one screen board (Nov 2026):** the install from GitHub, the display and touch work. The Wi-Fi page, the Pi address page and the full printing workflow still need more testing. The board's kernel has no virtual console (`/dev/tty0`), so the installer runs X on its own seat (display, framebuffer and touch assigned to `seat1`) with a custom service.
 
