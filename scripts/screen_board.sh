@@ -7,6 +7,7 @@
 #   bash scripts/screen_board.sh                            install (asks for the Pi IP address)
 #
 # bash scripts/screen_board.sh --pi HOST [--screen-driver modesetting|fbdev] [--dry-run] [--yes]   install
+# bash scripts/screen_board.sh                               at a terminal with no options: opens the menu (--install goes straight to the install)
 # bash scripts/screen_board.sh --menu                        numbered menu: install, status, change Pi address or screen driver, factory restore, checks, dry run
 # Also: --update  --doctor [--fix-all]  --backup  --restore-backup [N]  --support-bundle  --log  --restart-screen  --system [tz:Zone|host:name]  --remove installer|backups|rescue|restoredata  --set-driver modesetting|fbdev
 # bash scripts/screen_board.sh --status                      read-only: what is installed / disabled
@@ -30,6 +31,7 @@ if [ -n "${WM_HOME:-}" ]; then HOME_DIR="$WM_HOME"; elif [ "$(id -u)" = 0 ]; the
 BK="$HOME_DIR/wm-screen-backup"
 KS_DIR="$HOME_DIR/KlipperScreen"; KS_ENV="$HOME_DIR/.KlipperScreen-env"
 CFG_DIR="$HOME_DIR/printer_data/config"
+NOARGS=0; [ $# -eq 0 ] && NOARGS=1
 FIXALL=0; ARG1=""; ARG_BACKUP=""; MODE=install; RESCUE=1; DRY=0; PI_HOST=""; DRIVER=modesetting; REBOOT=1; FORCE=0; DETACH=0
 STAMP="$(date +%Y%m%d-%H%M%S)"
 # Services stopped and disabled, in this order (restore starts them in reverse order). Only those that exist are touched.
@@ -69,6 +71,7 @@ while [ $# -gt 0 ]; do
         --screen-driver) case "${2:-}" in modesetting|fbdev) DRIVER="$2" ;; *) print_error "--screen-driver needs modesetting or fbdev"; exit 1 ;; esac; shift ;;
         --set-pi) MODE=setpi; PI_HOST="${2:-}"; shift ;;
         --menu) MODE=menu ;;
+        --install) MODE=install; NOARGS=0 ;;
         --update) MODE=update ;;
         --remove) MODE=removefiles; ARG1="${2:-}"; shift ;;
         --doctor) MODE=doctor ;;
@@ -94,6 +97,9 @@ while [ $# -gt 0 ]; do
     esac
     shift
 done
+
+# No options at a terminal: open the menu (use --install to go straight to the install)
+[ "$NOARGS" = 1 ] && { [ -t 0 ] || [ "${WM_TEST_MENU_DEFAULT:-0}" = 1 ]; } && MODE=menu
 
 # ---------------------------------------------------------------- service state (fakeable in tests)
 test_systemctl() {

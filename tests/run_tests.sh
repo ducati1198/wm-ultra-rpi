@@ -767,4 +767,7 @@ muf --factory-restore --no-reboot >/dev/null
 check "board --remove restoredata works once KlipperScreen is gone" "muf --remove restoredata | grep -q 'deleted' && [ ! -d $MU/wm-screen-backup ]"
 check "board --remove installer deletes the downloaded folder" "muf --remove installer | grep -q 'Installer folder deleted' && [ ! -d $FK ]"
 
+check "board: no options at a terminal opens the menu" "printf '0\n' | WM_TEST_MENU_DEFAULT=1 WM_HOME=$MB WM_INSTALLER_TEST=1 bash $SB 2>&1 | grep -q 'Install KlipperScreen + ZR Tools'"
+check "board: --install skips the menu" "! printf '0\n' | WM_TEST_MENU_DEFAULT=1 WM_HOME=$MB WM_INSTALLER_TEST=1 bash $SB --install --yes 2>&1 | grep -q 'Choose:'"
+
 echo; echo "passed: $PASS  failed: $FAIL"; [ "$FAIL" = 0 ]

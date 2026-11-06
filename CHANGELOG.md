@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.18.1
+
+- **Screen board:** `bash scripts/screen_board.sh` with no options now opens the menu when run at a terminal (Install is entry 1). `--install` goes straight to the install as before.
+
 ## 1.18.0
 
 - **Screen board: Uninstall installer files** (menu entry 9, or `--remove rescue|backups|restoredata|installer`). Removes, each after a question: the rescue tool and the on-screen Factory mode button; screen backups, support bundles and the board report; the saved restore data (`~/wm-screen-backup`, refused while KlipperScreen is installed because a factory restore needs it, unless `--force`); the downloaded installer folder. KlipperScreen itself is only removed by Back to factory mode.
