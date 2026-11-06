@@ -21,6 +21,7 @@
 # ./installer.sh --undo [DIR]          put back the folders the installer moved aside (latest, or DIR)
 # ./installer.sh --backup [DIR]        save your config, calibration and database to a .tgz (only when you run it)
 # ./installer.sh --restore FILE        restore such a backup (a safety copy is made first)
+# ./installer.sh --show-log            where the log of the last run is, and its last lines. Every run that changes something is logged to ~/wm-install-logs/ (passwords and tokens removed)
 # ./installer.sh --support-bundle      make a scrubbed .tgz of logs and config to share when asking for help
 # ./installer.sh --enable-klipper      same as --first-start
 # ./installer.sh --start-klipper       undo --disable-klipper: start Klipper now and at every boot, without the hardware checks
@@ -112,7 +113,7 @@ usage() { sed -n '4,/^# What this/p' "$0" | sed '$d' | sed 's/^# \{0,1\}//'; }
 # ============================================================================
 # Arguments
 # ============================================================================
-ORIG_ARGC=$#; EXPLICIT_INSTALL=0
+ORIG_ARGC=$#; ORIG_ARGS=("$@"); EXPLICIT_INSTALL=0
 while [ $# -gt 0 ]; do
     case "$1" in
         --from-board)   SRC_KIND=board; SRC_ARG="${2:-}"; shift ;;
@@ -136,6 +137,7 @@ while [ $# -gt 0 ]; do
         --backup)       MODE=backup; case "${2:-}" in ""|--*) ;; *) ARG1="$2"; shift ;; esac ;;
         --restore)      MODE=restore; ARG1="${2:-}"; shift ;;
         --support-bundle) MODE=bundle ;;
+        --show-log)     MODE=showlog ;;
         --obico-server) case "${2:-}" in http://*|https://*) OBICO_SERVER="${2%/}"; CLI_OBICO_SERVER="$OBICO_SERVER" ;; *) print_error "--obico-server needs a web address such as https://app.obico.io or http://obico.local:3334"; exit 1 ;; esac; shift ;;
         --shell-command) case "${2:-}" in on|yes|1) WANT_SHELLCMD=1 ;; off|no|0) WANT_SHELLCMD=0 ;; *) print_error "--shell-command needs on or off"; exit 1 ;; esac; CLI_SHELLCMD="$WANT_SHELLCMD"; shift ;;
         --obico)        case "${2:-}" in on|yes|1) WANT_OBICO=1 ;; off|no|0) WANT_OBICO=0 ;; *) print_error "--obico needs on or off"; exit 1 ;; esac; CLI_REMOTE="$CLI_REMOTE obico"; CLI_OBICO="$WANT_OBICO"; shift ;;
@@ -629,7 +631,7 @@ rm_path() {   # delete files or folders; when the Pi user may not (an uninstalle
 }
 leftover_report() {   # what of this installer is still on the Pi, and how to remove it
     local f n=0 list=()
-    for f in "$HOME_DIR/printer_data" "$HOME_DIR/TM_T1" "$HOME_DIR/wm-stage" "$HOME_DIR/wm-backups" "$BACKUP_ROOT" "$HOME_DIR"/wm-support-*.tgz "$REPO_DIR"; do [ -e "$f" ] && list+=("$f"); done
+    for f in "$HOME_DIR/printer_data" "$HOME_DIR/TM_T1" "$HOME_DIR/wm-stage" "$HOME_DIR/wm-backups" "$HOME_DIR/wm-install-logs" "$BACKUP_ROOT" "$HOME_DIR"/wm-support-*.tgz "$REPO_DIR"; do [ -e "$f" ] && list+=("$f"); done
     [ "${#list[@]}" = 0 ] && return 0
     echo "  Still on this Pi (kept on purpose, or not part of the removal):"
     for f in "${list[@]}"; do
@@ -1501,6 +1503,7 @@ do_support_bundle() {
     local f; mkdir -p "$b/config"
     for f in "$(cfg_dir)"/*.cfg "$(cfg_dir)"/moonraker.conf "$(cfg_dir)"/crowsnest.conf; do [ -f "$f" ] && scrub < "$f" > "$b/config/$(basename "$f")"; done
     mkdir -p "$b/logs"
+    local lf; lf="$(ls -1t "$LOG_DIR"/installer-*.log 2>/dev/null | head -n1)"; [ -n "$lf" ] && scrub < "$lf" > "$b/logs/last-installer-run.log"
     for f in klippy moonraker crowsnest; do [ -f "$HOME_DIR/printer_data/logs/$f.log" ] && tail -n 400 "$HOME_DIR/printer_data/logs/$f.log" | scrub > "$b/logs/$f.log"; done
     for s in klipper moonraker nginx crowsnest; do (journalctl -u $s -n 120 --no-pager 2>/dev/null || sudo -n journalctl -u $s -n 120 --no-pager 2>/dev/null) | scrub > "$b/logs/journal-$s.txt"; done
     cat > "$b/README.txt" <<E
@@ -1582,6 +1585,7 @@ cleanup_paths() {   # group -> the paths that exist (one per line)
     case "$1" in
         backups) [ -d "$HOME_DIR/wm-backups" ] && echo "$HOME_DIR/wm-backups" ;;
         bundles) ls -1d "$HOME_DIR"/wm-support-*.tgz 2>/dev/null ;;
+        logs)    [ -d "$LOG_DIR" ] && echo "$LOG_DIR" ;;
         stage)   [ -d "$HOME_DIR/wm-stage" ] && echo "$HOME_DIR/wm-stage" ;;
         moved)   ls -1d "$BACKUP_ROOT"/old-* 2>/dev/null ;;
         fluiddcopies) ls -1d "$BACKUP_ROOT"/fluidd-* 2>/dev/null ;;
@@ -1594,9 +1598,9 @@ cleanup_paths() {   # group -> the paths that exist (one per line)
     esac
 }
 do_cleanup() {   # a page of installer-made files you can delete; your printer data is never in it
-    local groups=(backups bundles stage moved fluiddcopies cfgcopies downloads records repo) g n paths sz cnt word
-    declare -A label=([backups]="Settings backups (~/wm-backups)" [bundles]="Support bundles (~/wm-support-*.tgz)" [stage]="Software copied from the old board (~/wm-stage)" [moved]="Folders moved aside by installs" [fluiddcopies]="Old Fluidd copies" [cfgcopies]="Config safety copies (*.wm-*)" [downloads]="Add-on download copies" [records]="Installer records (~/wm-rpi-backup)" [repo]="The installer folder itself")
-    declare -A help=([backups]="backup .tgz files and safety copies made before restores" [bundles]="logs bundles made for help requests" [stage]="the copy of klipper, moonraker and data an install made from the old board; pull it again if you need it" [moved]="old klipper, moonraker, printer_data folders in ~/wm-rpi-backup/old-*" [fluiddcopies]="Fluidd saved before each panel update" [cfgcopies]="files like printer.cfg.wm-model-bak in your config folder" [downloads]="panel download cache, add-on sources that are not installed" [records]="saved answers and install record; after this the installer no longer knows what is installed" [repo]="$REPO_DIR (this script)")
+    local groups=(backups bundles logs stage moved fluiddcopies cfgcopies downloads records repo) g n paths sz cnt word
+    declare -A label=([backups]="Settings backups (~/wm-backups)" [bundles]="Support bundles (~/wm-support-*.tgz)" [logs]="Installer logs (~/wm-install-logs)" [stage]="Software copied from the old board (~/wm-stage)" [moved]="Folders moved aside by installs" [fluiddcopies]="Old Fluidd copies" [cfgcopies]="Config safety copies (*.wm-*)" [downloads]="Add-on download copies" [records]="Installer records (~/wm-rpi-backup)" [repo]="The installer folder itself")
+    declare -A help=([backups]="backup .tgz files and safety copies made before restores" [bundles]="logs bundles made for help requests" [logs]="the log of each run that changed something" [stage]="the copy of klipper, moonraker and data an install made from the old board; pull it again if you need it" [moved]="old klipper, moonraker, printer_data folders in ~/wm-rpi-backup/old-*" [fluiddcopies]="Fluidd saved before each panel update" [cfgcopies]="files like printer.cfg.wm-model-bak in your config folder" [downloads]="panel download cache, add-on sources that are not installed" [records]="saved answers and install record; after this the installer no longer knows what is installed" [repo]="$REPO_DIR (this script)")
     while true; do
         echo; echo "  Clean up installer files"; echo "  Files made by or for this installer. Your printer data (~/printer_data) is never in this list."
         n=0; for g in "${groups[@]}"; do
@@ -1930,10 +1934,11 @@ menu_advanced() {
         menu_item 2 "Start Klipper again" "Undoes Stop Klipper: starts it now and at every boot, no checks"
         menu_item 3 "Stop Klipper" "Stops Klipper and keeps it from starting at boot"
         menu_item 4 "Support bundle" "A scrubbed .tgz of logs and config to share when asking for help"
+        menu_item 5 "Show the last log" "Where the log of the last run is, and its last lines"
         menu_item 0 "Back" ""
         menu_read "Choose:" || return 0
         case "$REPLY_MENU" in
-            1) menu_run --first-start ;; 2) menu_run --start-klipper ;; 3) menu_run --disable-klipper ;; 4) menu_run --support-bundle ;;
+            1) menu_run --first-start ;; 2) menu_run --start-klipper ;; 3) menu_run --disable-klipper ;; 4) menu_run --support-bundle ;; 5) menu_run --show-log ;;
             0|"") return 0 ;; *) echo "  Choose a number from the list." ;;
         esac
     done
@@ -1965,6 +1970,51 @@ do_menu() {
 # ============================================================================
 # Main
 # ============================================================================
+# ----------------------------------------------------------------------------
+# Log of every run that changes something: ~/wm-install-logs/installer-MODE-DATE.log
+# At a terminal the installer re-runs itself inside `script`, so the terminal behaves exactly as before (colours, prompts, the add-ons'
+# own questions) and everything shown is recorded. Without a terminal the output is copied with tee. Passwords and tokens are removed,
+# colour codes are removed, progress bars are reduced to their last line. The newest 20 logs are kept.
+# ----------------------------------------------------------------------------
+LOG_DIR="$HOME_DIR/wm-install-logs"; LOG_FILE=""
+scrub_secrets() { sed -E 's/((password|passwd|token|api_?key|secret|ssid|psk)[[:space:]]*[:=][[:space:]]*).*/\1<removed>/I'; }
+clean_log() {
+    [ -f "$LOG_FILE.raw" ] || return 0
+    python3 - "$LOG_FILE.raw" <<'PY' 2>/dev/null | scrub_secrets > "$LOG_FILE" || scrub_secrets < "$LOG_FILE.raw" > "$LOG_FILE"
+import re, sys
+ansi = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(\x07|\x1b\\)|\x1b[()][A-Z0-9]|\x1b[=>]")
+for raw in open(sys.argv[1], errors="replace").read().split("\n"):
+    if raw.startswith("Script started on") or raw.startswith("Script done on"): continue
+    line = ansi.sub("", raw)
+    parts = [x for x in line.split("\r") if x.strip() != ""]
+    line = parts[-1] if parts else ""
+    line = re.sub(r".\x08", "", line).replace("\x08", "")
+    print(line.rstrip())
+PY
+    rm -f "$LOG_FILE.raw"; chmod 600 "$LOG_FILE" 2>/dev/null
+    ls -1t "$LOG_DIR"/installer-*.log 2>/dev/null | tail -n +21 | while IFS= read -r f; do rm -f "$f"; done
+}
+start_logging() {
+    [ "${WM_LOGGING:-0}" = 1 ] && return 0
+    [ "$DRY" = 1 ] && return 0
+    [ "$TESTING" = 1 ] && [ "${WM_FORCE_LOG:-0}" != 1 ] && return 0
+    case " install update repair remove restore undo uninstall firststart startklipper disable doctor hwtest backup screenlayout screenremove " in *" $MODE "*) ;; *) return 0 ;; esac
+    [ "$MODE" = install ] && [ "$ORIG_ARGC" = 0 ] && [ -t 0 ] && [ -t 1 ] && [ "${WM_ASSUME_YES:-0}" != 1 ] && return 0   # that opens the menu
+    mkdir -p "$LOG_DIR" 2>/dev/null && chmod 700 "$LOG_DIR" 2>/dev/null || return 0
+    LOG_FILE="$LOG_DIR/installer-$MODE-$STAMP.log"
+    if [ -t 0 ] && [ -t 1 ] && [ "${WM_NO_SCRIPT:-0}" != 1 ] && command -v script >/dev/null 2>&1; then
+        local rc; WM_LOGGING=1 script -q -f -e -c "$(printf '%q ' bash "$0" "${ORIG_ARGS[@]}")" "$LOG_FILE.raw"; rc=$?
+        clean_log; echo "Log of this run: $LOG_FILE"; exit $rc
+    fi
+    exec > >(tee -a "$LOG_FILE.raw") 2>&1
+    trap 'sleep 0.5; clean_log' EXIT
+}
+do_show_log() {
+    local f; f="$(ls -1t "$LOG_DIR"/installer-*.log 2>/dev/null | head -n1)"
+    [ -n "$f" ] || { print_info "No log yet. Runs that change something write one to $LOG_DIR."; return 0; }
+    echo "  Newest log: $f"; echo "  All logs:   $LOG_DIR"; echo "  ---- last 40 lines ----"; tail -n 40 "$f"
+}
+start_logging
 echo -e "${BLUE}WonderMaker Ultra Raspberry Pi replacement - installer $VERSION${NC}"
 [ "$DRY" = 1 ] && print_info "DRY RUN: nothing will be changed."
 # No options, at a terminal: open the menu (also on an empty Pi; choose 1 there to install).
@@ -1983,6 +2033,7 @@ case "$MODE" in
     backup)     do_backup; exit 0 ;;
     restore)    do_restore; exit 0 ;;
     bundle)     do_support_bundle; exit 0 ;;
+    showlog)    do_show_log; exit 0 ;;
     disable)    do_disable; exit 0 ;;
     startklipper) do_start_klipper; exit $? ;;
     uninstall)  do_uninstall; exit 0 ;;

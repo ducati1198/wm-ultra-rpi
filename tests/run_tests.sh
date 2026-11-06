@@ -220,14 +220,14 @@ OUT="$(M '0\n' $CU --remove cleanup)"
 check "clean-up page lists each group with its size" "echo \"$OUT\" | grep -q 'Settings backups.*item' && echo \"$OUT\" | grep -q 'Support bundles.*item' && echo \"$OUT\" | grep -q 'Config safety copies' && echo \"$OUT\" | grep -q 'installer folder itself'"
 check "clean-up page never lists printer data" "! echo \"$OUT\" | grep -q 'Delete my printer data'"
 check "clean-up: support bundles after y" "M '2\ny\n0\n' $CU --remove cleanup | grep -q 'Deleted: Support bundles' && [ ! -e $CU/wm-support-1.tgz ]"
-check "clean-up: config safety copies after y" "M '6\ny\n0\n' $CU --remove cleanup | grep -q 'Deleted: Config safety' && [ ! -e $CU/printer_data/config/printer.cfg.wm-model-bak ] && [ -f $CU/printer_data/config/printer.cfg ]"
+check "clean-up: config safety copies after y" "M '7\ny\n0\n' $CU --remove cleanup | grep -q 'Deleted: Config safety' && [ ! -e $CU/printer_data/config/printer.cfg.wm-model-bak ] && [ -f $CU/printer_data/config/printer.cfg ]"
 check "clean-up: backups need the word DELETE" "M '1\nno\n0\n' $CU --remove cleanup | grep -q 'Nothing changed' && ls $CU/wm-backups/wm-backup-*.tgz"
 check "clean-up: backups deleted after DELETE" "M '1\nDELETE\n0\n' $CU --remove cleanup | grep -q 'Deleted: Settings backups' && [ ! -e $CU/wm-backups ]"
 check "clean-up: nothing-to-delete groups say so" "M '1\n0\n' $CU --remove cleanup | grep -q 'Nothing to delete'"
-OUT="$(M '8\nDELETE\n0\n' $CU --remove cleanup)"
+OUT="$(M '9\nDELETE\n0\n' $CU --remove cleanup)"
 check "clean-up: installer records need DELETE and leave printer data" "echo \"$OUT\" | grep -q 'Update and the menu will say so' && [ ! -e $CU/wm-rpi-backup ] && [ -d $CU/printer_data/config ]"
 RC="$T/repocopy"; rm -rf "$RC"; cp -a "$ROOT" "$RC"
-check "clean-up: the installer folder is deleted only after DELETE (on a copy)" "printf '9\nnope\n0\n' | WM_HOME=$CU WM_INSTALLER_TEST=1 bash $RC/installer.sh --remove cleanup >/dev/null 2>&1; [ -f $RC/installer.sh ] && printf '9\nDELETE\n' | WM_HOME=$CU WM_INSTALLER_TEST=1 bash $RC/installer.sh --remove cleanup | grep -q 'installer folder was deleted' && [ ! -e $RC ]"
+check "clean-up: the installer folder is deleted only after DELETE (on a copy)" "printf '10\nnope\n0\n' | WM_HOME=$CU WM_INSTALLER_TEST=1 bash $RC/installer.sh --remove cleanup >/dev/null 2>&1; [ -f $RC/installer.sh ] && printf '10\nDELETE\n' | WM_HOME=$CU WM_INSTALLER_TEST=1 bash $RC/installer.sh --remove cleanup | grep -q 'installer folder was deleted' && [ ! -e $RC ]"
 check "clean-up: --help lists it" "bash $ROOT/installer.sh --help | grep -q 'cleanup (installer files'"
 
 echo "== plan lists every optional program"
@@ -293,8 +293,42 @@ check "Obico: the steps from its own uninstall list are done (service, reset-fai
 echo "== leftovers and administrator rights"
 check "files that cannot be deleted as the user are deleted with sudo" "sed -n '/^rm_path()/,/^}/p' $ROOT/installer.sh | grep -q 'SUDO rm -rf'"
 CS="$T/cs"; mkun "$CS"; mkdir -p "$CS/wm-stage"; echo x > "$CS/wm-stage/k.tgz"
-check "clean-up lists the copy from the old board and needs DELETE for it" "M '3\nno\n0\n' $CS --remove cleanup | grep -q 'Nothing changed' && [ -d $CS/wm-stage ] && M '3\nDELETE\n0\n' $CS --remove cleanup | grep -q 'Deleted: Software copied from the old board' && [ ! -e $CS/wm-stage ]"
+check "clean-up lists the copy from the old board and needs DELETE for it" "M '4\nno\n0\n' $CS --remove cleanup | grep -q 'Nothing changed' && [ -d $CS/wm-stage ] && M '4\nDELETE\n0\n' $CS --remove cleanup | grep -q 'Deleted: Software copied from the old board' && [ ! -e $CS/wm-stage ]"
 check "OctoApp removal also deletes its installer log and config files" "mkdir -p $OA/printer_data/config && touch $OA/octoeverywhere-installer.log $OA/printer_data/config/octoeverywhere.conf $OA/printer_data/config/octoeverywhere-system.cfg && mkdir -p $OA/octoeverywhere $OA/octoeverywhere-env && M 'y\n' $OA --remove octoeverywhere >/dev/null && [ ! -e $OA/octoeverywhere-installer.log ] && [ ! -e $OA/printer_data/config/octoeverywhere.conf ] && [ ! -e $OA/printer_data/config/octoeverywhere-system.cfg ] && [ ! -e $OA/octoeverywhere-env ]"
+
+
+echo "== log of every run"
+LG="$T/lg"; rm -rf "$LG"; mkdir -p "$LG"; mkstage "$T/stage_lg"
+WM_FORCE_LOG=1 inst "$LG" --from-stage "$T/stage_lg" --screen off >/dev/null; sleep 1
+LF="$(ls -1t $LG/wm-install-logs/installer-install-*.log 2>/dev/null | head -1)"
+check "an install writes a log in ~/wm-install-logs" "[ -n \"$LF\" ] && grep -q 'Plan (nothing has been changed yet)' \"$LF\" && grep -q 'Self-test' \"$LF\""
+check "the log has no colour codes and no leftover .raw file" "! grep -q \$'\\x1b' \"$LF\" && ! ls $LG/wm-install-logs/*.raw"
+check "the log is private (600) and so is its folder" "[ \"\$(stat -c %a \"$LF\")\" = 600 ] && [ \"\$(stat -c %a $LG/wm-install-logs)\" = 700 ]"
+check "--show-log says where the log is and shows its end" "M '' $LG --show-log | grep -q 'Newest log: .*installer-install-' "
+check "the support bundle contains the newest run log" "M '' $LG --support-bundle >/dev/null; tar tzf \$(ls -1t $LG/wm-support-*.tgz | head -1) | grep -q 'logs/last-installer-run.log'"
+rm -rf "$LG/wm-install-logs"; M '' $LG --check >/dev/null; M '0\n' $LG --menu >/dev/null; M '' $LG --check-updates >/dev/null 2>&1; inst "$LG" --dry-run --update >/dev/null 2>&1
+check "read-only runs, the menu and --dry-run write no log" "[ ! -d $LG/wm-install-logs ] || [ -z \"\$(ls $LG/wm-install-logs)\" ]"
+check "without WM_FORCE_LOG the test runs write no log" "inst $LG --update >/dev/null; [ ! -d $LG/wm-install-logs ] || [ -z \"\$(ls $LG/wm-install-logs)\" ]"
+python3 - "$ROOT" "$LG" <<'PY'
+import pty, os, sys, time, select
+root, home = sys.argv[1], sys.argv[2]
+env = dict(os.environ, WM_HOME=home, WM_INSTALLER_TEST="1", WM_FORCE_LOG="1")
+pid, fd = pty.fork()
+if pid == 0:
+    os.execvpe("bash", ["bash", root + "/installer.sh", "--backup"], env)
+out = b""; t = time.time()
+while time.time() - t < 15:
+    r, _, _ = select.select([fd], [], [], 0.5)
+    if r:
+        try: d = os.read(fd, 4096)
+        except OSError: break
+        if not d: break
+        out += d
+os.waitpid(pid, 0)
+open(home + "/pty.out", "wb").write(out)
+PY
+check "at a terminal the run is recorded through script, shown normally, and the log path is printed" "grep -q 'Log of this run' $LG/pty.out && ls $LG/wm-install-logs/installer-backup-*.log && grep -q 'Backup of your printer settings' \$(ls $LG/wm-install-logs/installer-backup-*.log | head -1) && ! grep -q \$'\\x1b' \$(ls $LG/wm-install-logs/installer-backup-*.log | head -1)"
+check "clean-up lists the logs with a y/n" "mkdir -p $LG/wm-install-logs && echo x > $LG/wm-install-logs/installer-x.log && M '3\nn\n0\n' $LG --remove cleanup | grep -q 'Installer logs' && M '3\ny\n0\n' $LG --remove cleanup | grep -q 'Deleted: Installer logs' && [ ! -e $LG/wm-install-logs ]"
 
 echo "== Obico server choice and one SSH password"
 check "--obico-server needs a web address" "! bash $ROOT/installer.sh --obico-server not-a-url"

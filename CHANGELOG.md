@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.11.0
+
+- **The installer now keeps a log.** Every run that changes something is written to `~/wm-install-logs/installer-<what>-<date>.log` (its path is printed at the end). At a terminal the installer re-runs itself inside `script`, so the screen behaves as before and everything shown is recorded; without a terminal it uses `tee`. Colour codes are removed, progress bars are reduced to their last line, passwords and tokens become `<removed>`, files are private, the newest 20 are kept.
+- `./installer.sh --show-log` (and Advanced → Show the last log) shows where the newest log is and its last 40 lines. The support bundle includes the newest log. Uninstall → Clean up installer files can delete the logs.
+
 ## 1.10.3
 
 - **Leftovers after Uninstall are gone.** Seen after "Everything" and the clean-up: `~/crowsnest-env`, `~/octoeverywhere-env`, `~/octoapp-installer.log`, `~/octoeverywhere-installer.log`, `~/wm-stage` and `~/TM_T1` stayed. Now: crowsnest's environment, the Octo add-ons' installer logs and config files are removed with the add-on; the copy from the old board (`~/wm-stage`) is a clean-up group (type `DELETE`); `~/TM_T1` goes with "My printer data".
