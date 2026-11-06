@@ -574,10 +574,10 @@ OctoApp and OctoEverywhere ask questions while they install, so the installer on
 
 ## The menu
 
-On a Pi that is already installed, `./installer.sh` with no options at a terminal opens a numbered menu (`./installer.sh --menu` opens it any time). A first-time install goes straight to the install questions as before; `./installer.sh --install` runs the normal install and skips the menu. Each menu entry runs the same installer option you could type yourself, so nothing works differently from the command line.
+`./installer.sh` with no options at a terminal always opens a numbered menu, also on a Pi where nothing is installed yet (choose **1) Install or reinstall** there). `./installer.sh --menu` opens it any time; `./installer.sh --install`, or any other option, skips the menu and does that one thing. Each menu entry runs the same installer option you could type yourself, so nothing works differently from the command line.
 
 ```
-WonderMaker Ultra Raspberry Pi replacement - installer 1.9.0
+WonderMaker Ultra Raspberry Pi replacement - installer 1.9.1
   Klipper: active   Moonraker: active   nginx: active
   3 new change(s) on GitHub (version 1.6.1). Choose 2 to see them and update.
 

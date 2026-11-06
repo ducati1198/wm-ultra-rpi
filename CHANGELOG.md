@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.9.1
+
+- `./installer.sh` with no options now always opens the menu at a terminal, also on a Pi with nothing installed. Before, a Pi without an install record went straight to the install questions. Choose 1 in the menu to install; `--install` still skips the menu.
+
 ## 1.9.0
 
 - **Advanced → Start Klipper again** (`--start-klipper`): undoes *Stop Klipper* (enables Klipper at boot and starts it) without the hardware checks. *First start* is still there for the full checks.

@@ -1801,8 +1801,8 @@ do_menu() {
 # ============================================================================
 echo -e "${BLUE}WonderMaker Ultra Raspberry Pi replacement - installer $VERSION${NC}"
 [ "$DRY" = 1 ] && print_info "DRY RUN: nothing will be changed."
-# No options on a Pi that is already installed, at a terminal: open the menu.
-if [ "$ORIG_ARGC" = 0 ] && [ "$MODE" = install ] && [ -f "$CONF" ] && [ -t 0 ] && [ -t 1 ] && [ "${WM_ASSUME_YES:-0}" != 1 ]; then MODE=menu; fi
+# No options, at a terminal: open the menu (also on an empty Pi; choose 1 there to install).
+if [ "$ORIG_ARGC" = 0 ] && [ "$MODE" = install ] && [ -t 0 ] && [ -t 1 ] && [ "${WM_ASSUME_YES:-0}" != 1 ]; then MODE=menu; fi
 case "$MODE" in
     menu)       do_menu; exit 0 ;;
     remove)     do_remove_addon; exit $? ;;
