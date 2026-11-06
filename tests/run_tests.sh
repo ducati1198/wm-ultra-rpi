@@ -225,6 +225,13 @@ RC="$T/repocopy"; rm -rf "$RC"; cp -a "$ROOT" "$RC"
 check "clean-up: the installer folder is deleted only after DELETE (on a copy)" "printf '8\nnope\n0\n' | WM_HOME=$CU WM_INSTALLER_TEST=1 bash $RC/installer.sh --remove cleanup >/dev/null 2>&1; [ -f $RC/installer.sh ] && printf '8\nDELETE\n' | WM_HOME=$CU WM_INSTALLER_TEST=1 bash $RC/installer.sh --remove cleanup | grep -q 'installer folder was deleted' && [ ! -e $RC ]"
 check "clean-up: --help lists it" "bash $ROOT/installer.sh --help | grep -q 'cleanup (installer files'"
 
+echo "== plan lists every optional program"
+PO="$T/plan"; mkdir -p "$PO"; mkstage "$T/stage_plan"
+OUT="$(WM_TEST_PANEL_DIR=$T/stubpanel WM_HOME=$PO WM_INSTALLER_TEST=1 bash $ROOT/installer.sh --dry-run --from-stage $T/stage_plan --model ultra-s --obico on --octoapp on --octoeverywhere off --screen off 2>&1 </dev/null)"
+check "plan names obico, octoapp and octoeverywhere with their answers" "echo \"$OUT\" | grep -q 'obico  *yes' && echo \"$OUT\" | grep -q 'octoapp  *yes' && echo \"$OUT\" | grep -q 'octoeverywhere  *no'"
+check "plan names every other optional program" "for n in 'panel (Fluidd)' webcam timelapse 'shell command' touchscreen; do echo \"$OUT\" | grep -q \"\$n\" || exit 1; done"
+check "every saved WANT_ answer is in the plan list (add new programs to PLAN_OPTIONS)" "for v in \$(sed -n '/^save_answers()/,/^}/p' $ROOT/installer.sh | grep -o 'WANT_[A-Z]*' | sort -u); do grep -q \"|\$v\\\"\" $ROOT/installer.sh || { echo missing \$v; exit 1; }; done"
+
 echo "== Obico server choice and one SSH password"
 check "--obico-server needs a web address" "! bash $ROOT/installer.sh --obico-server not-a-url"
 check "Obico defaults to app.obico.io and saves it" "grep -q 'OBICO_SERVER=https://app.obico.io' $HR/wm-rpi-backup/install.conf"

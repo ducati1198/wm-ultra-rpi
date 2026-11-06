@@ -220,7 +220,7 @@ The installer first asks **which printer you have** (ZR Ultra or ZR Ultra-S; or 
 | `./installer.sh --from-board IP` / `--from-github` | choose the source without being asked |
 | `./installer.sh --from-github --model ultra --modules DIR` | use the factory files in this repo; modules from your printer |
 | `./installer.sh --check` | report problems, change nothing |
-| `./installer.sh --dry-run` | show the plan and what would change |
+| `./installer.sh --dry-run` | show the plan and what would change. The plan lists every optional program (panel, webcam, timelapse, shell command, touchscreen, Obico, OctoApp, OctoEverywhere) as yes or no |
 | `./installer.sh --shell-command on` | with `--update` or a first install: installs or skips the Klipper gcode shell command extension (it is installed by default; `off` stops updating it and the file stays) |
 | `./installer.sh --obico on` / `--octoapp on` / `--octoeverywhere on` | with `--update` or a first install: adds that remote-access add-on (see below) |
 | `./installer.sh --screen-remove` | removes KlipperScreen from the Pi (Klipper, Moonraker, Fluidd stay) |
@@ -577,7 +577,7 @@ OctoApp and OctoEverywhere ask questions while they install, so the installer on
 `./installer.sh` with no options at a terminal always opens a numbered menu, also on a Pi where nothing is installed yet (choose **1) Install or reinstall** there). `./installer.sh --menu` opens it any time; `./installer.sh --install`, or any other option, skips the menu and does that one thing. Each menu entry runs the same installer option you could type yourself, so nothing works differently from the command line.
 
 ```
-WonderMaker Ultra Raspberry Pi replacement - installer 1.9.1
+WonderMaker Ultra Raspberry Pi replacement - installer 1.9.2
   Klipper: active   Moonraker: active   nginx: active
   3 new change(s) on GitHub (version 1.6.1). Choose 2 to see them and update.
 

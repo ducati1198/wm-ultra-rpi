@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.9.2
+
+- The plan shown before an install now lists every optional program with yes or no: panel, webcam, timelapse, shell command, touchscreen, Obico (with the chosen server), OctoApp and OctoEverywhere. Before, Obico, OctoApp and OctoEverywhere were missing. The list is one array (`PLAN_OPTIONS`), and a test fails when an installer answer is saved but not in that list, so a program added later cannot be left out of the plan.
+
 ## 1.9.1
 
 - `./installer.sh` with no options now always opens the menu at a terminal, also on a Pi with nothing installed. Before, a Pi without an install record went straight to the install questions. Choose 1 in the menu to install; `--install` still skips the menu.

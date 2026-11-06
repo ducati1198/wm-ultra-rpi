@@ -981,6 +981,18 @@ load_answers() {
     [ -n "${CLI_SHELLCMD:-}" ] && WANT_SHELLCMD="$CLI_SHELLCMD"    # --shell-command on|off given now wins over the saved answer
     return 0
 }
+# Every optional program the installer can add. show_plan prints this list, so a new program (add its WANT_ variable here)
+# appears in the plan; a test fails when a WANT_ variable is saved but missing from this list.
+PLAN_OPTIONS=(
+    "panel (Fluidd)|WANT_PANEL"
+    "webcam|WANT_CROWSNEST"
+    "timelapse|WANT_TIMELAPSE"
+    "shell command|WANT_SHELLCMD"
+    "touchscreen|WANT_SCREEN"
+    "obico|WANT_OBICO"
+    "octoapp|WANT_OCTOAPP"
+    "octoeverywhere|WANT_OCTOEVERYWHERE"
+)
 show_plan() {
     print_header "Plan (nothing has been changed yet)"
     echo "  Printer model:   $MODEL"
@@ -988,7 +1000,16 @@ show_plan() {
     local d moved=""; for d in klipper moonraker printer_data fluidd TM_T1; do [ -e "$HOME_DIR/$d" ] && moved="$moved ~/$d"; done
     [ -n "$moved" ] && echo "  Moved to backup (~/wm-rpi-backup/old-*):$moved"
     echo "  Installs:        system packages, Python 3.9, Klipper/Moonraker environments, Moonraker + nginx services, can0 rule"
-    echo "  Optional:        panel=$([ "$WANT_PANEL" = 1 ] && echo yes || echo no)  webcam=$([ "$WANT_CROWSNEST" = 1 ] && echo yes || echo no)  timelapse=$([ "$WANT_TIMELAPSE" = 1 ] && echo yes || echo no)  shell-command=$([ "$WANT_SHELLCMD" = 1 ] && echo yes || echo no)  touchscreen=$([ "$WANT_SCREEN" = 1 ] && echo yes || { [ "$WANT_SCREEN" = macros ] && echo "macros only" || echo no; })"
+    echo "  Optional programs (yes = installed in this run, no = skipped):"
+    local o name var val
+    for o in "${PLAN_OPTIONS[@]}"; do
+        name="${o%%|*}"; var="${o##*|}"; val="${!var:-}"
+        case "$val" in
+            1) val=yes ;; macros) val="only the ZR Tools macros" ;; ask) val="not chosen" ;; *) val=no ;;
+        esac
+        [ "$var" = WANT_OBICO ] && [ "$val" = yes ] && val="yes (server: ${OBICO_SERVER:-https://app.obico.io})"
+        printf '      %-16s %s\n' "$name" "$val"
+    done
     [ "$AUTOSTART" = 1 ] && echo "  At the end:      Klipper, Moonraker, nginx and crowsnest are enabled and started (checks are shown; failures are reported)" \
                          || echo "  At the end:      Klipper stays off (--no-start)"
 }
