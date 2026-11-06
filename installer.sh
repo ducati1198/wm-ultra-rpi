@@ -73,7 +73,7 @@ TESTING="${WM_INSTALLER_TEST:-0}"        # 1 = no sudo, no apt, no systemctl, no
 MODE="install"
 DRY=0
 SRC_KIND=""; SRC_ARG=""; MODEL="ultra-s"; MODULES_DIR=""; FROM_FACTORY=0
-WANT_PANEL=1; WANT_SCREEN=ask; WANT_TIMELAPSE=1; WANT_CROWSNEST=1; CLI_REMOTE=""; ONLY_ADDON=""; WANT_SHELLCMD=1; OBICO_SERVER=""; WANT_OBICO=ask; WANT_OCTOAPP=ask; WANT_OCTOEVERYWHERE=ask; WANT_NETMGR=ask; WANT_SHAKETUNE=0; WANT_SPOOLMAN=0; NO_BACKUP=0
+WANT_PANEL=1; WANT_SCREEN=ask; WANT_TIMELAPSE=1; WANT_CROWSNEST=1; CLI_REMOTE=""; ONLY_ADDON=""; WANT_SHELLCMD=1; OBICO_SERVER=""; WANT_OBICO=ask; WANT_OCTOAPP=ask; WANT_OCTOEVERYWHERE=ask; WANT_NETMGR=ask; WANT_SHAKETUNE=0; WANT_SPOOLMAN=0; NO_BACKUP=0; FIXALL=0
 SCREEN_LAYOUT=""; SCREEN_BACKEND="x11"; REPO_DIR="$SCRIPT_DIR"
 STAMP="$(date +%Y%m%d-%H%M%S)"
 BACKUP_ROOT="$HOME_DIR/wm-rpi-backup"
@@ -110,6 +110,9 @@ run() {  # run a change; in --dry-run only show it
 SUDO() {
     if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would run: sudo $*${NC}"; return 0; fi
     if [ "$TESTING" = 1 ]; then echo "[test] sudo $*" >> "$HOME_DIR/.sudo.log"; test_systemctl "$@"; return 0; fi
+    if [ "${1:-}" = systemctl ] && { [ "${2:-}" = stop ] || [ "${2:-}" = disable ]; }; then
+        sudo "$@" 2> >(grep -v -e 'not loaded' -e 'does not exist' >&2); return 0   # a service that is not there is already stopped
+    fi
     sudo "$@"
 }
 record() { [ "$DRY" = 1 ] && return 0; mkdir -p "$BACKUP_ROOT"; echo "$1" >> "$STATE"; }
@@ -136,6 +139,7 @@ while [ $# -gt 0 ]; do
         --first-start|--enable-klipper) MODE=firststart ;;
         --hw-test)      MODE=hwtest ;;
         --doctor)       MODE=doctor ;;
+        --fix-all)      FIXALL=1 ;;
         --repair)       MODE=repair ;;
         --update)       MODE=update ;;
         --check-updates) MODE=checkupdates ;;
@@ -639,9 +643,15 @@ rm_path() {   # delete files or folders; when the Pi user may not (an uninstalle
     for p in "$@"; do
         [ -e "$p" ] || [ -L "$p" ] || continue
         rm -rf "$p" 2>/dev/null
-        if [ -e "$p" ] || [ -L "$p" ]; then print_info "Needs administrator rights: $p"; SUDO rm -rf "$p"; fi
+        if [ -e "$p" ] || [ -L "$p" ]; then case "$p" in /etc/*|/usr/*|/var/*) ;; *) print_info "Needs administrator rights: $p" ;; esac; SUDO rm -rf "$p"; fi
         if [ "$TESTING" != 1 ] && { [ -e "$p" ] || [ -L "$p" ]; }; then print_warning "Could not delete $p. Try: sudo rm -rf '$p'"; fi
     done
+}
+python39_added() { [ -f "$STATE" ] && grep -q "^DIR $HOME_DIR/.pythons\$" "$STATE" && { [ -d "$HOME_DIR/.pythons" ] || [ -d "$HOME_DIR/uvtool" ]; }; }
+remove_python39() {   # only the Python 3.9 this installer added (~/.pythons, ~/uvtool); a Python you had before is never touched
+    python39_added || return 0
+    ask_yn "Also remove the Python 3.9 this installer added (~/.pythons and ~/uvtool)? Nothing else uses it once Klipper is gone." y || return 0
+    rm_path "$HOME_DIR/.pythons" "$HOME_DIR/uvtool"; print_success "Python 3.9 removed"
 }
 leftover_report() {   # what of this installer is still on the Pi, and how to remove it
     local f n=0 list=()
@@ -666,6 +676,9 @@ run_official_uninstall() {   # name dir command... : the add-on's OWN uninstalle
 }
 official_with_answers() {   # command... : at a terminal the maker's uninstaller asks you its own questions; otherwise it is answered with yes
     if remote_interactive; then "$@"; else yes y 2>/dev/null | "$@"; fi
+}
+official_yes() {   # command... : always answered with yes (crowsnest's uninstaller asks "(y/N)" and stops on its default otherwise)
+    yes y 2>/dev/null | "$@"
 }
 moonraker_drop_update_section() {   # name : remove [update_manager NAME] from moonraker.conf (copy kept), so Fluidd stops listing a removed add-on
     local f="$HOME_DIR/printer_data/config/moonraker.conf"
@@ -955,6 +968,11 @@ step_remote_update() {   # --update: never run the makers' installers again for 
     done
 }
 
+camera_present() { if [ "$TESTING" = 1 ]; then [ "${WM_TEST_CAMERA:-0}" = 1 ]; else ls /dev/v4l/by-id/*index0 >/dev/null 2>&1; fi; }
+crowsnest_follow_camera() {   # started only when a camera is plugged in
+    if camera_present; then SUDO systemctl enable crowsnest; SUDO systemctl restart crowsnest; return 0; fi
+    SUDO systemctl stop crowsnest; SUDO systemctl disable crowsnest; return 1
+}
 step_crowsnest() {
     [ "$WANT_CROWSNEST" = 1 ] || return 0
     print_header "Step 13: webcam service (crowsnest)"
@@ -970,7 +988,8 @@ step_crowsnest() {
         cp "$conf.wm-keep" "$conf"; rm -f "$conf.wm-keep"
     fi
     record "HOMEDIR crowsnest"; record "FILE /etc/systemd/system/crowsnest.service"
-    print_success "crowsnest installed. Set your camera in ~/printer_data/config/crowsnest.conf (ls /dev/v4l/by-id/), then: sudo systemctl restart crowsnest"
+    if crowsnest_follow_camera; then print_success "crowsnest installed and started: a camera was found."
+    else print_success "crowsnest installed. No camera found, so it is not started. Plug a camera in, then: sudo systemctl enable --now crowsnest   (or ./installer.sh --first-start)"; fi
 }
 
 step_start() {
@@ -993,7 +1012,7 @@ questions() {
     [ "$WANT_OCTOAPP" = ask ] && WANT_OCTOAPP=0
     [ "$WANT_OCTOEVERYWHERE" = ask ] && WANT_OCTOEVERYWHERE=0
     if [ "$WANT_OBICO$WANT_OCTOAPP$WANT_OCTOEVERYWHERE" = 000 ] && [ "${WM_ASSUME_YES:-0}" != 1 ]; then
-        print_info "Obico, OctoApp, OctoEverywhere and Shake&Tune are not part of this install. Add them any time: ./installer.sh, then Add-ons."
+        print_info "Obico, OctoApp, OctoEverywhere, Shake&Tune and Spoolman are not part of this install. Add them any time: ./installer.sh, then Add-ons."
     fi
         if [ "$WANT_SCREEN" = ask ]; then
         local r t; read -r r t < <(detect_screen)
@@ -1048,6 +1067,16 @@ ntp_ok()      { [ "$TESTING" = 1 ] && { return 0; }; [ "$(timedatectl show -p NT
 api_get() {  # path -> body (empty on failure)
     if [ "$TESTING" = 1 ]; then [ "${WM_TEST_MOONRAKER:-1}" = 1 ] && echo '{"result":{"klippy_state":"'"${WM_TEST_KLIPPY:-ready}"'","moonraker_version":"test"}}'; return 0; fi
     curl -fsS -m 4 "http://127.0.0.1:7125$1" 2>/dev/null
+}
+wait_klipper_ready() {   # sets WAIT_ST; waits up to 60 s, stops early when Klipper stays in error/shutdown for two reads in a row
+    local i bad=0; WAIT_ST=""
+    for i in $(seq 1 30); do
+        WAIT_ST="$(klippy_state)"
+        [ "$WAIT_ST" = ready ] && return 0
+        case "$WAIT_ST" in error|shutdown) bad=$((bad+1)); [ "$bad" -ge 2 ] && return 1 ;; *) bad=0 ;; esac
+        sleep 2
+    done
+    return 1
 }
 klippy_state() { api_get /server/info | python3 -c 'import sys,json;print(json.load(sys.stdin)["result"]["klippy_state"])' 2>/dev/null; }
 print_state() {
@@ -1289,10 +1318,12 @@ start_all_services() {
     print_header "Enabling and starting the services"
     local s
     for s in moonraker nginx; do SUDO systemctl enable "$s"; done
-    [ -f /etc/systemd/system/crowsnest.service ] || [ "$TESTING" = 1 ] && [ "$WANT_CROWSNEST" = 1 ] && { SUDO systemctl enable crowsnest; SUDO systemctl restart crowsnest; }
+    if [ "$WANT_CROWSNEST" = 1 ] && { [ -f /etc/systemd/system/crowsnest.service ] || [ "$TESTING" = 1 ]; }; then
+        crowsnest_follow_camera || print_info "No camera found, so the webcam service stays off. Plug one in and run First start again."
+    fi
     SUDO systemctl enable klipper; SUDO systemctl restart klipper
     if [ "$TESTING" = 1 ] || [ "$DRY" = 1 ]; then print_success "Klipper enabled and started (test)"; return 0; fi
-    local i st=""; for i in $(seq 1 30); do st="$(klippy_state)"; [ "$st" = ready ] && break; sleep 2; done
+    local st=""; wait_klipper_ready; st="$WAIT_ST"
     case "$st" in
         ready) print_success "Klipper is ready: the printer is connected." ;;
         startup|"") print_warning "Klipper is still starting (state: ${st:-unknown}). Watch: journalctl -u klipper -f" ;;
@@ -1312,7 +1343,8 @@ do_first_start() {
         warn_later "$CHK_FAIL check(s) failed at the end of the install. Fix them, then run ./installer.sh --first-start or ./installer.sh --doctor."
         start_all_services
     else
-        print_error "$CHK_FAIL check(s) failed, so Klipper was NOT started."
+        if [ "$(service_state klipper)" = active ]; then print_error "$CHK_FAIL check(s) failed. Klipper was already running and was left as it is."
+        else print_error "$CHK_FAIL check(s) failed, so Klipper was NOT started."; fi
         echo "Fix the points above, then run: ./installer.sh --first-start    (./installer.sh --doctor explains and fixes common problems)"
         return 1
     fi
@@ -1481,7 +1513,8 @@ do_undo() {
 
 self_test() {
     print_header "Self-test"
-    [ -n "$(api_get /server/info)" ] && print_success "Moonraker answers on port 7125" || print_warning "Moonraker did not answer"
+    local w=0; while [ -z "$(api_get /server/info)" ] && [ "$TESTING" != 1 ] && [ "$DRY" != 1 ] && [ "$w" -lt 15 ]; do sleep 2; w=$((w+1)); done   # Moonraker needs up to 30 s after a restart
+    [ -n "$(api_get /server/info)" ] && print_success "Moonraker answers on port 7125" || print_warning "Moonraker did not answer (waited 30 s). Look at: journalctl -u moonraker -n 50"
     if [ "$TESTING" = 1 ]; then print_success "web page answers (test)"; else
         local c; c="$(curl -s -m 5 -o /dev/null -w '%{http_code}' http://127.0.0.1/ 2>/dev/null)"
         [ "$c" = 200 ] && print_success "Fluidd answers on port 80" || print_warning "Fluidd/nginx answered '$c' on port 80"
@@ -1497,7 +1530,7 @@ self_test() {
 # ============================================================================
 offer_fix() {  # description, command...
     local d="$1"; shift
-    if ask_yn "  Fix: $d?" y; then "$@" && print_success "done" || print_warning "the fix did not work"; fi
+    if [ "${DOC_FIXALL:-0}" = 1 ] || ask_yn "  Fix: $d?" y; then "$@" && print_success "done" || print_warning "the fix did not work"; fi
 }
 doc_ok()  { echo -e "  ${GREEN}[ok]${NC}      $1"; }
 doc_bad() { echo -e "  ${RED}[problem]${NC} $1"; echo -e "            ${DIM}$2${NC}"; DOC_PROBLEMS=$((DOC_PROBLEMS+1)); }
@@ -1505,6 +1538,10 @@ do_doctor() {
     DOC_PROBLEMS=0
     load_answers || true
     print_header "Doctor (asks before changing anything)"
+    if [ "${FIXALL:-0}" = 1 ]; then
+        echo "  Fix everything: every problem the Doctor finds is fixed with its normal safe fix (the same fixes it would offer one by one). Your printer data is not touched."
+        ask_yn "Apply every fix without asking again?" n && DOC_FIXALL=1 || echo "  Normal mode: the Doctor asks before each fix."
+    fi
     [ "$(id -un)" = "$WM_USER" ] || [ "$TESTING" = 1 ] && doc_ok "user is $WM_USER" || doc_bad "user is $(id -un), not $WM_USER" "WonderMaker's paths are fixed to /home/$WM_USER. Log in as $WM_USER."
     local d dl="klipper moonraker printer_data fluidd klippy-env moonraker-env"; [ "$TESTING" = 1 ] && dl="klipper moonraker printer_data fluidd"
     for d in $dl; do
@@ -1527,6 +1564,21 @@ do_doctor() {
         elif [ "$(service_state "$rsvc")" = active ]; then doc_ok "$rn is running"
         else doc_bad "$rn is downloaded but its service is not running" "Finish its installer: cd ~/$rdir && ./install.sh   (Obico: ~/moonraker-obico/scripts/link.sh -c ~/printer_data/config/moonraker-obico.cfg)"; fi
     done
+    if [ "$WANT_SPOOLMAN" = 1 ]; then
+        if [ ! -d "$HOME_DIR/Spoolman" ]; then doc_bad "Spoolman is missing (~/Spoolman)" "Run ./installer.sh --update --spoolman on."
+        elif [ "$TESTING" = 1 ]; then doc_ok "Spoolman is downloaded"
+        elif [ "$(service_state Spoolman)" = active ]; then doc_ok "Spoolman is running"
+        else doc_bad "Spoolman is downloaded but its service is not running" "journalctl -u Spoolman -n 30"; offer_fix "start Spoolman" bash -c "sudo systemctl enable --now Spoolman"; fi
+    fi
+    if [ "$WANT_SHAKETUNE" = 1 ]; then
+        if [ ! -d "$HOME_DIR/klippain_shaketune" ]; then doc_bad "Shake&Tune is missing" "Run ./installer.sh --update --shaketune on."
+        else doc_ok "Shake&Tune is installed"; fi
+    fi
+    if [ "$WANT_CROWSNEST" = 1 ] && [ -d "$HOME_DIR/crowsnest" ]; then
+        if camera_present; then
+            [ "$(service_state crowsnest)" = active ] && doc_ok "webcam service is running" || { doc_bad "a camera is plugged in but the webcam service is not running" "No picture in Fluidd."; offer_fix "start the webcam service" bash -c "sudo systemctl enable --now crowsnest"; }
+        else doc_ok "webcam service is waiting for a camera (none plugged in)"; fi
+    fi
     local miss; miss="$(modules_present | tr '\n' ' ')"
     if [ -z "$miss" ]; then doc_ok "WonderMaker's compiled modules are present"
     else doc_bad "missing modules: $miss" "Klipper cannot run the heaters, load cells or calibration without them."; offer_fix "copy the factory modules from this repository (checksums are verified)" restore_modules_from_repo; fi
@@ -1634,7 +1686,7 @@ do_start_klipper() {
     usb_bridge_present || print_warning "No main board (1d50:606f) on USB. Klipper starts anyway and reports an error until the board is connected."
     SUDO systemctl enable klipper; SUDO systemctl restart klipper
     if [ "$TESTING" = 1 ] || [ "$DRY" = 1 ]; then print_success "Klipper enabled and started (test)"; return 0; fi
-    local i st=""; for i in $(seq 1 30); do st="$(klippy_state)"; [ "$st" = ready ] && break; sleep 2; done
+    local st=""; wait_klipper_ready; st="$WAIT_ST"
     case "$st" in
         ready) print_success "Klipper is enabled at boot and ready." ;;
         startup|"") print_warning "Klipper is enabled and still starting (state: ${st:-unknown}). Watch: journalctl -u klipper -f" ;;
@@ -1808,7 +1860,7 @@ do_remove_addon() {
             [ -d "$HOME_DIR/crowsnest" ] || [ -f /etc/systemd/system/crowsnest.service ] || { print_info "The webcam service is not installed."; return 0; }
             echo "  This removes the webcam service (crowsnest) and ~/crowsnest. Your camera settings file crowsnest.conf stays in your config folder."
             ask_yn "Remove the webcam service?" n || { echo "Nothing changed."; return 0; }
-            run_official_uninstall crowsnest "$HOME_DIR/crowsnest" official_with_answers make uninstall
+            run_official_uninstall crowsnest "$HOME_DIR/crowsnest" official_yes make uninstall
             SUDO systemctl stop crowsnest; SUDO systemctl disable crowsnest
             SUDO rm -f /etc/systemd/system/crowsnest.service /usr/local/bin/crowsnest /etc/logrotate.d/crowsnest; SUDO systemctl daemon-reload
             rm_path "$HOME_DIR/crowsnest" "$HOME_DIR/crowsnest-env"; moonraker_drop_update_section crowsnest; WANT_CROWSNEST=0; save_answers
@@ -1875,6 +1927,7 @@ PY
                 [ "$(addon_status "$c")" = "not installed" ] && continue
                 echo "    - $c  [$(addon_status "$c")]"; any=1
             done
+            python39_added && echo "    - the Python 3.9 the installer added (~/.pythons, ~/uvtool)"
             [ -f "$STATE" ] && { echo "    - the system files the installer added (services, nginx files, can0 rule)"; any=1; }
             [ "$any" = 0 ] && { echo "    (nothing is installed)"; return 0; }
             echo "  Each add-on's own uninstaller runs first and may ask its own questions."
@@ -1885,6 +1938,7 @@ PY
                 [ "$(addon_status "$c")" = "not installed" ] && continue
                 ( ARG1="$c"; REMOVE_CONFIRMED=1; FORCE=1; do_remove_addon )
             done
+            remove_python39
             [ -f "$STATE" ] && uninstall_system_files
             print_success "The programs were removed."
             leftover_report ;;
@@ -1895,6 +1949,7 @@ PY
                 [ "$(addon_status "$c")" = "not installed" ] && continue
                 echo "    - $c  [$(addon_status "$c")]"
             done
+            python39_added && echo "    - the Python 3.9 the installer added (~/.pythons, ~/uvtool)"
             [ -f "$STATE" ] && echo "    - the system files the installer added (services, nginx files, can0 rule)"
             [ -f "$NETMGR_STATE" ] && echo "    - NetworkManager is switched back to dhcpcd (at the next reboot)"
             { [ -d "$HOME_DIR/printer_data" ] || [ -d "$HOME_DIR/TM_T1" ]; } && echo "    - MY PRINTER DATA: ~/printer_data and ~/TM_T1 (config, calibration, database, gcode files). NO backup is made."
@@ -1910,6 +1965,7 @@ PY
                 [ "$(addon_status "$c")" = "not installed" ] && continue
                 ( ARG1="$c"; REMOVE_CONFIRMED=1; REMOVE_DATA=1; FORCE=1; do_remove_addon )
             done
+            remove_python39
             [ -f "$STATE" ] && uninstall_system_files
             [ -f "$NETMGR_STATE" ] && ( ARG1=network-manager; REMOVE_CONFIRMED=1; FORCE=1; do_remove_addon )
             SUDO systemctl stop klipper 2>/dev/null; SUDO systemctl stop moonraker 2>/dev/null
@@ -1941,7 +1997,7 @@ addon_status() {   # name -> installed|running|not installed
     case "$1" in
         screen)   [ -d "$KS_DIR" ] && { [ "$(service_state KlipperScreen)" = active ] && echo running || echo installed; } || echo "not installed" ;;
         network-manager) [ "$(service_state NetworkManager)" = active ] && echo running || { [ "$(service_enabled NetworkManager)" = enabled ] && echo installed || echo "not installed"; } ;;
-        webcam)   [ -d "$HOME_DIR/crowsnest" ] && { [ "$(service_state crowsnest)" = active ] && echo running || echo installed; } || echo "not installed" ;;
+        webcam)   [ -d "$HOME_DIR/crowsnest" ] && { [ "$(service_state crowsnest)" = active ] && echo running || { camera_present && echo installed || echo "waiting for a camera"; }; } || echo "not installed" ;;
         timelapse) [ -d "$HOME_DIR/moonraker-timelapse" ] && echo installed || echo "not installed" ;;
         shell-command) [ -f "$HOME_DIR/klipper/klippy/extras/gcode_shell_command.py" ] && echo installed || echo "not installed" ;;
         spoolman) [ -d "$HOME_DIR/Spoolman" ] && { [ "$(service_state Spoolman)" = active ] && echo running || echo installed; } || echo "not installed" ;;
@@ -2027,9 +2083,10 @@ menu_fix() {
         menu_item 3 "Hardware test" "Read-only live test: USB bridge, can0, CAN devices, camera, services"
         menu_item 4 "Quick check" "Report problems, change nothing"
         menu_item 5 "Status" "One page: services, Klipper, Pi health, CAN ids, add-ons, newest backup"
+        menu_item 6 "Fix everything" "Doctor, then applies every safe fix after one question"
         menu_item 0 "Back" ""
         menu_read "Choose:" || return 0
-        case "$REPLY_MENU" in 1) menu_run --doctor ;; 2) menu_run --repair ;; 3) menu_run --hw-test ;; 4) menu_run --check ;; 5) menu_run --status ;; 0|"") return 0 ;; *) echo "  Choose a number from the list." ;; esac
+        case "$REPLY_MENU" in 1) menu_run --doctor ;; 2) menu_run --repair ;; 3) menu_run --hw-test ;; 4) menu_run --check ;; 5) menu_run --status ;; 6) menu_run --doctor --fix-all ;; 0|"") return 0 ;; *) echo "  Choose a number from the list." ;; esac
     done
 }
 
@@ -2167,8 +2224,8 @@ do_set_hostname() {   # name
     echo "  The Pi will be reached as $h.local from now on. The old name $(hostname).local stops working, and bookmarks or slicer printer entries that use it must be changed. Your SSH session keeps working; the new name is used everywhere after a reboot."
     ask_yn "Change the host name to $h?" n || { echo "Nothing changed."; return 0; }
     local old; old="$(hostname)"
+    [ "$DRY" = 1 ] || [ "$TESTING" = 1 ] || SUDO sed -i "s/^\(127\.0\.1\.1[[:space:]]\+\).*/\1$h/" /etc/hosts   # first, so sudo never says "unable to resolve host"
     SUDO hostnamectl set-hostname "$h"
-    [ "$DRY" = 1 ] || [ "$TESTING" = 1 ] || SUDO sed -i "s/^\(127\.0\.1\.1[[:space:]]\+\).*/\1$h/" /etc/hosts
     print_success "Host name changed from $old to $h. Reboot when you are ready: sudo reboot"
 }
 menu_system() {

@@ -42,6 +42,7 @@ Run these in `~/wm-ultra-rpi` on the Pi.
 | I want to... | Run | What happens to my data |
 |---|---|---|
 | **Check** that everything is fine | `./installer.sh --doctor` | Nothing changes unless you accept a fix |
+| **Fix everything** at once | `./installer.sh --doctor --fix-all` | Asks once, then applies every safe fix |
 | Do any of this from a **menu** | `./installer.sh` (opens the menu, also on an empty Pi) or `./installer.sh --menu` | Same as the options below; nothing changes until you pick something and confirm |
 | See what is new first | `./installer.sh --check-updates` | Nothing is changed |
 | **Update** to the latest version | `git pull && ./installer.sh --update` | Kept: `printer_data`, calibration, settings |

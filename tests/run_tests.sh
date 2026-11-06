@@ -276,7 +276,7 @@ echo "== uninstall uses the add-on's own uninstaller"
 UO="$T/uo"; mkun "$UO"; printf '\n[update_manager crowsnest]\ntype: git_repo\npath: ~/crowsnest\n\n[update_manager KlipperScreen]\ntype: git_repo\npath: ~/KlipperScreen\n\n[other]\nx: 1\n' >> "$UO/printer_data/config/moonraker.conf"
 : > "$UO/.sudo.log"
 M 'y\n' $UO --remove webcam >/dev/null
-check "webcam: crowsnest's own 'make uninstall' runs first, before the installer's own cleanup" "grep -n 'official uninstall crowsnest: official_with_answers make uninstall' $UO/.sudo.log | head -1 | cut -d: -f1 | { read a; b=\$(grep -n 'systemctl stop crowsnest' $UO/.sudo.log | head -1 | cut -d: -f1); [ \$a -lt \$b ]; }"
+check "webcam: crowsnest's own 'make uninstall' runs first, before the installer's own cleanup" "grep -n 'official uninstall crowsnest: official_yes make uninstall' $UO/.sudo.log | head -1 | cut -d: -f1 | { read a; b=\$(grep -n 'systemctl stop crowsnest' $UO/.sudo.log | head -1 | cut -d: -f1); [ \$a -lt \$b ]; }"
 check "webcam: its [update_manager crowsnest] section is removed, other sections stay, a copy is kept" "! grep -q 'update_manager crowsnest' $UO/printer_data/config/moonraker.conf && grep -q '^\[other\]' $UO/printer_data/config/moonraker.conf && ls $UO/printer_data/config/moonraker.conf.wm-before-crowsnest-removal-*"
 M 'y\n' $UO --remove screen >/dev/null
 check "touchscreen: KlipperScreen's own scripts/Uninstall.sh runs" "grep -q 'official uninstall KlipperScreen: bash scripts/Uninstall.sh' $UO/.sudo.log"
@@ -683,6 +683,20 @@ check "add-on only says so" "echo \"\$OUT\" | grep -q 'Only this add-on'"
 check "full update still updates everything" "inst $OA --update | grep -q 'Updated: services, nginx'"
 
 # --- backup before update, Status, Network and system, Spoolman ---
+echo "== 1.15.1 fixes"
+HR="$G1"; mkdir -p "$HR/crowsnest"
+OUT="$(inst "$HR" --doctor)"
+check "doctor: no camera means the webcam service waits, not a problem" "echo \"$OUT\" | grep -q 'waiting for a camera'"
+OUT="$(WM_TEST_CAMERA=1 inst "$HR" --doctor)"
+check "doctor: camera plugged in but service not running is a problem" "echo \"$OUT\" | grep -q 'camera is plugged in but the webcam service is not running'"
+check "status: webcam row says waiting for a camera" "inst $HR --status | grep -q 'waiting for a camera'"
+check "menu: Check and fix has Fix everything" "M '4\n0\n0\n' $HR --menu | grep -q 'Fix everything'"
+check "--doctor --fix-all explains and asks once" "inst $HR --doctor --fix-all | grep -q 'Fix everything: every problem'"
+check "hostname: /etc/hosts is changed before hostnamectl" "awk '/^do_set_hostname/,/^}/' $ROOT/installer.sh | grep -n 'sed -i\|hostnamectl' | head -2 | head -1 | grep -q 'sed -i'"
+check "klipper wait stops early on error" "grep -qF -e '-ge 2' $ROOT/installer.sh"
+check "system files are removed quietly" "grep -q 'not loaded' $ROOT/installer.sh"
+check "info line mentions Spoolman" "grep -q 'Shake&Tune and Spoolman are not part' $ROOT/installer.sh"
+
 echo "== backup before update / status / system page / Spoolman"
 mkstage "$T/stage_ns"; NS="$T/ns"; mkdir -p "$NS"; inst "$NS" --from-stage "$T/stage_ns" --screen off >/dev/null
 printf "[server]\n" > "$NS/printer_data/config/moonraker.conf"; printf "klippy_apis/printer/restart\nSpoolman_x\n" > "$NS/printer_data/moonraker.asvc"

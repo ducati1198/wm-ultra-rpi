@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.15.1
+
+Fixes from a full test on a real Raspberry Pi (install, every section, uninstall one by one).
+
+- **Webcam starts only with a camera.** crowsnest is installed and enabled as before, but only started when a camera is found in `/dev/v4l/by-id`. Without one, Status shows "waiting for a camera" and the Doctor does not complain; with one, the Doctor offers to start it.
+- **Check and fix → Fix everything** (`--doctor --fix-all`): the Doctor applies every safe fix after one question.
+- **Self-test waits for Moonraker** (up to 30 s) instead of warning right after a restart. Waiting for Klipper stops early when it stays in error/shutdown.
+- **Doctor checks Spoolman and Shake&Tune.** The "not part of this install" note names Spoolman.
+- **Removing the webcam** answers crowsnest's own "(y/N)" question for you, so its uninstaller finishes.
+- **Remove all programs / Erase everything** also remove the Python 3.9 the installer added (asks; a Python you had before is never touched).
+- **Quieter:** no more "Unit not loaded" messages when a service is already gone; no "Needs administrator rights" line for system files; changing the host name updates `/etc/hosts` first (no "unable to resolve host"); First start says when Klipper was already running.
+
 ## 1.15.0
 
 - **Backup before every update.** `--update` and every add-on install from the menu first save config, calibration and database to `~/wm-backups/...-before-update-<date>.tgz` (newest 5 kept, `--no-backup` skips it).
