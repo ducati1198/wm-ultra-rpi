@@ -18,6 +18,7 @@
 # ./installer.sh --repair              put back services, nginx files, can0 rule and groups (data untouched)
 # ./installer.sh --update              update after you pulled a new version of this repository (your printer_data is not touched)
 # ./installer.sh --check-updates       read-only: list what is new on GitHub since your copy of this repository (then: git pull, ./installer.sh --update)
+# ./installer.sh --get-latest          download the newest installer folder (git pull, or the GitHub tarball when this is not a clone); then run --update
 # ./installer.sh --undo [DIR]          put back the folders the installer moved aside (latest, or DIR)
 # ./installer.sh --backup [DIR]        save your config, calibration and database to a .tgz (only when you run it)
 # ./installer.sh --restore FILE        restore such a backup (a safety copy is made first)
@@ -143,6 +144,7 @@ while [ $# -gt 0 ]; do
         --repair)       MODE=repair ;;
         --update)       MODE=update ;;
         --check-updates) MODE=checkupdates ;;
+        --get-latest)   MODE=getlatest ;;
         --undo)         MODE=undo; case "${2:-}" in ""|--*) ;; *) ARG1="$2"; shift ;; esac ;;
         --backup)       MODE=backup; case "${2:-}" in ""|--*) ;; *) ARG1="$2"; shift ;; esac ;;
         --restore)      MODE=restore; ARG1="${2:-}"; shift ;;
@@ -1455,7 +1457,14 @@ do_update() {
 do_check_updates() {   # read-only: compares this copy of the repository with GitHub
     print_header "Check for updates (read-only, changes nothing)"
     command -v git >/dev/null 2>&1 || die_with_fix "git is not installed." "sudo apt-get install git"
-    [ -d "$REPO_DIR/.git" ] || die_with_fix "this folder is not a git clone, so it cannot be compared with GitHub." "download the new version again, or clone it: git clone https://github.com/ducati1198/wm-ultra-rpi"
+    if [ ! -d "$REPO_DIR/.git" ]; then   # a tar download: compare the version numbers
+        local nv; nv="$( [ -n "${WM_TEST_NEW_VERSION:-}" ] && echo "$WM_TEST_NEW_VERSION" || curl -fsSL -m 20 https://raw.githubusercontent.com/ducati1198/wm-ultra-rpi/main/VERSION 2>/dev/null | head -1 )"
+        echo "  Your copy:   installer $VERSION"
+        [ -n "$nv" ] || die_with_fix "could not reach GitHub." "connect the Pi to the internet and try again."
+        echo "  On GitHub:   installer $nv"
+        [ "$nv" = "$VERSION" ] && print_success "You have the latest version." || echo "  To update:   ./installer.sh --get-latest   (or menu: Update)"
+        return 0
+    fi
     local g=(git -C "$REPO_DIR") up
     if [ -n "${WM_TEST_NO_FETCH:-}" ]; then :; else
         timeout 60 "${g[@]}" fetch --quiet 2>/dev/null || die_with_fix "could not reach GitHub." "connect the Pi to the internet and try again."
@@ -1475,6 +1484,35 @@ do_check_updates() {   # read-only: compares this copy of the repository with Gi
     if [ -n "$("${g[@]}" status --porcelain 2>/dev/null)" ]; then print_warning "You have local changes in $REPO_DIR; git pull may refuse until you save or discard them."; fi
     echo "  To update:   cd $REPO_DIR && git pull && ./installer.sh --update"
     return 0
+}
+do_get_latest() {   # download the newest version of this installer folder; git pull in a clone, the GitHub tarball otherwise (no git needed)
+    print_header "Get the newest installer"
+    local new w=""
+    if [ -d "$REPO_DIR/.git" ] && command -v git >/dev/null 2>&1; then
+        local g=(git -C "$REPO_DIR")
+        [ -n "${WM_TEST_NO_FETCH:-}" ] || timeout 60 "${g[@]}" fetch --quiet 2>/dev/null || die_with_fix "could not reach GitHub." "connect the Pi to the internet and try again."
+        new="$("${g[@]}" show "origin/main:VERSION" 2>/dev/null | head -1)"
+        echo "  Your copy: $VERSION    On GitHub: ${new:-unknown}"
+        if [ -z "$("${g[@]}" rev-list "HEAD..origin/main" 2>/dev/null)" ]; then print_success "Already up to date."; return 0; fi
+        ask_yn "Download the new version now (git pull)?" y || { echo "Nothing changed."; return 1; }
+        [ "$DRY" = 1 ] && { echo -e "  ${DIM}would run: git pull --ff-only${NC}"; return 0; }
+        "${g[@]}" pull --ff-only || die_with_fix "git pull failed." "save or discard local changes in $REPO_DIR and try again."
+        print_success "Downloaded."; return 0
+    fi
+    if [ -n "${WM_TEST_UPDATE_DIR:-}" ]; then w="$WM_TEST_UPDATE_DIR"
+    else
+        w="$(mktemp -d)"; print_info "Downloading the newest version from GitHub ..."
+        curl -fsSL -m 180 https://codeload.github.com/ducati1198/wm-ultra-rpi/tar.gz/refs/heads/main | tar -xz --strip-components=1 -C "$w" || die_with_fix "could not download the update." "connect the Pi to the internet and try again."
+    fi
+    new="$(head -1 "$w/VERSION" 2>/dev/null)"; [ -n "$new" ] && [ -f "$w/installer.sh" ] || die_with_fix "the download is not a complete installer." "try again later."
+    echo "  Your copy: $VERSION    On GitHub: $new"
+    if [ "$new" = "$VERSION" ]; then print_success "Already up to date."; return 0; fi
+    echo "  This folder is not a git clone. The files in $REPO_DIR are replaced by the new ones; your printer data is not touched."
+    ask_yn "Replace them now?" y || { echo "Nothing changed."; return 1; }
+    [ "$DRY" = 1 ] && { echo -e "  ${DIM}would copy the new files over $REPO_DIR${NC}"; return 0; }
+    cp -a "$w"/. "$REPO_DIR"/ || die_with_fix "could not copy the new files into $REPO_DIR." "check the folder permissions."
+    [ -n "${WM_TEST_UPDATE_DIR:-}" ] || rm -rf "$w"
+    print_success "Installer folder updated to $new."
 }
 do_repair() {
     print_header "Repair"
@@ -2030,14 +2068,12 @@ menu_updates() {
     while true; do
         echo; echo "  Update"
         menu_item 1 "See what is new" "Reads GitHub, changes nothing"
-        menu_item 2 "Update now" "git pull, then update services, packages, panel and add-ons (printer_data is kept)"
+        menu_item 2 "Update now" "downloads the newest version (no git needed), then updates services, packages, panel and add-ons (printer_data is kept)"
         menu_item 0 "Back" ""
         menu_read "Choose:" || return 0
         case "$REPLY_MENU" in
             1) menu_run --check-updates ;;
-            2) if [ -d "$REPO_DIR/.git" ]; then
-                   git -C "$REPO_DIR" pull --ff-only || { print_error "git pull failed. Save or discard local changes in $REPO_DIR and try again."; menu_pause; continue; }
-               else print_warning "This folder is not a git clone: skipping the download step."; fi
+            2) bash "$SCRIPT_DIR/installer.sh" --get-latest || { menu_pause; continue; }
                bash "$SCRIPT_DIR/installer.sh" --update; echo; menu_pause
                exec bash "$SCRIPT_DIR/installer.sh" --menu ;;   # restart the menu so the new version is the one running
             0|"") return 0 ;;
@@ -2257,11 +2293,13 @@ do_menu() {
         menu_item 5 "Backup and restore" "Save and restore config, calibration and database"
         menu_item 6 "Uninstall" "Remove any add-on, Fluidd, Moonraker, Klipper, your data, or erase everything"
         menu_item 7 "Advanced" "First start, start or stop Klipper, support bundle, network and system"
+        menu_item 8 "Dry run of the install" "Asks the same questions, shows every change, changes nothing"
         menu_item 0 "Exit" ""
         menu_read "Choose:" || { echo; return 0; }
         case "$REPLY_MENU" in
             1) ask_yn "Run the install now? It asks its own questions first." y && menu_run --install ;;
             2) menu_updates ;; 3) menu_addons ;; 4) menu_fix ;; 5) menu_backup ;; 6) menu_uninstall ;; 7) menu_advanced ;;
+            8) menu_run --install --dry-run ;;
             0|q|Q|"") return 0 ;;
             *) echo "  Choose a number from the list." ;;
         esac
@@ -2330,6 +2368,7 @@ case "$MODE" in
     repair)     do_repair; exit 0 ;;
     update)     do_update; exit 0 ;;
     checkupdates) do_check_updates; exit $? ;;
+    getlatest)  do_get_latest; exit $? ;;
     undo)       do_undo; exit 0 ;;
     backup)     do_backup; exit 0 ;;
     restore)    do_restore; exit 0 ;;

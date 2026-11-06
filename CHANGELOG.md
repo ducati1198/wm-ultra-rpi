@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.19.0
+
+- **Update works without git** (like the screen board): `--get-latest` and menu → Update → Update now show your version and GitHub's, then download the newest installer folder (git pull in a clone, the GitHub tarball otherwise) before running the update. `--check-updates` now also works in a folder that came from a tar download.
+- **Main menu: Dry run of the install** (entry 8, or `--install --dry-run`): asks the same questions, shows every change, changes nothing.
+
 ## 1.18.1
 
 - **Screen board:** `bash scripts/screen_board.sh` with no options now opens the menu when run at a terminal (Install is entry 1). `--install` goes straight to the install as before.

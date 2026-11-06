@@ -349,7 +349,7 @@ check "--check-updates lists new changes" "bash $T/cu/copy/installer.sh --check-
 check "--check-updates shows the new version" "bash $T/cu/copy/installer.sh --check-updates | grep -q '1.1.0'"
 ( cd "$T/cu/copy" && git pull -q origin main 2>/dev/null; git checkout -q -- installer.sh 2>/dev/null; true )
 check "--check-updates says latest when level" "cp $ROOT/installer.sh $T/cu/copy/installer.sh; bash $T/cu/copy/installer.sh --check-updates | grep -q 'latest version'"
-check "--check-updates outside a git clone fails clearly" "mkdir -p $T/nogit && cp $ROOT/installer.sh $T/nogit/ && ! bash $T/nogit/installer.sh --check-updates"
+check "--check-updates outside a git clone compares version numbers" "mkdir -p $T/nogit && cp $ROOT/installer.sh $ROOT/VERSION $T/nogit/ && WM_TEST_NEW_VERSION=99.0.0 bash $T/nogit/installer.sh --check-updates | grep -q \"On GitHub: *installer 99.0.0\""
 ZH="$T/zrhome"; mkdir -p "$ZH/printer_data/config"; echo "[mcu]" > "$ZH/printer_data/config/printer.cfg"
 HOME="$ZH" ZR_NO_RESTART=1 bash "$ROOT/zr_tools/install_zr_tools.sh" >/dev/null 2>&1
 echo "# my edit" >> "$ZH/printer_data/config/zr_tools.cfg"
@@ -769,5 +769,18 @@ check "board --remove installer deletes the downloaded folder" "muf --remove ins
 
 check "board: no options at a terminal opens the menu" "printf '0\n' | WM_TEST_MENU_DEFAULT=1 WM_HOME=$MB WM_INSTALLER_TEST=1 bash $SB 2>&1 | grep -q 'Install KlipperScreen + ZR Tools'"
 check "board: --install skips the menu" "! printf '0\n' | WM_TEST_MENU_DEFAULT=1 WM_HOME=$MB WM_INSTALLER_TEST=1 bash $SB --install --yes 2>&1 | grep -q 'Choose:'"
+
+echo "== update without git / dry run in the menu"
+GL="$T/gl"; mkdir -p "$GL"; cp -a "$ROOT"/. "$GL"/ 2>/dev/null; rm -rf "$GL/.git"; echo 99.0.0 > "$T/gl_new_version"
+GN="$T/gl_new"; rm -rf "$GN"; mkdir -p "$GN"; cp -a "$ROOT"/. "$GN"/ 2>/dev/null; rm -rf "$GN/.git"; echo 99.0.0 > "$GN/VERSION"; echo marker > "$GN/NEWFILE"
+GH="$T/glh"; mkdir -p "$GH"
+glx() { WM_ASSUME_YES=1 WM_TEST_UPDATE_DIR="$GN" WM_TEST_NO_FETCH=1 WM_HOME="$GH" WM_INSTALLER_TEST=1 bash "$GL/installer.sh" "$@" 2>&1 </dev/null; }
+check "--get-latest in a folder without git replaces the files" "glx --get-latest | grep -q 'updated to 99.0.0' && [ -f $GL/NEWFILE ] && grep -q 99.0.0 $GL/VERSION"
+check "--get-latest says up to date when the version is the same" "glx --get-latest | grep -q 'Already up to date'"
+GL2="$T/gl2"; mkdir -p "$GL2"; cp -a "$ROOT"/. "$GL2"/; rm -rf "$GL2/.git"
+check "--get-latest --dry-run changes nothing" "WM_ASSUME_YES=1 WM_TEST_UPDATE_DIR=$GN WM_HOME=$GH WM_INSTALLER_TEST=1 bash $GL2/installer.sh --get-latest --dry-run </dev/null 2>&1 | grep -q 'would copy' && [ ! -f $GL2/NEWFILE ]"
+check "--check-updates works without git (version compare)" "WM_TEST_NEW_VERSION=99.0.0 WM_HOME=$GH WM_INSTALLER_TEST=1 bash $GL2/installer.sh --check-updates </dev/null 2>&1 | grep -q 'On GitHub:   installer 99.0.0'"
+check "menu: main page has Dry run of the install" "M '0\n' $HR --menu | grep -q 'Dry run of the install'"
+check "menu: dry run entry shows the plan and changes nothing" "rm -rf $T/dr; mkdir -p $T/dr; M '8\n\n0\n' $T/dr --menu | grep -q 'DRY RUN' && [ ! -d $T/dr/klipper ]"
 
 echo; echo "passed: $PASS  failed: $FAIL"; [ "$FAIL" = 0 ]
