@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.20.1
+
+- **Screen board: Update page** now has **See what is new** (`--check-updates`: installed and newest version and the changes in between, read-only) and **Update now**.
+- **Screen board install ends with a question: "Reboot the board now?"** The default is yes (Enter reboots, after a 10 second countdown). `--no-reboot` skips the question.
+
 ## 1.20.0
 
 - **Progress bars.** Pi install: every step shows a bar with percent and "Step N of 14" and the install ends at 100%. Pi update: "Update step N of 8". Screen board install: "Install step N of 7". Slow single steps (apt packages, Python packages, the webcam build, the KlipperScreen build) print "still working ..." with the elapsed time every 30 seconds, so a long wait does not look frozen.

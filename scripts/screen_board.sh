@@ -96,6 +96,7 @@ while [ $# -gt 0 ]; do
         --menu) MODE=menu ;;
         --install) MODE=install; NOARGS=0 ;;
         --update) MODE=update ;;
+        --check-updates|--whats-new) MODE=whatsnew ;;
         --remove) MODE=removefiles; ARG1="${2:-}"; shift ;;
         --doctor) MODE=doctor ;;
         --fix-all) FIXALL=1 ;;
@@ -513,9 +514,12 @@ do_install() {
     if [ ${#WARNINGS[@]} -gt 0 ]; then local w; for w in "${WARNINGS[@]}"; do print_warning "$w"; done; fi
     print_success "KlipperScreen is set up. Go back: ZR Tools > More > System > Factory mode, or bash $BK/screen_board.sh --factory-restore"
     if [ "$DRY" != 1 ] && [ "$REBOOT" = 1 ]; then      # a clean start: every service, the screen server and the touch rules come up together
-        print_info "Rebooting the board in 10 seconds so everything starts clean (skip this with --no-reboot)."
-        [ "$TESTING" = 1 ] || sleep 10
-        SUDO systemctl reboot
+        echo "  A reboot starts every service, the screen server and the touch rules together. It is recommended."
+        if ask_yn "Reboot the board now?" y; then
+            print_info "Rebooting in 10 seconds (Ctrl+C cancels)."
+            [ "$TESTING" = 1 ] || sleep 10
+            SUDO systemctl reboot
+        else print_info "Not rebooting. Reboot when you are ready: sudo reboot"; fi
     fi
 }
 
@@ -643,14 +647,28 @@ do_restore_board() {
     SUDO systemctl restart KlipperScreen
     print_success "Settings restored from $(basename "$f")"
 }
+fetch_latest() {   # sets LATEST_DIR to a folder with the newest version from GitHub (no git needed)
+    if [ "$TESTING" = 1 ]; then LATEST_DIR="${WM_TEST_UPDATE_DIR:-}"; [ -d "$LATEST_DIR" ]; return; fi
+    LATEST_DIR="$(mktemp -d)"; print_info "Downloading the newest version from GitHub ..."
+    curl -fsSL -m 120 https://codeload.github.com/ducati1198/wm-ultra-rpi/tar.gz/refs/heads/main | tar -xz --strip-components=1 -C "$LATEST_DIR" || return 1
+}
+do_whatsnew_board() {
+    print_header "What is new (read-only, changes nothing)"
+    local old new w; old="$(cat "$REPO_DIR/VERSION" 2>/dev/null)"
+    fetch_latest || die_with_fix "could not get the newest version." "check the internet connection."
+    w="$LATEST_DIR"; new="$(cat "$w/VERSION" 2>/dev/null)"
+    echo "  Installed: ${old:-unknown}    Newest: ${new:-unknown}"
+    if [ "$new" = "$old" ]; then print_success "You have the latest version."; return 0; fi
+    echo "  Changes since $old:"
+    awk -v cur="$old" '/^## /{ if ($2==cur) exit; n++ } n>0 && NF' "$w/CHANGELOG.md" 2>/dev/null | sed 's/^/    /' | cut -c1-170 | head -40
+    echo "  To update: menu > Update > Update now (or: bash scripts/screen_board.sh --update)"
+}
 do_update_board() {
     print_header "Update the ZR Tools screen files"
     local new old w; old="$(cat "$REPO_DIR/VERSION" 2>/dev/null)"
-    if [ "$TESTING" = 1 ]; then w="${WM_TEST_UPDATE_DIR:-}"; [ -d "$w" ] || { print_info "Test: no update folder."; return 0; }
-    else
-        w="$(mktemp -d)"; print_info "Downloading the newest version from GitHub ..."
-        curl -fsSL -m 120 https://codeload.github.com/ducati1198/wm-ultra-rpi/tar.gz/refs/heads/main | tar -xz --strip-components=1 -C "$w" || die_with_fix "could not download the update." "check the internet connection."
-    fi
+    if [ "$TESTING" = 1 ] && [ -z "${WM_TEST_UPDATE_DIR:-}" ]; then print_info "Test: no update folder."; return 0; fi
+    fetch_latest || die_with_fix "could not download the update." "check the internet connection."
+    w="$LATEST_DIR"
     new="$(cat "$w/VERSION" 2>/dev/null)"
     [ -n "$new" ] || die_with_fix "the download has no VERSION file." "try again later."
     echo "  Installed: ${old:-unknown}    Newest: $new"
@@ -816,6 +834,16 @@ menu_driver() {
     menu_read "Choose:" || return 0
     case "$REPLY_MENU" in 1) menu_sub --set-driver modesetting ;; 2) menu_sub --set-driver fbdev ;; esac
 }
+menu_update() {
+    while true; do
+        echo; echo "  Update"
+        menu_item 1 "See what is new" "reads GitHub, changes nothing"
+        menu_item 2 "Update now" "downloads the newest ZR Tools screen files (backup first)"
+        menu_item 0 "Back" ""
+        menu_read "Choose:" || return 0
+        case "$REPLY_MENU" in 1) menu_sub --check-updates ;; 2) menu_sub --update ;; 0|"") return 0 ;; *) echo "  Choose a number from the list." ;; esac
+    done
+}
 menu_fix() {
     while true; do
         echo; echo "  Check and fix"
@@ -880,7 +908,7 @@ menu_main() {
         echo; echo -e "${BLUE}KlipperScreen on the WonderMaker screen board${NC}"
         echo "  Mode: $([ -f "$BK/board_mode" ] && echo "KlipperScreen" || echo factory)"
         menu_item 1 "Install KlipperScreen + ZR Tools" "asks for the Pi address, shows the plan, then asks"
-        menu_item 2 "Update" "newest ZR Tools screen files from GitHub (backup first)"
+        menu_item 2 "Update" "see what is new, then update the ZR Tools screen files (backup first)"
         menu_item 3 "Check and fix" "doctor, status, logs, restart the screen, board report"
         menu_item 4 "Backup and restore" "screen settings"
         menu_item 5 "Settings" "Pi address, screen driver, network and system"
@@ -892,7 +920,7 @@ menu_main() {
         menu_read "Choose:" || return 0
         case "$REPLY_MENU" in
             1) menu_ask_pi || return 0; menu_sub --pi "$PI_HOST" ;;
-            2) menu_sub --update ;;
+            2) menu_update ;;
             3) menu_fix ;;
             4) menu_backup ;;
             5) menu_settings ;;
@@ -910,6 +938,7 @@ case "$MODE" in
     menu) menu_main ;;
     setdriver) do_setdriver ;;
     update) do_update_board ;;
+    whatsnew) do_whatsnew_board ;;
     removefiles) do_remove_files ;;
     doctor) do_doctor_board ;;
     backup) do_backup_board ;;

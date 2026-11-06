@@ -802,4 +802,14 @@ check "pi update shows its bar from 0 to 100 percent" "echo \"$OUT\" | grep -q '
 OUT="$(WM_HOME=$T/pb2 WM_TEST_SERVICES='makerbase-client klipper' WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash $SB --pi 192.0.2.10 --no-reboot 2>&1 </dev/null)"
 check "board install: bar from step 1 of 7 to 100 percent" "echo \"$OUT\" | grep -q 'Install step 1 of 7' && echo \"$OUT\" | grep -q 'Install step 7 of 7' && echo \"$OUT\" | grep -q '100%  All 7 steps finished'"
 
+echo "== board update page and reboot question"
+UP="$T/upn"; mkdir -p "$UP/zr_tools" "$UP/scripts"; echo 99.0.0 > "$UP/VERSION"; printf '# Changelog\n\n## 99.0.0\n\n- brand new thing\n\n## %s\n\n- old thing\n' "$(cat $ROOT/VERSION)" > "$UP/CHANGELOG.md"
+UPH="$T/uph"; mkdir -p "$UPH"
+check "board --check-updates lists what is new and stops at the installed version" "O=\$(WM_TEST_UPDATE_DIR=$UP WM_HOME=$UPH WM_INSTALLER_TEST=1 bash $SB --check-updates 2>&1 </dev/null); echo \"\$O\" | grep -q 'brand new thing' && ! echo \"\$O\" | grep -q 'old thing' && echo \"\$O\" | grep -q 'Newest: 99.0.0'"
+check "board menu: Update page has See what is new and Update now" "mb '2\n0\n0\n' --menu | grep -q 'See what is new' && mb '2\n0\n0\n' --menu | grep -q 'Update now'"
+RB="$T/rbq"; mkdir -p "$RB"
+check "board install asks before rebooting; yes reboots" "WM_ASSUME_YES=1 WM_TEST_SERVICES='makerbase-client klipper' WM_HOME=$RB WM_INSTALLER_TEST=1 bash $SB --pi 192.0.2.10 </dev/null 2>&1 | grep -q 'Reboot the board now' || grep -q 'systemctl reboot' $RB/.sudo.log"
+check "board install: the reboot is in the log when the answer is the default (yes)" "grep -q 'systemctl reboot' $RB/.sudo.log"
+check "board install: --no-reboot asks nothing and does not reboot" "! WM_ASSUME_YES=1 WM_TEST_SERVICES='makerbase-client klipper' WM_HOME=$T/rbq2 WM_INSTALLER_TEST=1 bash $SB --pi 192.0.2.10 --no-reboot </dev/null 2>&1 | grep -q 'Reboot the board now'"
+
 echo; echo "passed: $PASS  failed: $FAIL"; [ "$FAIL" = 0 ]
