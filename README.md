@@ -19,7 +19,7 @@
 The idea: a Raspberry Pi takes over the job of the WonderMaker screen/host board (it runs Klipper, Moonraker and the web page). You copy WonderMaker's own software and your settings to it once; after that the Pi runs everything.
 
 1. **Write the SD card** with Raspberry Pi Imager: *Raspberry Pi OS (Legacy, 64-bit) Lite* (Debian 12 Bookworm), username **`t13dp`**, SSH on, your Wi-Fi or a cable. Details in [2.1](#21-what-you-need).
-2. **Log in as `t13dp` and run the installer.** It asks which printer you have, then where the WonderMaker software comes from (the original screen board's address, or the factory files in this repository):
+2. **Log in as `t13dp` and run the installer.** It opens a menu: choose **1) Install or reinstall** (or run `./installer.sh --install` to skip the menu). It asks which printer you have, then where the WonderMaker software comes from (the original screen board's address, or the factory files in this repository):
 
    ```bash
    sudo apt-get update && sudo apt-get install -y git
@@ -42,7 +42,7 @@ Run these in `~/wm-ultra-rpi` on the Pi.
 | I want to... | Run | What happens to my data |
 |---|---|---|
 | **Check** that everything is fine | `./installer.sh --doctor` | Nothing changes unless you accept a fix |
-| Do any of this from a **menu** | `./installer.sh` (on a Pi that is already installed) or `./installer.sh --menu` | Same as the options below; nothing changes until you pick something and confirm |
+| Do any of this from a **menu** | `./installer.sh` (opens the menu, also on an empty Pi) or `./installer.sh --menu` | Same as the options below; nothing changes until you pick something and confirm |
 | See what is new first | `./installer.sh --check-updates` | Nothing is changed |
 | **Update** to the latest version | `git pull && ./installer.sh --update` | Kept: `printer_data`, calibration, settings |
 | **Repair** a broken service, nginx or can0 rule | `./installer.sh --repair` | Kept |
