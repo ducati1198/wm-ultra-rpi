@@ -511,6 +511,7 @@ On the Pi, `./installer.sh --screen-remove` removes KlipperScreen again (Klipper
 | Fluidd says `mcu 'mcu': ZRU-B001: Screen–Mainboard communication error` | Expected while the main board is not connected: Klipper cannot reach it over CAN. Connect it (section 4). |
 | No `can0` | Main board not powered or not on USB. `lsusb` should show `1d50:606f`. |
 | Klipper "mcu ... uuid" error | New board, new `canbus_uuid` (see 4). |
+| Klipper "Duplicate canbus_uuid" | The factory files have empty uuids for the toolheads and load cell. Since 1.13.1 the installer fills unique placeholders (`b00000000000`...); run `./installer.sh --repair` on an older install. Then set the real uuids with `scripts/read_write_can_id.sh`. |
 | Screen board: `apt-get update` fails | Fix the clock and apt first (the block at the start of section 7). |
 | Screen board: KlipperScreen says it cannot connect | Open **Pi address** on the screen and enter the Pi's IP; check the Pi is on and trusts the board in `moonraker.conf`. |
 | Screen board: black or wrong screen | `bash ~/wm-screen-backup/screen_board.sh --factory-restore` from SSH, or `--screen-driver fbdev` when installing. With no network: the rescue window (opens after 3 failed starts) or a USB stick with an empty file `WM-FACTORY` (section 7). |

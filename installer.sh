@@ -310,6 +310,7 @@ step_model() {
         print_success "printer.cfg set for the $MODEL (copy of the old one: printer.cfg.wm-model-bak)"
     fi
     echo "$MODEL" > "$HOME_DIR/printer_data/wm-model"
+    fill_blank_uuids
 }
 
 step_venvs() {
@@ -1048,6 +1049,18 @@ cfg_uuids() {  # prints "file uuid" for every non-empty canbus_uuid in the confi
         awk -F: 'tolower($1) ~ /^[ \t]*canbus_uuid[ \t]*$/ {v=$2; sub(/#.*/,"",v); gsub(/[ \t\r]/,"",v); if (v!="") print FILENAME" "tolower(v)}' "$f"
     done
 }
+fill_blank_uuids() {  # the factory files ship empty "canbus_uuid:" for T0-T3 and the load cell; Klipper counts every empty one as the same id ("Duplicate canbus_uuid") and will not read its config
+    local d f sec n changed=0; d="$(cfg_dir)"
+    [ "$DRY" = 1 ] && return 0
+    for f in "$d"/wm_zru_thr[0-3].cfg "$d"/wm_zru_load_cell.cfg; do [ -f "$f" ] || continue
+        awk -F: 'tolower($1) ~ /^[ \t]*canbus_uuid[ \t]*$/ {v=$2; sub(/#.*/,"",v); gsub(/[ \t\r]/,"",v); if (v=="") f=1} END{exit f?0:1}' "$f" || continue
+        case "$(basename "$f")" in wm_zru_thr[0-3].cfg) n="$(basename "$f" | tr -dc '0-3')" ;; *) n=4 ;; esac
+        mkdir -p "$BACKUP_ROOT/uuid-$STAMP"; cp "$f" "$BACKUP_ROOT/uuid-$STAMP/"
+        sed -i -E "s/^([[:space:]]*canbus_uuid[[:space:]]*:)[[:space:]]*(#.*)?\r?$/\1 b${n}0000000000/" "$f"
+        changed=$((changed+1))
+    done
+    [ "$changed" = 0 ] || print_info "$changed device(s) had an empty canbus_uuid, which makes Klipper stop with 'Duplicate canbus_uuid'. Each now has a placeholder (b00000000000, b10000000000, ... b40000000000 for the load cell). Set the real one once the toolhead is connected: scripts/read_write_can_id.sh <0-3> 1 <uuid>, or Fluidd (a copy of the old files: $BACKUP_ROOT/uuid-$STAMP)."
+}
 found_uuids() { can_query_raw | grep -oiE 'canbus_uuid=[0-9a-f]{12}' | cut -d= -f2 | tr 'A-F' 'a-f' | sort -u; }
 model_now() { cat "$HOME_DIR/printer_data/wm-model" 2>/dev/null || echo "$MODEL"; }
 
@@ -1231,6 +1244,7 @@ hw_checks() {  # $1 = quiet header flag
         SUDO ip link set can0 up type can bitrate 1000000; SUDO ip link set can0 txqueuelen 1024
         can_is_up && chk_ok "can0 is up now" || chk_fail "can0 would not come up"
     fi
+    fill_blank_uuids
     if [ "$(service_state klipper)" = active ]; then chk_warn "Klipper is already running: the CAN query is skipped (Klipper uses the bus)"
     elif can_exists && can_is_up; then
         local found; found="$(found_uuids)"

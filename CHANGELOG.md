@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.13.1
+
+- **Fixed "Duplicate canbus_uuid" after installing from the repository.** The factory files ship an empty `canbus_uuid:` for the four toolheads and the load cell, and Klipper treats every empty one as the same id, so it refused to read the config. The installer (install, `--first-start`, `--doctor`, `--repair`) now gives each a unique placeholder (`b00000000000` to `b30000000000` for T0-T3, `b40000000000` for the load cell), keeping a copy in `~/wm-rpi-backup/uuid-*`. Set the real uuid when the toolhead is connected (`scripts/read_write_can_id.sh <0-3> 1 <uuid>`). Real uuids are never changed. Installing from the printer (option 1) was not affected.
+
 ## 1.13.0
 
 - **Install no longer asks about Obico, OctoApp and OctoEverywhere.** They need an account and their own questions, so they are offered only under Add-ons (or `--obico on`, `--octoapp on`, `--octoeverywhere on`). The plan shows them as "no (add later: menu, Add-ons)".

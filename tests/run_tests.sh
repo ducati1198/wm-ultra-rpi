@@ -687,4 +687,15 @@ OUT="$(inst "$T/hq" --dry-run --from-stage "$T/stage_hk" --model ultra-s --scree
 check "the plan shows Shake&Tune" "echo \"\$OUT\" | grep -qi 'shake&tune'"
 check "the install does not ask about Obico, OctoApp or OctoEverywhere" "! M '\\n\\n\\n\\n\\n' $T/hq2 --dry-run | grep -qi 'Do you want.*\\(obico\\|octoapp\\|octoeverywhere\\)'"
 
+# --- empty canbus_uuid (factory files) must not cause "Duplicate canbus_uuid" ---
+mkstage "$T/stage_cu"; CUU="$T/cuu"; mkdir -p "$CUU"; inst "$CUU" --from-stage "$T/stage_cu" --screen off >/dev/null
+for n in 0 1 2 3; do printf '[mcu T%s]\ncanbus_uuid:%s\n' $n "$([ $n = 1 ] && echo ' ')" > "$CUU/printer_data/config/wm_zru_thr$n.cfg"; done
+printf '[mcu CELL]\ncanbus_uuid:\n' > "$CUU/printer_data/config/wm_zru_load_cell.cfg"
+printf '[mcu]\ncanbus_uuid: aa0000000000\n' > "$CUU/printer_data/config/wm_zru_mcu.cfg"
+M '\n' $CUU --first-start >/dev/null 2>&1
+dups() { cat $CUU/printer_data/config/wm_zru_*.cfg | grep -i canbus_uuid | sed 's/ //g' | sort | uniq -d; }
+check "empty canbus_uuid in T0-T3 and the load cell get unique placeholders" "[ -z \"\$(dups)\" ] && grep -q 'canbus_uuid: b20000000000' $CUU/printer_data/config/wm_zru_thr2.cfg && grep -q 'canbus_uuid: b40000000000' $CUU/printer_data/config/wm_zru_load_cell.cfg"
+check "the old files are kept" "ls $CUU/wm-rpi-backup/uuid-*/wm_zru_thr0.cfg"
+check "a real uuid is never overwritten" "grep -q 'aa0000000000' $CUU/printer_data/config/wm_zru_mcu.cfg"
+
 echo; echo "passed: $PASS  failed: $FAIL"; [ "$FAIL" = 0 ]
