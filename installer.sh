@@ -618,6 +618,28 @@ step_screen() {
     [ "$SCREEN_BACKEND" = x11 ] && echo "  Rotate: add 'xrandr --output <name> --rotate left' to an X11 autostart (README, 'Touchscreen')."
 }
 
+rm_path() {   # delete files or folders; when the Pi user may not (an uninstaller ran as root and left root-owned files), retry with sudo
+    local p
+    for p in "$@"; do
+        [ -e "$p" ] || [ -L "$p" ] || continue
+        rm -rf "$p" 2>/dev/null
+        if [ -e "$p" ] || [ -L "$p" ]; then print_info "Needs administrator rights: $p"; SUDO rm -rf "$p"; fi
+        if [ "$TESTING" != 1 ] && { [ -e "$p" ] || [ -L "$p" ]; }; then print_warning "Could not delete $p. Try: sudo rm -rf '$p'"; fi
+    done
+}
+leftover_report() {   # what of this installer is still on the Pi, and how to remove it
+    local f n=0 list=()
+    for f in "$HOME_DIR/printer_data" "$HOME_DIR/TM_T1" "$HOME_DIR/wm-stage" "$HOME_DIR/wm-backups" "$BACKUP_ROOT" "$HOME_DIR"/wm-support-*.tgz "$REPO_DIR"; do [ -e "$f" ] && list+=("$f"); done
+    [ "${#list[@]}" = 0 ] && return 0
+    echo "  Still on this Pi (kept on purpose, or not part of the removal):"
+    for f in "${list[@]}"; do
+        case "$f" in
+            "$HOME_DIR/printer_data"|"$HOME_DIR/TM_T1") echo "    $f   -> Uninstall: My printer data" ;;
+            "$REPO_DIR") echo "    $f   -> Uninstall: Clean up installer files (the installer folder)" ;;
+            *) echo "    $f   -> Uninstall: Clean up installer files" ;;
+        esac
+    done
+}
 run_official_uninstall() {   # name dir command... : the add-on's OWN uninstaller, run first. Returns 0 when it ran and succeeded.
     local name="$1" dir="$2"; shift 2
     if [ "$TESTING" = 1 ]; then echo "[test] official uninstall $name: $*" >> "$HOME_DIR/.sudo.log"; return 0; fi
@@ -656,7 +678,7 @@ do_screen_remove() {
     SUDO systemctl stop KlipperScreen; SUDO systemctl disable KlipperScreen
     SUDO rm -f /etc/systemd/system/KlipperScreen.service; SUDO systemctl daemon-reload
     if [ "$DRY" != 1 ]; then
-        rm -rf "$KS_DIR" "$HOME_DIR/.KlipperScreen-env"
+        rm_path "$KS_DIR" "$HOME_DIR/.KlipperScreen-env"
         moonraker_drop_update_section KlipperScreen
         local f="$HOME_DIR/printer_data/config/KlipperScreen.conf"
         [ -f "$f" ] && sed -i '/^\[menu __main zr_tools\]/,/^$/d' "$f"
@@ -1560,6 +1582,7 @@ cleanup_paths() {   # group -> the paths that exist (one per line)
     case "$1" in
         backups) [ -d "$HOME_DIR/wm-backups" ] && echo "$HOME_DIR/wm-backups" ;;
         bundles) ls -1d "$HOME_DIR"/wm-support-*.tgz 2>/dev/null ;;
+        stage)   [ -d "$HOME_DIR/wm-stage" ] && echo "$HOME_DIR/wm-stage" ;;
         moved)   ls -1d "$BACKUP_ROOT"/old-* 2>/dev/null ;;
         fluiddcopies) ls -1d "$BACKUP_ROOT"/fluidd-* 2>/dev/null ;;
         cfgcopies) ls -1d "$cfgd"/*.wm-* 2>/dev/null ;;
@@ -1571,9 +1594,9 @@ cleanup_paths() {   # group -> the paths that exist (one per line)
     esac
 }
 do_cleanup() {   # a page of installer-made files you can delete; your printer data is never in it
-    local groups=(backups bundles moved fluiddcopies cfgcopies downloads records repo) g n paths sz cnt word
-    declare -A label=([backups]="Settings backups (~/wm-backups)" [bundles]="Support bundles (~/wm-support-*.tgz)" [moved]="Folders moved aside by installs" [fluiddcopies]="Old Fluidd copies" [cfgcopies]="Config safety copies (*.wm-*)" [downloads]="Add-on download copies" [records]="Installer records (~/wm-rpi-backup)" [repo]="The installer folder itself")
-    declare -A help=([backups]="backup .tgz files and safety copies made before restores" [bundles]="logs bundles made for help requests" [moved]="old klipper, moonraker, printer_data folders in ~/wm-rpi-backup/old-*" [fluiddcopies]="Fluidd saved before each panel update" [cfgcopies]="files like printer.cfg.wm-model-bak in your config folder" [downloads]="panel download cache, add-on sources that are not installed" [records]="saved answers and install record; after this the installer no longer knows what is installed" [repo]="$REPO_DIR (this script)")
+    local groups=(backups bundles stage moved fluiddcopies cfgcopies downloads records repo) g n paths sz cnt word
+    declare -A label=([backups]="Settings backups (~/wm-backups)" [bundles]="Support bundles (~/wm-support-*.tgz)" [stage]="Software copied from the old board (~/wm-stage)" [moved]="Folders moved aside by installs" [fluiddcopies]="Old Fluidd copies" [cfgcopies]="Config safety copies (*.wm-*)" [downloads]="Add-on download copies" [records]="Installer records (~/wm-rpi-backup)" [repo]="The installer folder itself")
+    declare -A help=([backups]="backup .tgz files and safety copies made before restores" [bundles]="logs bundles made for help requests" [stage]="the copy of klipper, moonraker and data an install made from the old board; pull it again if you need it" [moved]="old klipper, moonraker, printer_data folders in ~/wm-rpi-backup/old-*" [fluiddcopies]="Fluidd saved before each panel update" [cfgcopies]="files like printer.cfg.wm-model-bak in your config folder" [downloads]="panel download cache, add-on sources that are not installed" [records]="saved answers and install record; after this the installer no longer knows what is installed" [repo]="$REPO_DIR (this script)")
     while true; do
         echo; echo "  Clean up installer files"; echo "  Files made by or for this installer. Your printer data (~/printer_data) is never in this list."
         n=0; for g in "${groups[@]}"; do
@@ -1589,13 +1612,13 @@ do_cleanup() {   # a page of installer-made files you can delete; your printer d
         [ -z "$paths" ] && { echo "  Nothing to delete there."; continue; }
         echo "  This deletes:"; echo "$paths" | sed 's/^/    /'
         case "$g" in
-            backups|moved|fluiddcopies|records|repo)
+            backups|stage|moved|fluiddcopies|records|repo)
                 echo "  These may be the only copy of your settings or of older versions. Copy anything you want to keep off the Pi first."
                 read -r -p "  Type DELETE (capital letters) to confirm, anything else cancels: " word || word=""
                 [ "$word" = DELETE ] || { echo "  Nothing changed."; continue; } ;;
             *) ask_yn "Delete these?" n || { echo "  Nothing changed."; continue; } ;;
         esac
-        echo "$paths" | while IFS= read -r p; do rm -rf "$p"; done
+        echo "$paths" | while IFS= read -r p; do rm_path "$p"; done
         case "$g" in
             records) print_warning "The installer no longer knows what is installed: Update and the menu will say so. To use it again run ./installer.sh --install." ;;
             repo) cd "$HOME_DIR" || true; print_success "The installer folder was deleted. Run it again by downloading the repository."; exit 0 ;;
@@ -1637,7 +1660,8 @@ do_remove_addon() {
                 fi
             fi
             if [ "$name" = obico ] && [ -f "$cfgd/moonraker-obico.cfg" ]; then mv "$cfgd/moonraker-obico.cfg" "$cfgd/moonraker-obico.cfg.wm-removed-$STAMP"; print_info "Obico's settings file was set aside as moonraker-obico.cfg.wm-removed-$STAMP, so a new install asks for the server again."; fi
-            rm -rf "$HOME_DIR/$dir" "$HOME_DIR/$env"
+            rm_path "$HOME_DIR/$dir" "$HOME_DIR/$env"
+            [ "$name" != obico ] && { rm_path "$HOME_DIR/$name-installer.log"; local lf; for lf in "$cfgd/$name".* "$cfgd/$name"-*; do [ -e "$lf" ] && case "$lf" in *.wm-*) ;; *) rm_path "$lf" ;; esac; done; }
             case "$name" in obico) WANT_OBICO=0 ;; octoapp) WANT_OCTOAPP=0 ;; *) WANT_OCTOEVERYWHERE=0 ;; esac; save_answers
             print_success "$name removed."
             [ "$name" != obico ] && moonraker_drop_update_section "$name"
@@ -1657,7 +1681,7 @@ do_remove_addon() {
             run_official_uninstall crowsnest "$HOME_DIR/crowsnest" official_with_answers make uninstall
             SUDO systemctl stop crowsnest; SUDO systemctl disable crowsnest
             SUDO rm -f /etc/systemd/system/crowsnest.service /usr/local/bin/crowsnest /etc/logrotate.d/crowsnest; SUDO systemctl daemon-reload
-            rm -rf "$HOME_DIR/crowsnest"; moonraker_drop_update_section crowsnest; WANT_CROWSNEST=0; save_answers
+            rm_path "$HOME_DIR/crowsnest" "$HOME_DIR/crowsnest-env"; moonraker_drop_update_section crowsnest; WANT_CROWSNEST=0; save_answers
             print_success "Webcam service removed. crowsnest asks for a reboot after its uninstall: sudo reboot when you are ready." ;;
         timelapse)
             [ -d "$HOME_DIR/moonraker-timelapse" ] || { print_info "Timelapse is not installed."; return 0; }
@@ -1678,7 +1702,7 @@ PY
                 print_info "Commented out [timelapse] in moonraker.conf (copy: moonraker.conf.wm-before-timelapse-removal-$STAMP)"
             fi
             moonraker_drop_update_section timelapse
-            rm -rf "$HOME_DIR/moonraker-timelapse"; WANT_TIMELAPSE=0; save_answers
+            rm_path "$HOME_DIR/moonraker-timelapse"; WANT_TIMELAPSE=0; save_answers
             print_success "Timelapse removed. Restart Moonraker from Fluidd when you are ready." ;;
         fluidd)
             [ -d "$HOME_DIR/fluidd" ] || [ -e /etc/nginx/sites-enabled/fluidd ] || { print_info "The Fluidd web page is not installed."; return 0; }
@@ -1687,7 +1711,7 @@ PY
             ask_yn "Remove the Fluidd web page?" n || { echo "Nothing changed."; return 0; }
             SUDO rm -f /etc/nginx/sites-enabled/fluidd /etc/nginx/sites-available/fluidd /etc/nginx/conf.d/common_vars.conf /etc/nginx/conf.d/upstreams.conf
             SUDO nginx -t >/dev/null 2>&1 && SUDO systemctl reload nginx
-            rm -rf "$HOME_DIR/fluidd"
+            rm_path "$HOME_DIR/fluidd"
             print_success "Fluidd web page removed." ;;
         moonraker|klipper)
             local pre; pre="$name"
@@ -1697,34 +1721,43 @@ PY
             ask_yn "Remove $name?" n || { echo "Nothing changed."; return 0; }
             SUDO systemctl stop "$name"; SUDO systemctl disable "$name"
             SUDO rm -f "/etc/systemd/system/$name.service"; SUDO systemctl daemon-reload
-            rm -rf "$HOME_DIR/$name" "$HOME_DIR/$([ "$name" = klipper ] && echo klippy-env || echo moonraker-env)"
+            rm_path "$HOME_DIR/$name" "$HOME_DIR/$([ "$name" = klipper ] && echo klippy-env || echo moonraker-env)"
             print_success "$name removed. Put it back with ./installer.sh --update or --install." ;;
         data)
-            [ -d "$HOME_DIR/printer_data" ] || { print_info "There is no ~/printer_data."; return 0; }
-            echo "  This DELETES ~/printer_data: printer.cfg and all your config, calibration, the Moonraker database (history and settings), gcode files and logs."
+            [ -d "$HOME_DIR/printer_data" ] || [ -d "$HOME_DIR/TM_T1" ] || { print_info "There is no ~/printer_data."; return 0; }
+            echo "  This DELETES ~/printer_data and ~/TM_T1 (WonderMaker's factory settings): printer.cfg and all your config, calibration, the Moonraker database (history and settings), gcode files and logs."
             echo "  A backup of your config and database is saved first in ~/wm-backups."
             ask_yn "Delete my printer data?" n || { echo "Nothing changed."; return 0; }
             local word; read -r -p "  Type DELETE (capital letters) to confirm, anything else cancels: " word || word=""
             [ "$word" = DELETE ] || { echo "Nothing changed."; return 0; }
             ARG1="$HOME_DIR/wm-backups"; do_backup >/dev/null
             SUDO systemctl stop klipper; SUDO systemctl stop moonraker
-            rm -rf "$HOME_DIR/printer_data"
+            rm_path "$HOME_DIR/printer_data" "$HOME_DIR/TM_T1"
             print_success "Printer data deleted. The backup is in ~/wm-backups (newest file): copy it off the Pi." ;;
         cleanup) do_cleanup ;;
         system)
             [ -f "$STATE" ] || { print_info "Nothing recorded to remove."; return 0; }
             do_uninstall ;;
         all)
-            echo "  This removes every add-on, Fluidd, Moonraker, Klipper and the system files the installer added."
-            echo "  Your printer data (~/printer_data) and your backups are NOT touched; remove the data separately."
-            local word c; read -r -p "  Type REMOVE (capital letters) to confirm, anything else cancels: " word || word=""
+            local word c any=0
+            echo "  This is what will be removed (what is installed now):"
+            for c in screen webcam timelapse shell-command obico octoapp octoeverywhere fluidd moonraker klipper; do
+                [ "$(addon_status "$c")" = "not installed" ] && continue
+                echo "    - $c  [$(addon_status "$c")]"; any=1
+            done
+            [ -f "$STATE" ] && { echo "    - the system files the installer added (services, nginx files, can0 rule)"; any=1; }
+            [ "$any" = 0 ] && { echo "    (nothing is installed)"; return 0; }
+            echo "  Each add-on's own uninstaller runs first and may ask its own questions."
+            echo "  Your printer data (~/printer_data), your backups and the installer files are NOT touched; remove them separately."
+            read -r -p "  Type REMOVE (capital letters) to confirm, anything else cancels: " word || word=""
             [ "$word" = REMOVE ] || { echo "Nothing changed."; return 0; }
             for c in screen webcam timelapse shell-command obico octoapp octoeverywhere fluidd moonraker klipper; do
                 [ "$(addon_status "$c")" = "not installed" ] && continue
                 ( ARG1="$c"; REMOVE_CONFIRMED=1; FORCE=1; do_remove_addon )
             done
             [ -f "$STATE" ] && uninstall_system_files
-            print_success "Everything was removed except ~/printer_data and your backups." ;;
+            print_success "The programs were removed."
+            leftover_report ;;
         *) die_with_fix "unknown name '${name}'." "use one of: screen, network-manager, webcam, timelapse, shell-command, obico, octoapp, octoeverywhere, fluidd, moonraker, klipper, data, system, cleanup, all." ;;
     esac
 }

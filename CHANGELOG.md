@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.10.3
+
+- **Leftovers after Uninstall are gone.** Seen after "Everything" and the clean-up: `~/crowsnest-env`, `~/octoeverywhere-env`, `~/octoapp-installer.log`, `~/octoeverywhere-installer.log`, `~/wm-stage` and `~/TM_T1` stayed. Now: crowsnest's environment, the Octo add-ons' installer logs and config files are removed with the add-on; the copy from the old board (`~/wm-stage`) is a clean-up group (type `DELETE`); `~/TM_T1` goes with "My printer data".
+- **Files the Pi user cannot delete** (left root-owned by an uninstaller) are deleted with `sudo` automatically; the installer says "Needs administrator rights" and, if even that fails, prints the exact `sudo rm -rf` command.
+- **Uninstall "Everything" asks more clearly:** it first lists what is installed and will be removed, each add-on's own uninstaller still runs (and asks its own questions at a terminal), you type `REMOVE`, and at the end it lists what is still on the Pi (printer data, backups, the installer folder) and which menu entry removes each.
+
 ## 1.10.2
 
 - **Removing an add-on now runs its own official uninstaller first:** KlipperScreen (`scripts/Uninstall.sh`), crowsnest (`make uninstall`), OctoApp and OctoEverywhere (`./uninstall.sh`; at a terminal you answer its own questions). Before, OctoApp and OctoEverywhere only did it at a terminal, and KlipperScreen and crowsnest were removed by the installer alone. Obico has no uninstall script (`./install.sh -u` only prints the steps), so its listed steps are done, now including `systemctl reset-failed`.
