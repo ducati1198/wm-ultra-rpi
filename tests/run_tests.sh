@@ -658,7 +658,7 @@ printf "[server]\n" > "$HK/printer_data/config/moonraker.conf"; : > "$HK/.sudo.l
 OUT="$(inst "$HK" --update --shaketune on)"
 check "--shaketune on installs the extension link and config" "[ -L $HK/klipper/klippy/extras/shaketune ] && [ -f $HK/printer_data/config/shaketune.cfg ]"
 check "--shaketune on adds include and update manager, with a printer.cfg copy" "grep -q 'include shaketune.cfg' $HK/printer_data/config/printer.cfg && grep -q 'Klippain-ShakeTune' $HK/printer_data/config/moonraker.conf && ls $HK/printer_data/config/printer.cfg.wm-before-shaketune-* >/dev/null"
-check "--shaketune on never restarts klipper" "! grep -q 'restart klipper' $HK/.sudo.log"
+check "--shaketune on restarts klipper (once) at the end, because it was running" "[ \$(grep -c 'restart klipper' $HK/.sudo.log) -eq 1 ]"
 check "--shaketune is remembered" "grep -rq 'WANT_SHAKETUNE=1' $HK/wm-rpi-backup"
 check "--remove shaketune removes it" "M 'y\\n' $HK --remove shaketune | grep -q 'removed' && [ ! -e $HK/klipper/klippy/extras/shaketune ] && ! grep -q 'shaketune.cfg' $HK/printer_data/config/printer.cfg"
 OUT="$(inst "$T/hq" --dry-run --from-stage "$T/stage_hk" --model ultra-s --screen off)"
@@ -822,5 +822,20 @@ check "board --update also refreshes the installer folder itself (so the menu sh
 RUF="$T/ruf"; rm -rf "$RUF"; mkdir -p "$RUF/scripts" "$RUF/zr_tools"; cp "$SB" "$RUF/scripts/"; echo 1.0.0 > "$RUF/VERSION"; RUH="$T/ruh"; mkdir -p "$RUH/printer_data/config" "$RUH/KlipperScreen/panels"
 echo "[x]" > "$RUH/printer_data/config/KlipperScreen.conf"
 check "board --update also refreshes the installer folder it runs from" "WM_TEST_REFRESH_REPO=1 WM_ASSUME_YES=1 WM_TEST_UPDATE_DIR=$UP WM_HOME=$RUH WM_INSTALLER_TEST=1 bash $RUF/scripts/screen_board.sh --update </dev/null 2>&1 | grep -q 'Updated to 99.0.0' && grep -q 99.0.0 $RUF/VERSION"
+
+echo "== klipper restart after install and update"
+KR="$T/kr"; mkstage "$T/stage_kr"; mkdir -p "$KR"; inst "$KR" --from-stage "$T/stage_kr" --screen off >/dev/null
+: > "$KR/.sudo.log"; touch "$KR/.svc/klipper.active"
+OUT="$(inst "$KR" --update)"
+check "update restarts klipper at the end when it is running" "echo \"$OUT\" | grep -q 'Restarting Klipper' && [ \$(grep -c 'restart klipper' $KR/.sudo.log) -ge 1 ]"
+rm -f "$KR/.svc/klipper.active"; : > "$KR/.sudo.log"
+OUT="$(inst "$KR" --update)"
+check "update does not start klipper when it is off (first start does that)" "echo \"$OUT\" | grep -q 'Klipper is not running, so it was not restarted' && ! grep -q 'restart klipper' $KR/.sudo.log"
+check "update --dry-run restarts nothing" "touch $KR/.svc/klipper.active; : > $KR/.sudo.log; inst $KR --update --dry-run >/dev/null; ! grep -q 'restart klipper' $KR/.sudo.log"
+BK2="$T/bk2"; mkdir -p "$BK2"
+check "board install restarts klipper on the Pi through moonraker" "WM_ASSUME_YES=1 WM_TEST_SERVICES='makerbase-client klipper' WM_HOME=$BK2 WM_INSTALLER_TEST=1 bash $SB --pi 192.0.2.10 --no-reboot </dev/null 2>&1 | grep -q 'Klipper on the Pi restarted' && grep -q 'restart klipper on 192.0.2.10 via moonraker' $BK2/.sudo.log && grep -q 'restart KlipperScreen' $BK2/.sudo.log"
+: > "$BK2/.sudo.log"
+check "board update restarts klipper on the Pi and KlipperScreen" "WM_TEST_UPDATE_DIR=$UPD WM_ASSUME_YES=1 WM_HOME=$BK2 WM_INSTALLER_TEST=1 bash $SB --update </dev/null 2>&1 | grep -q 'Klipper on the Pi restarted' && grep -q 'restart klipper on' $BK2/.sudo.log && grep -q 'restart KlipperScreen' $BK2/.sudo.log"
+check "board --dry-run restarts nothing on the Pi" "WM_ASSUME_YES=1 WM_HOME=$T/bk3 WM_INSTALLER_TEST=1 bash $SB --pi 192.0.2.10 --dry-run </dev/null 2>&1 | grep -qv 'Klipper on the Pi restarted'"
 
 echo; echo "passed: $PASS  failed: $FAIL"; [ "$FAIL" = 0 ]

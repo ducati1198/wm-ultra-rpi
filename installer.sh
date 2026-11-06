@@ -1455,7 +1455,7 @@ do_update() {
     check_system; preflight; update_notice
     [ -d "$HOME_DIR/klipper" ] || die_with_fix "~/klipper is missing." "run ./installer.sh --doctor"
     if [ -n "$ONLY_ADDON" ]; then echo "Only this add-on is installed. The system files, packages, Fluidd panel and nginx are not touched, and neither is your printer_data."
-    else echo "Your printer_data (config, calibration) is not touched. Updated: services, nginx, can0 rule, Python packages, panel, add-ons."; fi
+    else echo "Your printer_data (config, calibration) is not touched. Updated: services, nginx, can0 rule, Python packages, panel, add-ons. Klipper is restarted at the end."; fi
     ask_yn "Go ahead?" y || exit 0
     local UT=8
     progress_bar 0 $UT "Update step 1 of $UT: backup"
@@ -1490,7 +1490,7 @@ do_update() {
     save_answers
     progress_bar 7 $UT "Update step 8 of $UT: restart and self-test"
     SUDO systemctl restart moonraker; [ -n "$ONLY_ADDON" ] || SUDO systemctl restart nginx
-    [ "$(service_state klipper)" = active ] && print_info "Klipper keeps running. Restart it from Fluidd when you are ready (config reload)."
+    restart_klipper_after
     self_test
     progress_bar $UT $UT "Update finished"
     print_success "Update finished (installer $VERSION)."
@@ -1535,6 +1535,20 @@ repair_factory_files() {   # a git clone whose factory/ files were deleted or ch
     if ask_yn "Restore them from the downloaded version (git checkout -- factory)? Your own changes in factory/ are lost." y; then
         git -C "$REPO_DIR" checkout -- factory && print_success "Factory files restored." || warn_later "Could not restore the factory files. Try: cd $REPO_DIR && git checkout -- factory"
     fi
+}
+restart_klipper_after() {   # after an install or update: restart Klipper so it loads everything new, then wait for "ready"
+    [ "$DRY" = 1 ] && return 0
+    if [ "$(service_state klipper)" != active ]; then
+        print_info "Klipper is not running, so it was not restarted. It starts with: ./installer.sh --first-start (after the main board is connected)."; return 0
+    fi
+    print_header "Restarting Klipper"
+    SUDO systemctl restart klipper
+    [ "$TESTING" = 1 ] && { print_success "Klipper restarted (test)"; return 0; }
+    if wait_klipper_ready; then print_success "Klipper restarted and is ready."
+    else case "$WAIT_ST" in
+        error|shutdown) print_warning "Klipper restarted but reports '$WAIT_ST'. Look at the message in Fluidd, or: ./installer.sh --doctor" ;;
+        *) print_warning "Klipper restarted but is not ready yet (state: ${WAIT_ST:-unknown}). Watch: journalctl -u klipper -f" ;;
+    esac; fi
 }
 do_get_latest() {   # download the newest version of this installer folder; git pull in a clone, the GitHub tarball otherwise (no git needed)
     print_header "Get the newest installer"
@@ -2465,6 +2479,7 @@ PROG_STEPS=14
 step_packages; step_groups; step_python; step_unpack; step_model; step_venvs; step_modules
 step_services; step_nginx; step_can; step_panel; step_screen; step_netmgr; step_timelapse; step_shellcmd; step_shaketune; step_spoolman; step_remote; step_crowsnest; step_start
 save_answers
+restart_klipper_after
 self_test
 if [ "$AUTOSTART" = 1 ] && [ "$DRY" != 1 ]; then do_first_start auto || true; fi
 

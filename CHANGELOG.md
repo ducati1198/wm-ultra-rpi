@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.20.6
+
+- **Klipper is restarted after every install and update.** Pi installer: at the end of an install or update, if Klipper is running it is restarted and the installer waits for "ready" (and says so when Klipper reports an error). If Klipper is off (a fresh install), it is not started: `--first-start` does that after the connection check. Never during a print, and not in a dry run.
+- **Screen board:** after an install or update the board restarts KlipperScreen and asks the Pi's Moonraker to restart Klipper there (skipped with a note when the Pi does not answer, is printing, or does not trust the board's address).
+
 ## 1.20.4
 
 - **Screen board: "See what is new" downloads nothing.** It reads only two small text files from GitHub (VERSION and CHANGELOG.md) and shows the changes since your version. The full download happens only when you choose "Update now".

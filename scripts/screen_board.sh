@@ -517,6 +517,7 @@ do_install() {
     print_header "Done"; progress_bar 7 7 "All 7 steps finished"
     if [ ${#WARNINGS[@]} -gt 0 ]; then local w; for w in "${WARNINGS[@]}"; do print_warning "$w"; done; fi
     print_success "KlipperScreen is set up. Go back: ZR Tools > More > System > Factory mode, or bash $BK/screen_board.sh --factory-restore"
+    restart_pi_klipper
     if [ "$DRY" != 1 ] && [ "$REBOOT" = 1 ]; then      # a clean start: every service, the screen server and the touch rules come up together
         echo "  A reboot starts every service, the screen server and the touch rules together. It is recommended."
         if ask_yn "Reboot the board now?" y; then
@@ -605,6 +606,23 @@ do_status() {
     [ -f "$BK/disabled.list" ] && echo "  Saved list for restore: $BK/disabled.list ($(wc -l < "$BK/disabled.list") services)"
 }
 
+restart_pi_klipper() {   # after an install or update: restart Klipper on the Pi through its Moonraker, then check it comes back
+    [ "$DRY" = 1 ] && return 0
+    local h="${PI_HOST:-}" u r st i
+    [ -z "$h" ] && [ -f "$CFG_DIR/KlipperScreen.conf" ] && h="$(sed -n 's/^moonraker_host: *//p' "$CFG_DIR/KlipperScreen.conf" | head -1)"
+    [ -n "$h" ] || { print_info "No Pi address known, so Klipper on the Pi was not restarted."; return 0; }
+    u="http://$h:7125"
+    if [ "$TESTING" = 1 ]; then echo "[test] restart klipper on $h via moonraker" >> "$HOME_DIR/.sudo.log"; print_success "Klipper on the Pi restarted through Moonraker (test)"; return 0; fi
+    r="$(curl -fsS -m 6 "$u/printer/objects/query?print_stats" 2>/dev/null)" || { print_info "The Pi ($h) does not answer, so Klipper there was not restarted. Restart it from Fluidd when the Pi is on."; return 0; }
+    if echo "$r" | grep -q '"state": *"\(printing\|paused\)"'; then print_warning "The Pi is printing, so Klipper there was not restarted."; return 0; fi
+    curl -fsS -m 15 -X POST "$u/machine/services/restart?service=klipper" >/dev/null 2>&1 || { print_warning "The Pi refused the restart. Its moonraker.conf must trust this board's address (trusted_clients). Restart Klipper from Fluidd."; return 0; }
+    for i in $(seq 1 30); do
+        sleep 2; st="$(curl -fsS -m 4 "$u/printer/info" 2>/dev/null | sed -n 's/.*"state": *"\([a-z]*\)".*/\1/p' | head -1)"
+        [ "$st" = ready ] && { print_success "Klipper on the Pi restarted and is ready."; return 0; }
+        [ "$st" = error ] || [ "$st" = shutdown ] && { print_warning "Klipper on the Pi restarted but reports '$st'. Look at the message in Fluidd."; return 0; }
+    done
+    print_warning "Klipper on the Pi restarted but is not ready yet. Check Fluidd."
+}
 do_setdriver() {   # switch the graphics driver of an installed KlipperScreen without reinstalling
     [ -d "$KS_DIR" ] || [ "$TESTING" = 1 ] || die_with_fix "KlipperScreen is not installed here." "run the installer first."
     guard_printing
@@ -711,6 +729,7 @@ do_update_board() {
     fi
     refresh_installer_folder "$w"
     SUDO systemctl restart KlipperScreen
+    restart_pi_klipper
     print_success "Updated to $new. A backup of your settings was made first."
 }
 do_doctor_board() {

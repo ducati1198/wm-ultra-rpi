@@ -456,6 +456,7 @@ KlipperScreen on the WonderMaker screen board
 | **Uninstall installer files** | Each one asks first: the rescue tool and the on-screen Factory mode button; backups, support bundles and the board report; the saved restore data `~/wm-screen-backup` (refused while KlipperScreen is installed, because a factory restore needs it, unless `--force`); the downloaded installer folder. KlipperScreen itself is only removed by **Back to factory mode** | `--remove rescue\|backups\|restoredata\|installer` |
 
 - **Progress bars:** the install shows "Install step N of 7" with a percent bar, Back to factory mode shows "Factory restore step N of 3", and slow steps (apt packages, the KlipperScreen Python build) print "still working" with the elapsed time every 30 seconds.
+- **Klipper restart:** after an install or update the board restarts KlipperScreen and asks the Pi's Moonraker to restart Klipper on the Pi (never during a print; skipped with a note if the Pi does not answer or does not trust the board's address).
 - **Reboot question:** the install ends with "Reboot the board now?" (default yes; Enter reboots after a 10 second countdown). `--no-reboot` skips the question.
 - **A print stops changes:** while the factory Moonraker on the board reports a print, every entry that changes something refuses (add `--force` to override).
 - **An old copy has an old menu.** A `git clone` copy does not update by itself: run `cd ~/wm-ultra-rpi && git pull` once. From then on **Update > Update now** refreshes the installer folder too.
@@ -647,6 +648,7 @@ WonderMaker Ultra Raspberry Pi replacement - installer 1.12.0
    0) Exit
 ```
 
+- **Klipper is restarted** at the end of every install and update, and the installer waits for "ready". It is never started this way when it is off (a fresh install): `--first-start` does that after the connection check.
 - **Update** works without git: *Update now* runs `./installer.sh --get-latest` (a `git pull` in a clone, the GitHub download otherwise) and then the update. On a Pi where nothing is installed yet it says so instead of failing. **Dry run** is `./installer.sh --install --dry-run`.
 - **Progress bars:** the install shows "Step N of 14" with a percent bar, the update "Update step N of 8", and *All programs* / *Erase everything* "Removing <name> (step N of M)". Slow steps print "still working" with the elapsed time every 30 seconds.
 - **Status on top:** the version, whether Klipper, Moonraker and nginx are running, and (if the Pi is online) whether GitHub has newer changes.
