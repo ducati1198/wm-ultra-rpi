@@ -169,7 +169,7 @@ chmod +x installer.sh
 > ```bash
 > cd ~/wm-ultra-rpi
 > git pull
-> ./installer.sh --update
+> ./installer.sh
 > ```
 
 ![Installer steps](docs/img/install-flow.svg)
