@@ -422,10 +422,43 @@ If you cloned it before, a `git clone` copy does **not** update by itself: run `
 Then, inside the folder you just downloaded (you are already in it after Option A or B), run:
 
 ```bash
+bash scripts/screen_board.sh               # opens the menu (see "The screen board menu" below); Install is entry 1 and asks for your Pi's IP address
 bash scripts/screen_board.sh --dry-run     # shows every change, changes nothing (it asks for the Pi's IP address)
-bash scripts/screen_board.sh               # opens the menu (Install is entry 1; it asks for your Pi's IP address). --install skips the menu
-bash scripts/screen_board.sh --menu        # numbered menu: install, update, check and fix, backup, settings, support bundle, factory mode
+bash scripts/screen_board.sh --install     # skips the menu and goes straight to the install
 ```
+
+### The screen board menu
+
+`bash scripts/screen_board.sh` with no options at a terminal opens a numbered menu (`--menu` does the same any time). Every entry runs an option you could also type yourself.
+
+```
+KlipperScreen on the WonderMaker screen board
+  Mode: KlipperScreen
+   1) Install KlipperScreen + ZR Tools   asks for the Pi address, shows the plan, then asks
+   2) Update                             see what is new, then update the ZR Tools screen files (backup first)
+   3) Check and fix                      doctor, status, logs, restart the screen, board report
+   4) Backup and restore                 screen settings
+   5) Settings                           Pi address, screen driver, network and system
+   6) Support bundle                     scrubbed .tgz of logs and config to share when asking for help
+   7) Dry run of the install             shows what would happen, changes nothing
+   8) Back to factory mode               removes KlipperScreen, factory services return, reboot
+   9) Uninstall installer files          rescue tool, backups, saved restore data, the installer folder
+   0) Exit
+```
+
+| Menu page | What it has | Command line |
+|---|---|---|
+| **Update** | **See what is new** reads only two small files from GitHub (`VERSION` and `CHANGELOG.md`) and lists the changes since your version; nothing is downloaded. **Update now** downloads the newest version, makes a backup of your screen settings, copies the new ZR Tools panels, refreshes the installer folder and restarts the menu on the new version. KlipperScreen itself (the pinned commit) is not changed | `--check-updates`, `--update` |
+| **Check and fix** | **Doctor** (asks before each fix: KlipperScreen enabled and running, ZR Tools files, factory services still enabled, the Pi answers at its address, disk space), **Fix everything** (the Doctor applies every safe fix after one question), Status, the last log lines, Restart the screen, a read-only board report (`/tmp/screen_board_report.txt`) and the Pre-check (READY / NOT READY) | `--doctor [--fix-all]`, `--status`, `--log`, `--restart-screen` |
+| **Backup and restore** | Saves `KlipperScreen.conf`, the ZR Tools settings and the list of factory services to `~/wm-screen-backups/`; a restore lists them, newest first, and makes a safety copy first | `--backup`, `--restore-backup [N]` |
+| **Settings** | Change the Pi address; change the screen driver (`modesetting` or `fbdev`, without reinstalling); Network and system (host name, time zone, clock, addresses, Wi-Fi) | `--set-pi ADDR`, `--set-driver modesetting\|fbdev`, `--system [tz:Zone\|host:name]` |
+| **Support bundle** | A scrubbed `~/wm-screen-support-<date>.tgz` (passwords, tokens, Wi-Fi names, private IP and MAC addresses removed; look inside before you send it) | `--support-bundle` |
+| **Uninstall installer files** | Each one asks first: the rescue tool and the on-screen Factory mode button; backups, support bundles and the board report; the saved restore data `~/wm-screen-backup` (refused while KlipperScreen is installed, because a factory restore needs it, unless `--force`); the downloaded installer folder. KlipperScreen itself is only removed by **Back to factory mode** | `--remove rescue\|backups\|restoredata\|installer` |
+
+- **Progress bars:** the install shows "Install step N of 7" with a percent bar, Back to factory mode shows "Factory restore step N of 3", and slow steps (apt packages, the KlipperScreen Python build) print "still working" with the elapsed time every 30 seconds.
+- **Reboot question:** the install ends with "Reboot the board now?" (default yes; Enter reboots after a 10 second countdown). `--no-reboot` skips the question.
+- **A print stops changes:** while the factory Moonraker on the board reports a print, every entry that changes something refuses (add `--force` to override).
+- **An old copy has an old menu.** A `git clone` copy does not update by itself: run `cd ~/wm-ultra-rpi && git pull` once. From then on **Update > Update now** refreshes the installer folder too.
 
 **To uninstall KlipperScreen and go back to the factory screen** (over SSH, as `t13dp`):
 
@@ -485,7 +518,7 @@ Details:
 - Not covered: a KlipperScreen that is running but frozen or black (a stick with `WM-RESCUE` or `WM-FACTORY` still works).
 - Files: `screen_rescue/wm-screen-rescue`, `screen_rescue/wm-rescue-window.py`; log in `/var/log/wm-screen-rescue.log`.
 - To test it safely: first check that a stick shows up (`lsblk` over SSH), then try `WM-RESCUE`, then break KlipperScreen on purpose (for example rename `/usr/local/sbin/wm-ks-start` and reboot) and watch the window appear, then try **Factory restore** and `WM-FACTORY` last.
-- `scripts/screen_board.sh` reboots the board when the install finishes, so everything starts clean (`--no-reboot` skips it).
+- `scripts/screen_board.sh` asks "Reboot the board now?" when the install finishes (default yes), so everything starts clean (`--no-reboot` skips the question and the reboot).
 
 To read the board first (nothing is changed): `scripts/screen_board_inspect.sh`. Notes: the board's Reboot/Shut down buttons in ZR Tools act on the **Pi**; the Pi's `moonraker.conf` must trust the board's address; the apt packages stay installed after a restore.
 
@@ -604,15 +637,18 @@ WonderMaker Ultra Raspberry Pi replacement - installer 1.12.0
   3 new change(s) on GitHub (version 1.6.1). Choose 2 to see them and update.
 
    1) Install or reinstall         Sets up Klipper, Moonraker and Fluidd; asks a few plain questions
-   2) Update                       See what is new, then update (your printer_data is kept)
+   2) Update                       See what is new, then download the newest version and update (your printer_data is kept)
    3) Add-ons                      Touchscreen, webcam, timelapse, shell command, Klippain Shake&Tune, Spoolman, Obico, OctoApp, OctoEverywhere
    4) Check and fix                Doctor, repair, hardware test, status page
    5) Backup and restore           Save and restore config, calibration and database
    6) Uninstall                    Remove any add-on, Fluidd, Moonraker, Klipper, your data, or erase everything
    7) Advanced                     First start, start or stop Klipper, support bundle, last log, network and system
+   8) Dry run of the install       Asks the same questions, shows every change, changes nothing
    0) Exit
 ```
 
+- **Update** works without git: *Update now* runs `./installer.sh --get-latest` (a `git pull` in a clone, the GitHub download otherwise) and then the update. On a Pi where nothing is installed yet it says so instead of failing. **Dry run** is `./installer.sh --install --dry-run`.
+- **Progress bars:** the install shows "Step N of 14" with a percent bar, the update "Update step N of 8", and *All programs* / *Erase everything* "Removing <name> (step N of M)". Slow steps print "still working" with the elapsed time every 30 seconds.
 - **Status on top:** the version, whether Klipper, Moonraker and nginx are running, and (if the Pi is online) whether GitHub has newer changes.
 - **A print stops changes:** while a print is running the menu says so and every entry that changes something refuses, as the command line does. Looking (status, quick check) still works.
 - **Add-ons** shows `[installed]`, `[running]` or `[not installed]` for each add-on. Pick one to install it, or to remove it after a confirmation (`./installer.sh --remove obico|octoapp|octoeverywhere|shell-command|shaketune|spoolman`). Removing uses the makers' own uninstallers where they have one; your account on their website stays. Removing Obico also removes the include line it added to `printer.cfg` (a copy is saved first), because Klipper would not start with it pointing at a deleted file. Removing the shell command extension is refused while `printer.cfg` still has a `[gcode_shell_command ...]` section.
