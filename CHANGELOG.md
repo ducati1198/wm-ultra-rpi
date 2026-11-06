@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.1.0
+
+- Version renumbered to 1.1.0 so it matches [acepro-any-klipper](https://github.com/ducati1198/acepro-any-klipper) 1.1.0. No code changes. The earlier numbers below are kept as history.
+
 ## 0.13.24
 
 - README (top): the ACE Pro is not an MMU here; it is used only to load and unload the filament and to dry it.
