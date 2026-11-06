@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.15.0
+
+- **Backup before every update.** `--update` and every add-on install from the menu first save config, calibration and database to `~/wm-backups/...-before-update-<date>.tgz` (newest 5 kept, `--no-backup` skips it).
+- **Status page** (`--status`, Check and fix → Status): one read-only overview of services, Klipper, Pi health, CAN ids, add-ons, newest backup and log.
+- **Network and system page** (Advanced): show host name, time zone, clock and addresses; set the time zone (`--set-timezone`) and the host name (`--set-hostname`), each after a confirmation.
+- **New add-on: Spoolman** (filament spool tracking, shown in Fluidd). Menu → Add-ons or `--spoolman on`; removal keeps your spool database unless you ask for it, and Erase everything deletes it. Not yet tried on a WonderMaker printer.
+
 ## 1.14.2
 
 - The Ultra factory files carry the same real CAN uuids as the Ultra-S ones (see 1.14.1), copied from the owner's printer. On other printers they will not match the boards: `--first-start` still checks them, and toolheads and the hub need their own uuids.

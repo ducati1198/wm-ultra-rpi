@@ -34,6 +34,12 @@
 # ./installer.sh --webcam on|off       crowsnest webcam service;  --timelapse on|off   Moonraker timelapse (both used with --update)
 # ./installer.sh --network-manager on|off   NetworkManager for KlipperScreen's Network panel (default off: it can drop the network connection until the Pi is restarted). Add it later with: ./installer.sh --update --network-manager on
 # ./installer.sh --shaketune on|off    Klippain Shake&Tune (input shaper and vibration graphs, by Frix-x). Add-on only: not asked during the install
+# ./installer.sh --spoolman on|off     Spoolman (filament spool tracking, shown in Fluidd). Add-on only: not asked during the install
+# ./installer.sh --status              one read-only page: services, Klipper, Pi health, CAN ids, add-ons, newest backup
+# ./installer.sh --system-info         read-only: host name, time zone, clock, addresses, Wi-Fi
+# ./installer.sh --set-timezone NAME   for example America/Toronto (asks first)
+# ./installer.sh --set-hostname NAME   the name.local address of this Pi (asks first)
+# ./installer.sh --no-backup           with --update: skip the automatic backup that is otherwise saved first (the newest 5 are kept in ~/wm-backups)
 # ./installer.sh --obico on|off        optional remote access: Obico for Klipper (moonraker-obico). Also --octoapp on|off and --octoeverywhere on|off. Each is asked (default no)
 # ./installer.sh --screen on|off|macros   KlipperScreen on the Pi (on), nothing (off), or only the ZR Tools macros (macros: for the WonderMaker screen board). Asked if not given; default on
 # ./installer.sh --screen-layout tabs|grid   touch layout: tabs = big buttons + bottom tabs (default), grid = card grid
@@ -67,7 +73,7 @@ TESTING="${WM_INSTALLER_TEST:-0}"        # 1 = no sudo, no apt, no systemctl, no
 MODE="install"
 DRY=0
 SRC_KIND=""; SRC_ARG=""; MODEL="ultra-s"; MODULES_DIR=""; FROM_FACTORY=0
-WANT_PANEL=1; WANT_SCREEN=ask; WANT_TIMELAPSE=1; WANT_CROWSNEST=1; CLI_REMOTE=""; ONLY_ADDON=""; WANT_SHELLCMD=1; OBICO_SERVER=""; WANT_OBICO=ask; WANT_OCTOAPP=ask; WANT_OCTOEVERYWHERE=ask; WANT_NETMGR=ask; WANT_SHAKETUNE=0
+WANT_PANEL=1; WANT_SCREEN=ask; WANT_TIMELAPSE=1; WANT_CROWSNEST=1; CLI_REMOTE=""; ONLY_ADDON=""; WANT_SHELLCMD=1; OBICO_SERVER=""; WANT_OBICO=ask; WANT_OCTOAPP=ask; WANT_OCTOEVERYWHERE=ask; WANT_NETMGR=ask; WANT_SHAKETUNE=0; WANT_SPOOLMAN=0; NO_BACKUP=0
 SCREEN_LAYOUT=""; SCREEN_BACKEND="x11"; REPO_DIR="$SCRIPT_DIR"
 STAMP="$(date +%Y%m%d-%H%M%S)"
 BACKUP_ROOT="$HOME_DIR/wm-rpi-backup"
@@ -142,6 +148,12 @@ while [ $# -gt 0 ]; do
         --obico)        case "${2:-}" in on|yes|1) WANT_OBICO=1 ;; off|no|0) WANT_OBICO=0 ;; *) print_error "--obico needs on or off"; exit 1 ;; esac; CLI_REMOTE="$CLI_REMOTE obico"; CLI_OBICO="$WANT_OBICO"; shift ;;
         --octoapp)      case "${2:-}" in on|yes|1) WANT_OCTOAPP=1 ;; off|no|0) WANT_OCTOAPP=0 ;; *) print_error "--octoapp needs on or off"; exit 1 ;; esac; CLI_REMOTE="$CLI_REMOTE octoapp"; CLI_OCTOAPP="$WANT_OCTOAPP"; shift ;;
         --network-manager) case "${2:-}" in on|yes|1) WANT_NETMGR=1 ;; off|no|0) WANT_NETMGR=0 ;; *) print_error "--network-manager needs on or off"; exit 1 ;; esac; CLI_REMOTE="$CLI_REMOTE netmgr"; CLI_NETMGR="$WANT_NETMGR"; shift ;;
+        --spoolman)     case "${2:-}" in on|yes|1) WANT_SPOOLMAN=1 ;; off|no|0) WANT_SPOOLMAN=0 ;; *) print_error "--spoolman needs on or off"; exit 1 ;; esac; CLI_REMOTE="$CLI_REMOTE spoolman"; CLI_SPOOLMAN="$WANT_SPOOLMAN"; shift ;;
+        --no-backup)    NO_BACKUP=1 ;;
+        --status)       MODE=status ;;
+        --system-info)  MODE=sysinfo ;;
+        --set-timezone) MODE=settz; ARG1="${2:-}"; shift ;;
+        --set-hostname) MODE=sethost; ARG1="${2:-}"; shift ;;
         --shaketune)    case "${2:-}" in on|yes|1) WANT_SHAKETUNE=1 ;; off|no|0) WANT_SHAKETUNE=0 ;; *) print_error "--shaketune needs on or off"; exit 1 ;; esac; CLI_REMOTE="$CLI_REMOTE shaketune"; CLI_SHAKETUNE="$WANT_SHAKETUNE"; shift ;;
         --octoeverywhere) case "${2:-}" in on|yes|1) WANT_OCTOEVERYWHERE=1 ;; off|no|0) WANT_OCTOEVERYWHERE=0 ;; *) print_error "--octoeverywhere needs on or off"; exit 1 ;; esac; CLI_REMOTE="$CLI_REMOTE octoeverywhere"; CLI_OCTOEVERYWHERE="$WANT_OCTOEVERYWHERE"; shift ;;
         --only-addon)   ONLY_ADDON="${2:-}"; shift ;;   # used by the menu (Add-ons): with --update, touch only that add-on, not the system files, packages, panel or nginx
@@ -875,6 +887,60 @@ step_octoeverywhere() {
     print_success "OctoEverywhere installed. Open the link it printed to connect your account."
 }
 
+# ---------------------------------------------------------------------------
+# Spoolman (Donkie): filament spool tracking. Fluidd shows it once Moonraker has a [spoolman] section.
+# Same steps as KIAUH: download the release's spoolman.zip, unzip to ~/Spoolman, run its scripts/install.sh (venv, service), then connect Moonraker.
+# ---------------------------------------------------------------------------
+moonraker_drop_section() {   # name : remove the plain [NAME] section from moonraker.conf (copy kept)
+    local f="$HOME_DIR/printer_data/config/moonraker.conf"
+    [ -f "$f" ] || return 0
+    grep -qiE "^\[$1\]" "$f" || return 0
+    cp "$f" "$f.wm-before-$1-removal-$STAMP"
+    python3 - "$f" "$1" <<'PY'
+import sys, re
+p, name = sys.argv[1], sys.argv[2].lower()
+out = []; skip = False
+for l in open(p).read().split("\n"):
+    m = re.match(r"\s*\[(.+?)\]", l)
+    if m: skip = m.group(1).strip().lower() == name
+    if not skip: out.append(l)
+open(p, "w").write("\n".join(out))
+PY
+}
+step_spoolman() {
+    [ "$WANT_SPOOLMAN" = 1 ] || return 0
+    print_header "Spoolman"
+    why "Spoolman keeps track of your filament spools (weight left, brand, colour). Fluidd shows it in its spool panel once Moonraker is connected to it. It runs as its own service on port 7912 and keeps its own database."
+    local dir="$HOME_DIR/Spoolman" conf="$HOME_DIR/printer_data/config/moonraker.conf" asvc="$HOME_DIR/printer_data/moonraker.asvc" url tag zip="/tmp/spoolman-$STAMP.zip"
+    remote_precheck || return 0
+    if [ -d "$dir" ] && [ "$DRY" != 1 ]; then print_success "Spoolman is already installed (update it from Fluidd's update manager)"; return 0; fi
+    if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would run: download Spoolman's release (spoolman.zip) to ~/Spoolman, then ./scripts/install.sh, then add [spoolman] and its update entry to moonraker.conf${NC}"; return 0; fi
+    SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y unzip curl python3-venv python3-pip || { warn_later "Spoolman's system packages could not be installed (network?). Run ./installer.sh --update --spoolman on to retry."; return 0; }
+    if [ "$TESTING" = 1 ]; then mkdir -p "$dir/scripts" "$dir/.venv"; echo "[test] spoolman install.sh" >> "$HOME_DIR/.sudo.log"; tag=test
+    else
+        local rel; rel="$(curl -fsSL -m 30 https://api.github.com/repos/Donkie/Spoolman/releases/latest)" || { warn_later "Could not reach GitHub to find Spoolman's latest release (network?). Run ./installer.sh --update --spoolman on to retry."; return 0; }
+        url="$(echo "$rel" | python3 -c 'import sys,json; d=json.load(sys.stdin); print(next((a["browser_download_url"] for a in d.get("assets",[]) if a["name"]=="spoolman.zip"),""))')"
+        tag="$(echo "$rel" | python3 -c 'import sys,json; print(json.load(sys.stdin).get("tag_name",""))')"
+        [ -n "$url" ] || { warn_later "Spoolman's latest release has no spoolman.zip. Install it by hand: github.com/Donkie/Spoolman/wiki/Installation"; return 0; }
+        curl -fsSL -m 300 "$url" -o "$zip" || { warn_later "Spoolman could not be downloaded."; rm -f "$zip"; return 0; }
+        mkdir -p "$dir" && unzip -q -o "$zip" -d "$dir"; rm -f "$zip"
+        [ -f "$dir/scripts/install.sh" ] || { warn_later "Spoolman's download is missing scripts/install.sh. ~/Spoolman was left as it is."; return 0; }
+        ( cd "$dir" && bash ./scripts/install.sh ) || { warn_later "Spoolman's installer failed (see the output above). Run it again: cd ~/Spoolman && ./scripts/install.sh"; return 0; }
+    fi
+    record "HOMEDIR Spoolman"
+    if [ -f "$conf" ]; then
+        if ! grep -qE '^\[spoolman\]' "$conf"; then
+            cp "$conf" "$conf.wm-before-spoolman-$STAMP"
+            printf '\n[spoolman]\nserver: http://127.0.0.1:7912\nsync_rate: 5\n' >> "$conf"
+        fi
+        if ! grep -qiE '^\[update_manager +Spoolman\]' "$conf"; then
+            printf '\n[update_manager Spoolman]\ntype: zip\nchannel: stable\nrepo: Donkie/Spoolman\npath: %s\nvirtualenv: .venv\nrequirements: requirements.txt\npersistent_files:\n  .venv\n  .env\nmanaged_services: Spoolman\n' "$dir" >> "$conf"
+        fi
+    fi
+    if [ -f "$asvc" ] && ! grep -qx Spoolman "$asvc"; then [ -n "$(tail -c1 "$asvc")" ] && echo >> "$asvc"; echo Spoolman >> "$asvc"; fi
+    print_success "Spoolman ${tag:+$tag }installed. Open http://$(hostname -I 2>/dev/null | awk '{print $1}'):7912 to add spools; Fluidd lists them after Moonraker restarts."
+}
+
 step_remote() { step_obico; step_octoapp; step_octoeverywhere; }
 upd_wants() { [ -z "$ONLY_ADDON" ] || [ "$ONLY_ADDON" = "$1" ]; }   # --update --only-addon NAME runs just that add-on
 step_remote_update() {   # --update: never run the makers' installers again for something already there (Fluidd's update manager updates them)
@@ -1084,6 +1150,7 @@ WANT_OCTOAPP=$WANT_OCTOAPP
 WANT_OCTOEVERYWHERE=$WANT_OCTOEVERYWHERE
 WANT_NETMGR=$WANT_NETMGR
 WANT_SHAKETUNE=$WANT_SHAKETUNE
+WANT_SPOOLMAN=$WANT_SPOOLMAN
 CROWSNEST_PIN=$(addon_pin crowsnest | cut -d'|' -f2)
 TIMELAPSE_PIN=$(addon_pin moonraker-timelapse | cut -d'|' -f2)
 PANEL_SHA=$([ -n "$PANEL_ZIP" ] && sha256sum "$PANEL_ZIP" 2>/dev/null | cut -d' ' -f1)
@@ -1096,11 +1163,11 @@ load_answers() {
         case "$k" in
             VERSION) OLD_VERSION="$v" ;; CROWSNEST_PIN) OLD_CN_PIN="$v" ;; TIMELAPSE_PIN) OLD_TL_PIN="$v" ;; PANEL_SHA) OLD_PANEL_SHA="$v" ;;
             MODEL) [ -n "${MODEL_SET:-}" ] || MODEL="$v" ;; SRC_KIND) : ;;
-            WANT_PANEL|WANT_SCREEN|WANT_TIMELAPSE|WANT_CROWSNEST|WANT_SHELLCMD|WANT_OBICO|WANT_OCTOAPP|WANT_OCTOEVERYWHERE|WANT_NETMGR|WANT_SHAKETUNE|OBICO_SERVER) printf -v "$k" '%s' "$v" ;;
+            WANT_PANEL|WANT_SCREEN|WANT_TIMELAPSE|WANT_CROWSNEST|WANT_SHELLCMD|WANT_OBICO|WANT_OCTOAPP|WANT_OCTOEVERYWHERE|WANT_NETMGR|WANT_SHAKETUNE|WANT_SPOOLMAN|OBICO_SERVER) printf -v "$k" '%s' "$v" ;;
             SCREEN_BACKEND) printf -v "$k" '%s' "$v" ;; KS_PIN) OLD_KS_PIN="$v" ;;
         esac
     done < "$CONF"
-    local r; for r in ${CLI_REMOTE:-}; do case "$r" in obico) WANT_OBICO="$CLI_OBICO" ;; octoapp) WANT_OCTOAPP="$CLI_OCTOAPP" ;; octoeverywhere) WANT_OCTOEVERYWHERE="$CLI_OCTOEVERYWHERE" ;; netmgr) WANT_NETMGR="$CLI_NETMGR" ;; shaketune) WANT_SHAKETUNE="$CLI_SHAKETUNE" ;; webcam) WANT_CROWSNEST="$CLI_WEBCAM" ;; timelapse) WANT_TIMELAPSE="$CLI_TIMELAPSE" ;; esac; done
+    local r; for r in ${CLI_REMOTE:-}; do case "$r" in obico) WANT_OBICO="$CLI_OBICO" ;; octoapp) WANT_OCTOAPP="$CLI_OCTOAPP" ;; octoeverywhere) WANT_OCTOEVERYWHERE="$CLI_OCTOEVERYWHERE" ;; netmgr) WANT_NETMGR="$CLI_NETMGR" ;; shaketune) WANT_SHAKETUNE="$CLI_SHAKETUNE" ;; spoolman) WANT_SPOOLMAN="$CLI_SPOOLMAN" ;; webcam) WANT_CROWSNEST="$CLI_WEBCAM" ;; timelapse) WANT_TIMELAPSE="$CLI_TIMELAPSE" ;; esac; done
     [ -n "${CLI_SHELLCMD:-}" ] && WANT_SHELLCMD="$CLI_SHELLCMD"    # --shell-command on|off given now wins over the saved answer
     return 0
 }
@@ -1117,6 +1184,7 @@ PLAN_OPTIONS=(
     "octoeverywhere|WANT_OCTOEVERYWHERE"
     "network manager|WANT_NETMGR"
     "klippain shake&tune|WANT_SHAKETUNE"
+    "spoolman|WANT_SPOOLMAN"
 )
 show_plan() {
     print_header "Plan (nothing has been changed yet)"
@@ -1132,7 +1200,7 @@ show_plan() {
         case "$val" in
             1) val=yes ;; macros) val="only the ZR Tools macros" ;; ask) val="not chosen" ;; *) val=no ;;
         esac
-        case "$var:$val" in WANT_OBICO:no|WANT_OCTOAPP:no|WANT_OCTOEVERYWHERE:no|WANT_SHAKETUNE:no) val="no (add later: menu, Add-ons)" ;; esac
+        case "$var:$val" in WANT_OBICO:no|WANT_OCTOAPP:no|WANT_OCTOEVERYWHERE:no|WANT_SHAKETUNE:no|WANT_SPOOLMAN:no) val="no (add later: menu, Add-ons)" ;; esac
         printf '      %-16s %s\n' "$name" "$val"
     done
     [ "$AUTOSTART" = 1 ] && echo "  At the end:      Klipper, Moonraker, nginx and crowsnest are enabled and started (checks are shown; failures are reported)" \
@@ -1299,6 +1367,22 @@ do_restore() {
 # ============================================================================
 # Update, repair, undo
 # ============================================================================
+auto_backup() {   # a quick safety copy of your settings before an update or an add-on install; the newest 5 are kept
+    if [ "${NO_BACKUP:-0}" = 1 ]; then print_info "Backup before the update skipped (--no-backup)."; return 0; fi
+    [ "$DRY" = 1 ] && { echo -e "  ${DIM}would save a backup of your config, calibration and database first${NC}"; return 0; }
+    local dir="$HOME_DIR/wm-backups" out items=() i
+    for i in printer_data/config printer_data/database printer_data/moonraker.asvc printer_data/wm-model; do [ -e "$HOME_DIR/$i" ] && items+=("$i"); done
+    [ ${#items[@]} -gt 0 ] || return 0
+    mkdir -p "$dir"; out="$dir/wm-backup-$(model_now)-before-update-$STAMP.tgz"
+    if tar czf "$out" -C "$HOME_DIR" "${items[@]}" 2>/dev/null; then
+        chmod 600 "$out"
+        print_success "Backup before the update: $out ($(du -h "$out" | cut -f1)). Put it back with: ./installer.sh --restore $out"
+        ls -1t "$dir"/wm-backup-*-before-update-*.tgz 2>/dev/null | tail -n +6 | while read -r o; do rm -f "$o"; done
+    else
+        rm -f "$out"; warn_later "The backup before the update could not be saved (disk full?). The update went on; save one yourself: ./installer.sh --backup"
+    fi
+}
+
 do_update() {
     print_header "Update"
     load_answers || die_with_fix "no earlier install found ($CONF)." "run ./installer.sh first."
@@ -1308,6 +1392,7 @@ do_update() {
     if [ -n "$ONLY_ADDON" ]; then echo "Only this add-on is installed. The system files, packages, Fluidd panel and nginx are not touched, and neither is your printer_data."
     else echo "Your printer_data (config, calibration) is not touched. Updated: services, nginx, can0 rule, Python packages, panel, add-ons."; fi
     ask_yn "Go ahead?" y || exit 0
+    auto_backup
     if [ -z "$ONLY_ADDON" ]; then step_packages; step_groups; step_python; fi
     if [ -z "$ONLY_ADDON" ] && [ "$TESTING" != 1 ] && [ "$DRY" != 1 ]; then
         "$HOME_DIR/klippy-env/bin/pip" install -q -r "$SCRIPT_DIR/config/klippy-requirements.txt" || warn_later "klippy-env packages did not update."
@@ -1326,6 +1411,7 @@ do_update() {
     if [ "$WANT_TIMELAPSE" = 1 ] && upd_wants timelapse; then step_timelapse; fi
     if [ "$WANT_SHELLCMD" = 1 ] && upd_wants shell-command; then step_shellcmd; fi
     if [ "$WANT_SHAKETUNE" = 1 ] && upd_wants shaketune; then step_shaketune; fi
+    if [ "$WANT_SPOOLMAN" = 1 ] && upd_wants spoolman; then step_spoolman; fi
     step_remote_update
     if [ "$WANT_CROWSNEST" = 1 ] && upd_wants webcam && { [ "$(addon_pin crowsnest | cut -d'|' -f2)" != "${OLD_CN_PIN:-}" ] || [ ! -d "$HOME_DIR/crowsnest" ]; }; then step_crowsnest; fi
     save_answers
@@ -1684,6 +1770,22 @@ do_remove_addon() {
             [ "$name" != obico ] && moonraker_drop_update_section "$name"
             print_info "Restart Moonraker$([ "$name" = obico ] && echo " and Klipper") from Fluidd when you are ready." ;;
         screen) do_screen_remove ;;
+        spoolman)
+            [ -d "$HOME_DIR/Spoolman" ] || [ -f /etc/systemd/system/Spoolman.service ] || { print_info "Spoolman is not installed."; return 0; }
+            echo "  This removes the Spoolman service, ~/Spoolman and the [spoolman] and update entries in moonraker.conf (a copy is kept). Your spool database (usually ~/.local/share/spoolman) is kept unless you say yes to the next question."
+            ask_yn "Remove Spoolman?" n || { echo "Nothing changed."; return 0; }
+            SUDO systemctl stop Spoolman; SUDO systemctl disable Spoolman
+            rm_path /etc/systemd/system/Spoolman.service "$HOME_DIR/Spoolman"
+            SUDO systemctl daemon-reload; SUDO systemctl reset-failed
+            moonraker_drop_section spoolman; moonraker_drop_update_section Spoolman
+            [ -f "$HOME_DIR/printer_data/moonraker.asvc" ] && sed -i '/^Spoolman$/d' "$HOME_DIR/printer_data/moonraker.asvc"
+            if [ -d "$HOME_DIR/.local/share/spoolman" ]; then
+                if [ "${REMOVE_DATA:-0}" = 1 ]; then rm_path "$HOME_DIR/.local/share/spoolman"
+                elif [ "${REMOVE_CONFIRMED:-0}" != 1 ] && ask_yn "Also delete your spool database (~/.local/share/spoolman)? This cannot be undone." n; then rm_path "$HOME_DIR/.local/share/spoolman"
+                else print_info "Your spool database was kept in ~/.local/share/spoolman."; fi
+            fi
+            WANT_SPOOLMAN=0; save_answers
+            print_success "Spoolman removed. Moonraker needs a restart to forget it: sudo systemctl restart moonraker" ;;
         shaketune)
             [ -d "$HOME_DIR/klippain_shaketune" ] || [ -L "$HOME_DIR/klipper/klippy/extras/shaketune" ] || { print_info "Shake&Tune is not installed."; return 0; }
             echo "  This removes Klippain Shake&Tune: the link in Klipper's extras, ~/klippain_shaketune, the [include shaketune.cfg] line in printer.cfg (a copy is kept) and its update manager section. Your results in ~/printer_data/config/ShakeTune_results stay. Klipper needs a restart afterwards."
@@ -1769,7 +1871,7 @@ PY
         all)
             local word c any=0
             echo "  This is what will be removed (what is installed now):"
-            for c in screen webcam timelapse shell-command shaketune obico octoapp octoeverywhere fluidd moonraker klipper; do
+            for c in screen webcam timelapse shell-command shaketune spoolman obico octoapp octoeverywhere fluidd moonraker klipper; do
                 [ "$(addon_status "$c")" = "not installed" ] && continue
                 echo "    - $c  [$(addon_status "$c")]"; any=1
             done
@@ -1779,7 +1881,7 @@ PY
             echo "  Your printer data (~/printer_data), your backups and the installer files are NOT touched; remove them separately."
             read -r -p "  Type REMOVE (capital letters) to confirm, anything else cancels: " word || word=""
             [ "$word" = REMOVE ] || { echo "Nothing changed."; return 0; }
-            for c in screen webcam timelapse shell-command shaketune obico octoapp octoeverywhere fluidd moonraker klipper; do
+            for c in screen webcam timelapse shell-command shaketune spoolman obico octoapp octoeverywhere fluidd moonraker klipper; do
                 [ "$(addon_status "$c")" = "not installed" ] && continue
                 ( ARG1="$c"; REMOVE_CONFIRMED=1; FORCE=1; do_remove_addon )
             done
@@ -1789,7 +1891,7 @@ PY
         erase)
             local word c g paths f
             echo "  ERASE EVERYTHING. This is what will be deleted:"
-            for c in screen webcam timelapse shell-command shaketune obico octoapp octoeverywhere fluidd moonraker klipper; do
+            for c in screen webcam timelapse shell-command shaketune spoolman obico octoapp octoeverywhere fluidd moonraker klipper; do
                 [ "$(addon_status "$c")" = "not installed" ] && continue
                 echo "    - $c  [$(addon_status "$c")]"
             done
@@ -1804,9 +1906,9 @@ PY
             echo "  Each add-on's own uninstaller runs and may ask its own questions."
             read -r -p "  Type ERASE (capital letters) to confirm, anything else cancels: " word || word=""
             [ "$word" = ERASE ] || { echo "Nothing changed."; return 0; }
-            for c in screen webcam timelapse shell-command shaketune obico octoapp octoeverywhere fluidd moonraker klipper; do
+            for c in screen webcam timelapse shell-command shaketune spoolman obico octoapp octoeverywhere fluidd moonraker klipper; do
                 [ "$(addon_status "$c")" = "not installed" ] && continue
-                ( ARG1="$c"; REMOVE_CONFIRMED=1; FORCE=1; do_remove_addon )
+                ( ARG1="$c"; REMOVE_CONFIRMED=1; REMOVE_DATA=1; FORCE=1; do_remove_addon )
             done
             [ -f "$STATE" ] && uninstall_system_files
             [ -f "$NETMGR_STATE" ] && ( ARG1=network-manager; REMOVE_CONFIRMED=1; FORCE=1; do_remove_addon )
@@ -1842,6 +1944,7 @@ addon_status() {   # name -> installed|running|not installed
         webcam)   [ -d "$HOME_DIR/crowsnest" ] && { [ "$(service_state crowsnest)" = active ] && echo running || echo installed; } || echo "not installed" ;;
         timelapse) [ -d "$HOME_DIR/moonraker-timelapse" ] && echo installed || echo "not installed" ;;
         shell-command) [ -f "$HOME_DIR/klipper/klippy/extras/gcode_shell_command.py" ] && echo installed || echo "not installed" ;;
+        spoolman) [ -d "$HOME_DIR/Spoolman" ] && { [ "$(service_state Spoolman)" = active ] && echo running || echo installed; } || echo "not installed" ;;
         shaketune) [ -L "$HOME_DIR/klipper/klippy/extras/shaketune" ] && echo installed || { [ -d "$HOME_DIR/klippain_shaketune" ] && echo "downloaded, not linked" || echo "not installed"; } ;;
         fluidd)   [ -d "$HOME_DIR/fluidd" ] && echo installed || echo "not installed" ;;
         moonraker) [ -d "$HOME_DIR/moonraker" ] && echo installed || echo "not installed" ;;
@@ -1888,9 +1991,9 @@ menu_updates() {
 }
 
 menu_addons() {
-    local k items=(screen network-manager webcam timelapse shell-command shaketune obico octoapp octoeverywhere)
-    declare -A label=([screen]="Touchscreen (KlipperScreen)" [shaketune]="Klippain Shake&Tune" [network-manager]="NetworkManager (Network panel)" [webcam]="Webcam (crowsnest)" [timelapse]="Timelapse" [shell-command]="Klipper gcode shell command" [obico]="Obico for Klipper" [octoapp]="OctoApp" [octoeverywhere]="OctoEverywhere")
-    declare -A help=([shaketune]="Input shaper and vibration graphs (by Frix-x)" [network-manager]="Wi-Fi choice on the screen. Can drop the network until a reboot" [screen]="Screen plugged into the Pi, with the ZR Tools page" [webcam]="USB camera streams for Fluidd" [timelapse]="Moonraker timelapse + ffmpeg" [shell-command]="RUN_SHELL_COMMAND: run Linux commands from G-code" [obico]="Remote view and failure detection (obico.io account)" [octoapp]="Phone app notifications and control" [octoeverywhere]="Remote access, webcam and notifications (free account)")
+    local k items=(screen network-manager webcam timelapse shell-command shaketune spoolman obico octoapp octoeverywhere)
+    declare -A label=([screen]="Touchscreen (KlipperScreen)" [shaketune]="Klippain Shake&Tune" [spoolman]="Spoolman (filament spools)" [network-manager]="NetworkManager (Network panel)" [webcam]="Webcam (crowsnest)" [timelapse]="Timelapse" [shell-command]="Klipper gcode shell command" [obico]="Obico for Klipper" [octoapp]="OctoApp" [octoeverywhere]="OctoEverywhere")
+    declare -A help=([spoolman]="Filament spool tracking, shown in Fluidd (port 7912)" [shaketune]="Input shaper and vibration graphs (by Frix-x)" [network-manager]="Wi-Fi choice on the screen. Can drop the network until a reboot" [screen]="Screen plugged into the Pi, with the ZR Tools page" [webcam]="USB camera streams for Fluidd" [timelapse]="Moonraker timelapse + ffmpeg" [shell-command]="RUN_SHELL_COMMAND: run Linux commands from G-code" [obico]="Remote view and failure detection (obico.io account)" [octoapp]="Phone app notifications and control" [octoeverywhere]="Remote access, webcam and notifications (free account)")
     while true; do
         echo; echo "  Add-ons"
         local n=0; for k in "${items[@]}"; do n=$((n+1)); menu_item "$n" "${label[$k]}" "[$(addon_status "$k")] ${help[$k]}"; done
@@ -1923,9 +2026,10 @@ menu_fix() {
         menu_item 2 "Repair" "Puts back services, nginx files, the can0 rule and groups (data untouched)"
         menu_item 3 "Hardware test" "Read-only live test: USB bridge, can0, CAN devices, camera, services"
         menu_item 4 "Quick check" "Report problems, change nothing"
+        menu_item 5 "Status" "One page: services, Klipper, Pi health, CAN ids, add-ons, newest backup"
         menu_item 0 "Back" ""
         menu_read "Choose:" || return 0
-        case "$REPLY_MENU" in 1) menu_run --doctor ;; 2) menu_run --repair ;; 3) menu_run --hw-test ;; 4) menu_run --check ;; 0|"") return 0 ;; *) echo "  Choose a number from the list." ;; esac
+        case "$REPLY_MENU" in 1) menu_run --doctor ;; 2) menu_run --repair ;; 3) menu_run --hw-test ;; 4) menu_run --check ;; 5) menu_run --status ;; 0|"") return 0 ;; *) echo "  Choose a number from the list." ;; esac
     done
 }
 
@@ -1972,8 +2076,8 @@ menu_restore() {   # shows where the backups are kept and lets you choose one by
 }
 
 menu_uninstall() {
-    local k n items=(screen network-manager webcam timelapse shell-command shaketune obico octoapp octoeverywhere fluidd moonraker klipper data system cleanup all erase)
-    declare -A label=([screen]="Touchscreen (KlipperScreen)" [network-manager]="NetworkManager (switch back to dhcpcd)" [webcam]="Webcam (crowsnest)" [timelapse]="Timelapse" [shell-command]="Klipper gcode shell command" [shaketune]="Klippain Shake&Tune" [obico]="Obico for Klipper" [octoapp]="OctoApp" [octoeverywhere]="OctoEverywhere" [fluidd]="Fluidd web page" [moonraker]="Moonraker" [klipper]="Klipper" [data]="My printer data" [system]="System files" [cleanup]="Clean up installer files" [all]="All programs" [erase]="Erase everything")
+    local k n items=(screen network-manager webcam timelapse shell-command shaketune spoolman obico octoapp octoeverywhere fluidd moonraker klipper data system cleanup all erase)
+    declare -A label=([screen]="Touchscreen (KlipperScreen)" [network-manager]="NetworkManager (switch back to dhcpcd)" [webcam]="Webcam (crowsnest)" [timelapse]="Timelapse" [shell-command]="Klipper gcode shell command" [shaketune]="Klippain Shake&Tune" [spoolman]="Spoolman (filament spools)" [obico]="Obico for Klipper" [octoapp]="OctoApp" [octoeverywhere]="OctoEverywhere" [fluidd]="Fluidd web page" [moonraker]="Moonraker" [klipper]="Klipper" [data]="My printer data" [system]="System files" [cleanup]="Clean up installer files" [all]="All programs" [erase]="Erase everything")
     declare -A help=([network-manager]="Only if this installer switched you to it" [fluidd]="The page you open in the browser, with its nginx site" [moonraker]="The web API Fluidd and the add-ons use" [klipper]="The printer firmware host" [data]="printer.cfg, calibration, database, gcode files (a backup is made first)" [system]="Services, nginx files and the can0 rule the installer added" [cleanup]="Old backups, support bundles, moved-aside folders, saved copies, the installer folder" [all]="Every program above and the system files. Keeps my printer data, backups and installer files" [erase]="Programs, printer data, backups, logs and every installer file. Keeps only the installer folder")
     while true; do
         echo; echo "  Uninstall"; echo "  Choose what to remove. Each choice explains what goes and asks before it changes anything."
@@ -1995,10 +2099,90 @@ menu_advanced() {
         menu_item 3 "Stop Klipper" "Stops Klipper and keeps it from starting at boot"
         menu_item 4 "Support bundle" "A scrubbed .tgz of logs and config to share when asking for help"
         menu_item 5 "Show the last log" "Where the log of the last run is, and its last lines"
+        menu_item 6 "Network and system" "Host name, time zone, clock, addresses"
         menu_item 0 "Back" ""
         menu_read "Choose:" || return 0
         case "$REPLY_MENU" in
-            1) menu_run --first-start ;; 2) menu_run --start-klipper ;; 3) menu_run --disable-klipper ;; 4) menu_run --support-bundle ;; 5) menu_run --show-log ;;
+            1) menu_run --first-start ;; 2) menu_run --start-klipper ;; 3) menu_run --disable-klipper ;; 4) menu_run --support-bundle ;; 5) menu_run --show-log ;; 6) menu_system ;;
+            0|"") return 0 ;; *) echo "  Choose a number from the list." ;;
+        esac
+    done
+}
+
+do_status() {   # read-only overview
+    print_header "Status (changes nothing)"
+    load_answers 2>/dev/null || true
+    local ip t mem
+    ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
+    echo "  Installer $VERSION   printer: $(model_now)   host: $(hostname)${ip:+   address: http://$ip}"
+    echo "  Uptime: $(uptime -p 2>/dev/null | sed 's/^up //')"
+    t="$(vcgencmd measure_temp 2>/dev/null | sed 's/temp=//')"
+    [ -z "$t" ] && [ -r /sys/class/thermal/thermal_zone0/temp ] && t="$(awk '{printf "%.1f C", $1/1000}' /sys/class/thermal/thermal_zone0/temp)"
+    echo "  Pi temperature: ${t:-unknown}   power: $(power_flags | sed 's/^0x0$/no under-voltage/;s/^$/unknown/')"
+    echo "  Disk: $(df -h / | awk 'NR==2{print $4" free of "$2" ("$5" used)"}')   Memory: $(free -m 2>/dev/null | awk 'NR==2{print $7" MB available of "$2" MB"}')"
+    echo
+    echo "  Services: Klipper $(service_state klipper)   Moonraker $(service_state moonraker)   nginx $(service_state nginx)"
+    local info st; info="$(api_get /server/info)"
+    st="$(echo "$info" | grep -o '"klippy_state": *"[a-z_]*"' | head -1 | sed 's/.*: *"//;s/"//')"
+    echo "  Klipper reports: ${st:-Moonraker does not answer}"
+    local ps; ps="$(print_state)"; [ -n "$ps" ] && echo "  Print: $ps"
+    local can="not present"; ip link show can0 >/dev/null 2>&1 && { ip link show can0 2>/dev/null | grep -q 'UP' && can="up" || can="down"; }
+    echo "  CAN bus (can0): $can"
+    local f u n=0 ph=0; while read -r f u; do n=$((n+1)); case "$u" in ??0000000000) ph=$((ph+1)); echo "    placeholder uuid in $(basename "$f"): $u (not a real board id)" ;; esac; done < <(cfg_uuids)
+    echo "  CAN ids in the config: $n   placeholders: $ph"
+    echo
+    echo "  Add-ons:"
+    local k; for k in screen network-manager webcam timelapse shell-command shaketune spoolman obico octoapp octoeverywhere; do printf '    %-18s %s\n' "$k" "$(addon_status "$k")"; done
+    echo
+    local last; last="$(ls -1t "$HOME_DIR"/wm-backups/*.tgz 2>/dev/null | head -1)"
+    echo "  Newest backup: ${last:-none yet (./installer.sh --backup)}"
+    last="$(ls -1t "$LOG_DIR"/installer-*.log 2>/dev/null | head -1)"
+    echo "  Newest installer log: ${last:-none}"
+    [ -d "$REPO_DIR/.git" ] && echo "  This copy of the installer: $(git -C "$REPO_DIR" log -1 --format='%h %cd' --date=short 2>/dev/null)"
+}
+
+do_system_info() {   # read-only
+    print_header "Network and system (changes nothing)"
+    echo "  Host name:  $(hostname)   (reachable as $(hostname).local on most networks)"
+    echo "  Time zone:  $(timedatectl show -p Timezone --value 2>/dev/null || cat /etc/timezone 2>/dev/null)   clock synchronised: $(ntp_ok && echo yes || echo no)   now: $(date '+%F %T')"
+    echo "  Addresses:"; ip -br addr 2>/dev/null | awk '$1!="lo"{printf "    %-10s %-8s %s %s\n",$1,$2,$3,$4}'
+    local ssid; ssid="$(iwgetid -r 2>/dev/null)"; [ -n "$ssid" ] && echo "  Wi-Fi network: $ssid"
+    echo "  Gateway:    $(ip route 2>/dev/null | awk '/^default/{print $3; exit}')"
+    echo "  Network manager: $(if systemctl is-active NetworkManager >/dev/null 2>&1; then echo NetworkManager; elif systemctl is-active dhcpcd >/dev/null 2>&1; then echo dhcpcd; else echo unknown; fi)"
+}
+do_set_timezone() {   # name, e.g. America/Toronto
+    local tz="${1:-$ARG1}"
+    [ -n "$tz" ] || die_with_fix "no time zone given." "./installer.sh --set-timezone America/Toronto  (the list: timedatectl list-timezones)"
+    if [ "$TESTING" != 1 ]; then timedatectl list-timezones 2>/dev/null | grep -qx "$tz" || die_with_fix "'$tz' is not a known time zone." "see the list with: timedatectl list-timezones"; fi
+    echo "  The time zone changes the clock shown in Fluidd and the time on timelapse videos and logs. Nothing restarts."
+    ask_yn "Set the time zone to $tz?" y || { echo "Nothing changed."; return 0; }
+    SUDO timedatectl set-timezone "$tz"
+    print_success "Time zone: $tz"
+}
+do_set_hostname() {   # name
+    local h="${1:-$ARG1}"
+    [ -n "$h" ] || die_with_fix "no host name given." "./installer.sh --set-hostname myprinter"
+    echo "$h" | grep -Eq '^[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?$' || die_with_fix "'$h' is not a valid host name." "use lower-case letters, digits and '-', up to 32 characters, not starting or ending with '-'."
+    guard_not_printing
+    echo "  The Pi will be reached as $h.local from now on. The old name $(hostname).local stops working, and bookmarks or slicer printer entries that use it must be changed. Your SSH session keeps working; the new name is used everywhere after a reboot."
+    ask_yn "Change the host name to $h?" n || { echo "Nothing changed."; return 0; }
+    local old; old="$(hostname)"
+    SUDO hostnamectl set-hostname "$h"
+    [ "$DRY" = 1 ] || [ "$TESTING" = 1 ] || SUDO sed -i "s/^\(127\.0\.1\.1[[:space:]]\+\).*/\1$h/" /etc/hosts
+    print_success "Host name changed from $old to $h. Reboot when you are ready: sudo reboot"
+}
+menu_system() {
+    while true; do
+        echo; echo "  Network and system"
+        menu_item 1 "Show" "Host name, time zone, clock, addresses, Wi-Fi, gateway"
+        menu_item 2 "Set the time zone" "Clock, timelapse and log times"
+        menu_item 3 "Change the host name" "The name.local address of this Pi (asks first)"
+        menu_item 0 "Back" ""
+        menu_read "Choose:" || return 0
+        case "$REPLY_MENU" in
+            1) menu_run --system-info ;;
+            2) local tz; read -r -p "  Time zone (for example America/Toronto): " tz || continue; [ -n "$tz" ] && menu_run --set-timezone "$tz" ;;
+            3) local hn; read -r -p "  New host name (for example wmprinter): " hn || continue; [ -n "$hn" ] && menu_run --set-hostname "$hn" ;;
             0|"") return 0 ;; *) echo "  Choose a number from the list." ;;
         esac
     done
@@ -2011,11 +2195,11 @@ do_menu() {
         echo; menu_status; echo
         menu_item 1 "Install or reinstall" "Sets up Klipper, Moonraker and Fluidd; asks a few plain questions"
         menu_item 2 "Update" "See what is new, then update (your printer_data is kept)"
-        menu_item 3 "Add-ons" "Touchscreen, webcam, timelapse, shell command, Shake&Tune, Obico, OctoApp, OctoEverywhere"
+        menu_item 3 "Add-ons" "Touchscreen, webcam, timelapse, shell command, Shake&Tune, Spoolman, Obico, OctoApp, OctoEverywhere"
         menu_item 4 "Check and fix" "Doctor, repair, hardware test"
         menu_item 5 "Backup and restore" "Save and restore config, calibration and database"
         menu_item 6 "Uninstall" "Remove any add-on, Fluidd, Moonraker, Klipper, your data, or erase everything"
-        menu_item 7 "Advanced" "First start, start or stop Klipper, support bundle"
+        menu_item 7 "Advanced" "First start, start or stop Klipper, support bundle, network and system"
         menu_item 0 "Exit" ""
         menu_read "Choose:" || { echo; return 0; }
         case "$REPLY_MENU" in
@@ -2058,7 +2242,7 @@ start_logging() {
     [ "${WM_LOGGING:-0}" = 1 ] && { LOG_FILE="${WM_LOG_FILE:-}"; return 0; }
     [ "$DRY" = 1 ] && return 0
     [ "$TESTING" = 1 ] && [ "${WM_FORCE_LOG:-0}" != 1 ] && return 0
-    case " install update repair remove restore undo uninstall firststart startklipper disable doctor hwtest backup screenlayout screenremove " in *" $MODE "*) ;; *) return 0 ;; esac
+    case " install update repair remove restore undo uninstall firststart startklipper disable doctor hwtest backup screenlayout screenremove settz sethost " in *" $MODE "*) ;; *) return 0 ;; esac
     [ "$MODE" = install ] && [ "$ORIG_ARGC" = 0 ] && [ -t 0 ] && [ -t 1 ] && [ "${WM_ASSUME_YES:-0}" != 1 ] && return 0   # that opens the menu
     mkdir -p "$LOG_DIR" 2>/dev/null && chmod 700 "$LOG_DIR" 2>/dev/null || return 0
     LOG_FILE="$LOG_DIR/installer-$MODE-$STAMP.log"
@@ -2096,6 +2280,10 @@ case "$MODE" in
     showlog)    do_show_log; exit 0 ;;
     disable)    do_disable; exit 0 ;;
     startklipper) do_start_klipper; exit $? ;;
+    status)     do_status; exit 0 ;;
+    sysinfo)    do_system_info; exit 0 ;;
+    settz)      do_set_timezone; exit 0 ;;
+    sethost)    do_set_hostname; exit 0 ;;
     uninstall)  do_uninstall; exit 0 ;;
     screentest) do_screen_test; exit 0 ;;
     screenlayout) do_screen_layout; exit 0 ;;
@@ -2113,7 +2301,7 @@ show_plan
 guard_not_printing
 save_answers
 step_packages; step_groups; step_python; step_unpack; step_model; step_venvs; step_modules
-step_services; step_nginx; step_can; step_panel; step_screen; step_netmgr; step_timelapse; step_shellcmd; step_shaketune; step_remote; step_crowsnest; step_start
+step_services; step_nginx; step_can; step_panel; step_screen; step_netmgr; step_timelapse; step_shellcmd; step_shaketune; step_spoolman; step_remote; step_crowsnest; step_start
 save_answers
 self_test
 if [ "$AUTOSTART" = 1 ] && [ "$DRY" != 1 ]; then do_first_start auto || true; fi

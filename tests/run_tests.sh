@@ -682,4 +682,36 @@ check "add-on only: no system packages, nginx, can0 rule or panel work" "! grep 
 check "add-on only says so" "echo \"\$OUT\" | grep -q 'Only this add-on'"
 check "full update still updates everything" "inst $OA --update | grep -q 'Updated: services, nginx'"
 
+# --- backup before update, Status, Network and system, Spoolman ---
+echo "== backup before update / status / system page / Spoolman"
+mkstage "$T/stage_ns"; NS="$T/ns"; mkdir -p "$NS"; inst "$NS" --from-stage "$T/stage_ns" --screen off >/dev/null
+printf "[server]\n" > "$NS/printer_data/config/moonraker.conf"; printf "klippy_apis/printer/restart\nSpoolman_x\n" > "$NS/printer_data/moonraker.asvc"
+inst "$NS" --update >/dev/null
+check "--update saves a backup first" "ls $NS/wm-backups/wm-backup-*-before-update-*.tgz"
+check "the backup holds the config" "tar tzf \$(ls $NS/wm-backups/*before-update*.tgz | head -1) | grep -q printer_data/config/printer.cfg"
+for i in 1 2 3 4 5 6 7; do touch -d "2020-01-0$i" "$NS/wm-backups/wm-backup-ultra-s-before-update-2020010$i.tgz"; done
+inst "$NS" --update >/dev/null
+check "only the newest 5 automatic backups are kept" "[ \$(ls $NS/wm-backups/*before-update*.tgz | wc -l) -le 5 ]"
+rm -f $NS/wm-backups/*; inst "$NS" --update --no-backup >/dev/null
+check "--no-backup skips it" "[ -z \"\$(ls $NS/wm-backups 2>/dev/null)\" ]"
+inst "$NS" --update --only-addon shaketune --shaketune on >/dev/null
+check "an add-on install saves a backup too" "ls $NS/wm-backups/*before-update*.tgz"
+OUT="$(inst "$NS" --status)"
+check "--status shows services, add-ons and CAN ids" "echo \"$OUT\" | grep -q 'Status (changes nothing)' && echo \"$OUT\" | grep -q 'Add-ons:' && echo \"$OUT\" | grep -q 'CAN ids in the config' && echo \"$OUT\" | grep -q 'spoolman'"
+check "--status changes nothing" "[ -z \"\$(ls $NS/wm-install-logs 2>/dev/null)\" ]"
+check "--system-info shows host name and time zone" "inst $NS --system-info | grep -q 'Host name' && inst $NS --system-info | grep -q 'Time zone'"
+check "--set-hostname refuses a bad name" "! inst $NS --set-hostname 'Bad Name!'"
+: > "$NS/.sudo.log"; M 'n\n' $NS --set-hostname newname >/dev/null; check "--set-hostname asks first (default no)" "! grep -q hostnamectl $NS/.sudo.log"
+M 'y\n' $NS --set-hostname newname >/dev/null; check "--set-hostname changes it after yes" "grep -q 'hostnamectl set-hostname newname' $NS/.sudo.log"
+M 'y\n' $NS --set-timezone America/Toronto >/dev/null; check "--set-timezone changes it after yes" "grep -q 'timedatectl set-timezone America/Toronto' $NS/.sudo.log"
+check "menu: Check and fix has Status, Advanced has Network and system, Add-ons has Spoolman" "M '4\n0\n0\n' $NS --menu | grep -q 'Status' && M '7\n0\n0\n' $NS --menu | grep -q 'Network and system' && M '3\n0\n0\n' $NS --menu | grep -q 'Spoolman'"
+check "--help mentions the new options" "bash $ROOT/installer.sh --help | grep -q -- '--spoolman' && bash $ROOT/installer.sh --help | grep -q -- '--status' && bash $ROOT/installer.sh --help | grep -q -- '--set-timezone'"
+check "--spoolman needs on or off" "! bash $ROOT/installer.sh --spoolman maybe"
+inst "$NS" --update --only-addon spoolman --spoolman on >/dev/null
+check "Spoolman: folder, service step, [spoolman] and update entry, service name in asvc" "[ -d $NS/Spoolman ] && grep -q '^\[spoolman\]' $NS/printer_data/config/moonraker.conf && grep -q 'update_manager Spoolman' $NS/printer_data/config/moonraker.conf && grep -qx Spoolman $NS/printer_data/moonraker.asvc && grep -q 'spoolman install.sh' $NS/.sudo.log"
+check "Spoolman is remembered and shown in the plan" "grep -q 'WANT_SPOOLMAN=1' $NS/wm-rpi-backup/install.conf && inst $NS --dry-run --update | grep -qi spoolman"
+mkdir -p "$NS/.local/share/spoolman"; echo db > "$NS/.local/share/spoolman/spoolman.db"
+check "--remove spoolman asks first and keeps everything on no" "M 'n\n' $NS --remove spoolman | grep -q 'Nothing changed' && [ -d $NS/Spoolman ]"
+check "--remove spoolman removes it, drops its config sections, keeps the database" "M 'y\nn\n' $NS --remove spoolman | grep -q 'Spoolman removed' && [ ! -e $NS/Spoolman ] && ! grep -q 'spoolman' $NS/printer_data/config/moonraker.conf && ! grep -qx Spoolman $NS/printer_data/moonraker.asvc && [ -f $NS/.local/share/spoolman/spoolman.db ]"
+
 echo; echo "passed: $PASS  failed: $FAIL"; [ "$FAIL" = 0 ]
