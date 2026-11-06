@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.20.4
+
+- **Screen board: "See what is new" downloads nothing.** It reads only two small text files from GitHub (VERSION and CHANGELOG.md) and shows the changes since your version. The full download happens only when you choose "Update now".
+
 ## 1.20.3
 
 - **Screen board: Update now refreshes the installer folder too** (git pull, or a copy of the new files), and the menu restarts itself on the new version. Before, an update only replaced the ZR Tools panels, so the menu you were looking at stayed the old one (for example without the "See what is new / Update now" page).

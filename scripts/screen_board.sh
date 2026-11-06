@@ -658,15 +658,17 @@ fetch_latest() {   # sets LATEST_DIR to a folder with the newest version from Gi
     LATEST_DIR="$(mktemp -d)"; print_info "Downloading the newest version from GitHub ..."
     curl -fsSL -m 120 https://codeload.github.com/ducati1198/wm-ultra-rpi/tar.gz/refs/heads/main | tar -xz --strip-components=1 -C "$LATEST_DIR" || return 1
 }
-do_whatsnew_board() {
+do_whatsnew_board() {   # reads only two small text files (VERSION and CHANGELOG.md); nothing is downloaded or saved
     print_header "What is new (read-only, changes nothing)"
-    local old new w; old="$(cat "$REPO_DIR/VERSION" 2>/dev/null)"
-    fetch_latest || die_with_fix "could not get the newest version." "check the internet connection."
-    w="$LATEST_DIR"; new="$(cat "$w/VERSION" 2>/dev/null)"
-    echo "  Installed: ${old:-unknown}    Newest: ${new:-unknown}"
+    local old new base="https://raw.githubusercontent.com/ducati1198/wm-ultra-rpi/main" log
+    old="$(cat "$REPO_DIR/VERSION" 2>/dev/null)"
+    if [ "$TESTING" = 1 ]; then new="$(cat "${WM_TEST_UPDATE_DIR:-/nonexistent}/VERSION" 2>/dev/null)"; log="$(cat "${WM_TEST_UPDATE_DIR:-/nonexistent}/CHANGELOG.md" 2>/dev/null)"
+    else new="$(curl -fsSL -m 20 "$base/VERSION" 2>/dev/null | head -1)"; log="$(curl -fsSL -m 20 "$base/CHANGELOG.md" 2>/dev/null)"; fi
+    [ -n "$new" ] || die_with_fix "could not read the newest version from GitHub." "check the internet connection."
+    echo "  Installed: ${old:-unknown}    Newest: $new"
     if [ "$new" = "$old" ]; then print_success "You have the latest version."; return 0; fi
     echo "  Changes since $old:"
-    awk -v cur="$old" '/^## /{ if ($2==cur) exit; n++ } n>0 && NF' "$w/CHANGELOG.md" 2>/dev/null | sed 's/^/    /' | cut -c1-170 | head -40
+    echo "$log" | awk -v cur="$old" '/^## /{ if ($2==cur) exit; n++ } n>0 && NF' | sed 's/^/    /' | cut -c1-170 | head -40
     echo "  To update: menu > Update > Update now (or: bash scripts/screen_board.sh --update)"
 }
 refresh_installer_folder() {   # the folder this script runs from must be the new version too, or the menu keeps showing the old one
