@@ -202,6 +202,7 @@ check "uninstall everything: wrong word changes nothing" "M 'nope\n' $UA --remov
 mkdir -p "$UA/crowsnest-env" "$UA/wm-stage"; echo x > "$UA/octoapp-installer.log"
 check "uninstall everything: shows what will be removed before asking, and removes nothing on a wrong word" "M 'nope\n' $UA --remove all | grep -q 'This is what will be removed' && M 'nope\n' $UA --remove all | grep -q -- '- fluidd'"
 OUT="$(M 'REMOVE\n' $UA --remove all)"
+check "uninstall everything: shows a progress bar that ends at 100 percent" "echo \"$OUT\" | grep -q 'Removing .* (step 1 of ' && echo \"$OUT\" | grep -q '100%  Done'"
 check "uninstall everything: lists what is still on the Pi and how to remove it" "echo \"$OUT\" | grep -q 'Still on this Pi' && echo \"$OUT\" | grep -q 'wm-stage' && echo \"$OUT\" | grep -q 'printer_data'"
 check "uninstall everything: removes the crowsnest environment too" "[ ! -e $UA/crowsnest-env ]"
 check "uninstall everything: removes programs, keeps printer data and backups" "echo \"$OUT\" | grep -q 'programs were removed' && [ ! -e $UA/klipper ] && [ ! -e $UA/moonraker ] && [ ! -e $UA/fluidd ] && [ ! -e $UA/crowsnest ] && [ -d $UA/printer_data/config ] && [ -d $UA/wm-rpi-backup ]"
@@ -209,6 +210,7 @@ EX="$T/ex"; mkun "$EX"; M '' "$EX" --backup >/dev/null; echo x > "$EX/wm-support
 check "erase: lists everything, says nothing is kept but the installer folder, and no backup is made" "M 'nope\n' $EX --remove erase | grep -q 'ERASE EVERYTHING' && M 'nope\n' $EX --remove erase | grep -q 'NO backup is made' && M 'nope\n' $EX --remove erase | grep -q 'Kept: the installer folder'"
 check "erase: a wrong word changes nothing" "M 'nope\n' $EX --remove erase | grep -q 'Nothing changed' && [ -d $EX/klipper ] && [ -d $EX/printer_data ]"
 OUT="$(M 'ERASE\n' $EX --remove erase)"
+check "erase: shows a progress bar that ends at 100 percent" "echo \"$OUT\" | grep -q 'Removing .* (step 1 of ' && echo \"$OUT\" | grep -q '100%  Done'"
 check "erase: removes programs, printer data, TM_T1, backups, bundles, the old-board copy and the records" "echo \"$OUT\" | grep -q 'Everything was erased' && for d in klipper moonraker fluidd crowsnest printer_data TM_T1 wm-backups wm-stage wm-rpi-backup wm-support-1.tgz; do [ ! -e $EX/\$d ] || { echo left \$d; exit 1; }; done"
 check "erase: switches NetworkManager back (it was switched by the installer)" "grep -q 'systemctl enable dhcpcd' $EX/.sudo.log"
 check "erase: keeps the installer folder" "[ -f $ROOT/installer.sh ]"
@@ -811,5 +813,7 @@ RB="$T/rbq"; mkdir -p "$RB"
 check "board install asks before rebooting; yes reboots" "WM_ASSUME_YES=1 WM_TEST_SERVICES='makerbase-client klipper' WM_HOME=$RB WM_INSTALLER_TEST=1 bash $SB --pi 192.0.2.10 </dev/null 2>&1 | grep -q 'Reboot the board now' || grep -q 'systemctl reboot' $RB/.sudo.log"
 check "board install: the reboot is in the log when the answer is the default (yes)" "grep -q 'systemctl reboot' $RB/.sudo.log"
 check "board install: --no-reboot asks nothing and does not reboot" "! WM_ASSUME_YES=1 WM_TEST_SERVICES='makerbase-client klipper' WM_HOME=$T/rbq2 WM_INSTALLER_TEST=1 bash $SB --pi 192.0.2.10 --no-reboot </dev/null 2>&1 | grep -q 'Reboot the board now'"
+
+check "board factory restore shows its bar from step 1 of 3 to 100 percent" "O=\$(WM_ASSUME_YES=1 WM_TEST_SERVICES='makerbase-client klipper' WM_HOME=$T/fr WM_INSTALLER_TEST=1 bash $SB --pi 192.0.2.10 --no-reboot 2>&1 </dev/null >/dev/null; WM_ASSUME_YES=1 WM_TEST_SERVICES='makerbase-client klipper' WM_HOME=$T/fr WM_INSTALLER_TEST=1 bash $SB --factory-restore --no-reboot 2>&1 </dev/null); echo \"\$O\" | grep -q 'Factory restore step 1 of 3' && echo \"\$O\" | grep -q 'Factory restore step 2 of 3' && echo \"\$O\" | grep -q '100%  Factory restore finished'"
 
 echo; echo "passed: $PASS  failed: $FAIL"; [ "$FAIL" = 0 ]

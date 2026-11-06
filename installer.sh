@@ -700,7 +700,9 @@ run_official_uninstall() {   # name dir command... : the add-on's OWN uninstalle
     if [ "$TESTING" = 1 ]; then echo "[test] official uninstall $name: $*" >> "$HOME_DIR/.sudo.log"; return 0; fi
     [ -d "$dir" ] || return 1
     print_info "Running $name's own uninstaller ($*) ..."
-    if ( cd "$dir" && "$@" ); then return 0; fi
+    heartbeat_start "$name's own uninstaller"
+    if ( cd "$dir" && "$@" ); then heartbeat_stop; return 0; fi
+    heartbeat_stop
     print_warning "$name's own uninstaller did not finish cleanly; the installer finishes the removal itself below."; return 1
 }
 official_with_answers() {   # command... : at a terminal the maker's uninstaller asks you its own questions; otherwise it is answered with yes
@@ -2021,12 +2023,17 @@ PY
             echo "  Your printer data (~/printer_data), your backups and the installer files are NOT touched; remove them separately."
             read -r -p "  Type REMOVE (capital letters) to confirm, anything else cancels: " word || word=""
             [ "$word" = REMOVE ] || { echo "Nothing changed."; return 0; }
-            for c in screen webcam timelapse shell-command shaketune spoolman obico octoapp octoeverywhere fluidd moonraker klipper; do
-                [ "$(addon_status "$c")" = "not installed" ] && continue
+            local todo=() ti=0; for c in screen webcam timelapse shell-command shaketune spoolman obico octoapp octoeverywhere fluidd moonraker klipper; do
+                [ "$(addon_status "$c")" = "not installed" ] || todo+=("$c"); done
+            local tn=$(( ${#todo[@]} + 1 ))
+            for c in "${todo[@]}"; do
+                progress_bar "$ti" "$tn" "Removing $c (step $((ti+1)) of $tn)"; ti=$((ti+1))
                 ( ARG1="$c"; REMOVE_CONFIRMED=1; FORCE=1; do_remove_addon )
             done
+            progress_bar "$ti" "$tn" "Removing the system files and leftovers (step $tn of $tn)"
             remove_python39
             [ -f "$STATE" ] && uninstall_system_files
+            progress_bar "$tn" "$tn" "Done"
             print_success "The programs were removed."
             leftover_report ;;
         erase)
@@ -2048,10 +2055,14 @@ PY
             echo "  Each add-on's own uninstaller runs and may ask its own questions."
             read -r -p "  Type ERASE (capital letters) to confirm, anything else cancels: " word || word=""
             [ "$word" = ERASE ] || { echo "Nothing changed."; return 0; }
-            for c in screen webcam timelapse shell-command shaketune spoolman obico octoapp octoeverywhere fluidd moonraker klipper; do
-                [ "$(addon_status "$c")" = "not installed" ] && continue
+            local todo=() ti=0; for c in screen webcam timelapse shell-command shaketune spoolman obico octoapp octoeverywhere fluidd moonraker klipper; do
+                [ "$(addon_status "$c")" = "not installed" ] || todo+=("$c"); done
+            local tn=$(( ${#todo[@]} + 1 ))
+            for c in "${todo[@]}"; do
+                progress_bar "$ti" "$tn" "Removing $c (step $((ti+1)) of $tn)"; ti=$((ti+1))
                 ( ARG1="$c"; REMOVE_CONFIRMED=1; REMOVE_DATA=1; FORCE=1; do_remove_addon )
             done
+            progress_bar "$ti" "$tn" "Removing the system files and leftovers (step $tn of $tn)"
             remove_python39
             [ -f "$STATE" ] && uninstall_system_files
             [ -f "$NETMGR_STATE" ] && ( ARG1=network-manager; REMOVE_CONFIRMED=1; FORCE=1; do_remove_addon )
@@ -2065,6 +2076,7 @@ PY
                     else rm_path "$f"; fi
                 done
             done
+            progress_bar "$tn" "$tn" "Done"
             print_success "Everything was erased. Kept: the installer folder ($REPO_DIR). Install again with: cd $REPO_DIR && ./installer.sh" ;;
         *) die_with_fix "unknown name '${name}'." "use one of: screen, network-manager, webcam, timelapse, shell-command, shaketune, obico, octoapp, octoeverywhere, fluidd, moonraker, klipper, data, system, cleanup, all, erase." ;;
     esac

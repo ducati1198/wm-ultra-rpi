@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.20.2
+
+- **Progress bars in the uninstall sections.** Pi: "Remove all programs" and "Erase everything" show "Removing <name> (step N of M)" with a percent bar and end at 100%. Screen board: "Back to factory mode" shows "Factory restore step N of 3". The add-ons' own uninstallers print a "still working" line every 30 seconds when they are slow.
+
 ## 1.20.1
 
 - **Screen board: Update page** now has **See what is new** (`--check-updates`: installed and newest version and the changes in between, read-only) and **Update now**.

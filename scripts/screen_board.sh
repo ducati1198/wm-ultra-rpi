@@ -51,6 +51,10 @@ declare -a WARNINGS=()
 
 print_header()  {
     echo -e "\n${BLUE}── $1 ──────────────────────────────────────────${NC}"
+    if [ "${SB_PROG:-0}" = 2 ]; then   # back to factory mode
+        local r=""; case "$1" in "Removing KlipperScreen") r=1 ;; "Turning the factory services back on") r=2 ;; esac
+        [ -n "$r" ] && progress_bar $((r-1)) 3 "Factory restore step $r of 3"; return 0
+    fi
     [ "${SB_PROG:-0}" = 1 ] || return 0
     local k=""; case "$1" in "Checking this board") k=1 ;; "Installing packages"*) k=2 ;; "Installing KlipperScreen"*) k=3 ;; "Stopping the factory services"*) k=4 ;; "Factory mode button") k=5 ;; "Rescue tool"*) k=6 ;; "Starting KlipperScreen") k=7 ;; esac
     [ -n "$k" ] && progress_bar $((k-1)) 7 "Install step $k of 7"
@@ -559,6 +563,7 @@ do_restore() {
         local args="--factory-restore --yes"; [ "$REBOOT" = 0 ] && args="$args --no-reboot"
         exec systemd-run --no-block --unit=wm-factory-restore-run "$(readlink -f "$0")" $args
     fi
+    SB_PROG=2
     print_header "Back to the WonderMaker factory software"
     if [ ! -s "$BK/disabled.list" ]; then
         print_warning "No saved service list ($BK/disabled.list): using the built-in list of the factory services."
@@ -577,6 +582,7 @@ do_restore() {
         echo "  restored: $u ($e, $a)"
     done
     [ "$DRY" = 1 ] || mv "$BK/disabled.list" "$BK/disabled.list.restored-$STAMP"
+    progress_bar 3 3 "Factory restore finished"
     print_success "Factory mode restored."
     if [ "$REBOOT" = 1 ]; then print_info "Rebooting..."; SUDO systemctl reboot; fi
 }
