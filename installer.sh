@@ -25,6 +25,7 @@
 # ./installer.sh --enable-klipper      same as --first-start
 # ./installer.sh --disable-klipper     stop Klipper and stop it from starting at boot
 # ./installer.sh --uninstall           remove what the installer added to the system (your files in ~ stay)
+# ./installer.sh --shell-command on|off   optional Klipper "gcode shell command" extension: RUN_SHELL_COMMAND CMD=name runs a Linux command from G-code (asked if not given; default no)
 # ./installer.sh --screen on|off|macros   KlipperScreen on the Pi (on), nothing (off), or only the ZR Tools macros (macros: for the WonderMaker screen board). Asked if not given; default on
 # ./installer.sh --screen-layout tabs|grid   touch layout: tabs = big buttons + bottom tabs (default), grid = card grid
 # ./installer.sh --screen-backend x11|weston|cage   graphics stack for KlipperScreen (default x11)
@@ -57,7 +58,7 @@ TESTING="${WM_INSTALLER_TEST:-0}"        # 1 = no sudo, no apt, no systemctl, no
 MODE="install"
 DRY=0
 SRC_KIND=""; SRC_ARG=""; MODEL="ultra-s"; MODULES_DIR=""; FROM_FACTORY=0
-WANT_PANEL=1; WANT_SCREEN=ask; WANT_TIMELAPSE=1; WANT_CROWSNEST=1
+WANT_PANEL=1; WANT_SCREEN=ask; WANT_TIMELAPSE=1; WANT_CROWSNEST=1; WANT_SHELLCMD=ask
 SCREEN_LAYOUT=""; SCREEN_BACKEND="x11"; REPO_DIR="$SCRIPT_DIR"
 STAMP="$(date +%Y%m%d-%H%M%S)"
 BACKUP_ROOT="$HOME_DIR/wm-rpi-backup"
@@ -120,6 +121,7 @@ while [ $# -gt 0 ]; do
         --backup)       MODE=backup; case "${2:-}" in ""|--*) ;; *) ARG1="$2"; shift ;; esac ;;
         --restore)      MODE=restore; ARG1="${2:-}"; shift ;;
         --support-bundle) MODE=bundle ;;
+        --shell-command) case "${2:-}" in on|yes|1) WANT_SHELLCMD=1 ;; off|no|0) WANT_SHELLCMD=0 ;; *) print_error "--shell-command needs on or off"; exit 1 ;; esac; CLI_SHELLCMD="$WANT_SHELLCMD"; shift ;;
         --screen)       case "${2:-}" in on|yes|1) WANT_SCREEN=1 ;; off|no|0) WANT_SCREEN=0 ;; macros) WANT_SCREEN=macros ;; *) print_error "--screen needs on, off or macros"; exit 1 ;; esac; shift ;;
         --screen-layout) case "${2:-}" in tabs|grid) SCREEN_LAYOUT="$2" ;; *) print_error "--screen-layout needs tabs or grid"; exit 1 ;; esac; shift ;;
         --screen-backend) case "${2:-}" in x11|weston|cage) SCREEN_BACKEND="$2" ;; *) print_error "--screen-backend needs x11, weston or cage"; exit 1 ;; esac; shift ;;
@@ -575,6 +577,24 @@ step_timelapse() {
     print_success "Timelapse ready"
 }
 
+step_shellcmd() {   # Arksine's gcode_shell_command module (GPLv3), copied from config/. It does nothing until printer.cfg has a [gcode_shell_command name] section.
+    [ "$WANT_SHELLCMD" = 1 ] || return 0
+    print_header "Step 12b: Klipper gcode shell command"
+    why "Adds RUN_SHELL_COMMAND CMD=name. Each command is defined by you in printer.cfg as [gcode_shell_command name] with a command: line. Klipper loads it only after you restart Klipper."
+    local src="$SCRIPT_DIR/config/gcode_shell_command.py" dst="$HOME_DIR/klipper/klippy/extras/gcode_shell_command.py"
+    [ -f "$src" ] || { warn_later "gcode_shell_command.py is missing from this repository ($src)."; return 0; }
+    [ "$DRY" = 1 ] || [ -d "$HOME_DIR/klipper/klippy/extras" ] || { warn_later "~/klipper/klippy/extras not found: the shell command extension was not installed. Run ./installer.sh --update."; return 0; }
+    if [ "$DRY" != 1 ] && cmp -s "$src" "$dst" 2>/dev/null; then print_success "gcode_shell_command is already up to date"; return 0; fi
+    run cp "$src" "$dst"
+    record "FILE $dst"
+    print_success "gcode_shell_command installed. Add a section like this to printer.cfg, then restart Klipper:"
+    echo "      [gcode_shell_command hello]"
+    echo "      command: echo hello"
+    echo "      timeout: 2.0"
+    echo "      verbose: True"
+    echo "    and run it with:  RUN_SHELL_COMMAND CMD=hello   (extra words: PARAMS=\"a b\")"
+}
+
 step_crowsnest() {
     [ "$WANT_CROWSNEST" = 1 ] || return 0
     print_header "Step 13: webcam service (crowsnest)"
@@ -607,6 +627,10 @@ questions() {
     ask_yn "Install the Fluidd with the WonderMaker Toolheads panel (recommended)?" y || WANT_PANEL=0
     ask_yn "Install webcam support (crowsnest, as WonderMaker uses)?" y || WANT_CROWSNEST=0
     ask_yn "Install timelapse support (Moonraker timelapse + ffmpeg)?" y || WANT_TIMELAPSE=0
+    if [ "$WANT_SHELLCMD" = ask ]; then
+        echo "  Klipper gcode shell command: lets G-code macros run a Linux command or script (RUN_SHELL_COMMAND). Nothing runs until you add a [gcode_shell_command ...] section to printer.cfg."
+        if ask_yn "Install the Klipper gcode shell command extension?" n; then WANT_SHELLCMD=1; else WANT_SHELLCMD=0; fi
+    fi
     if [ "$WANT_SCREEN" = ask ]; then
         local r t; read -r r t < <(detect_screen)
         [ -n "$r" ] && print_info "A screen is connected: $r"
@@ -734,6 +758,7 @@ REPO_DIR=$REPO_DIR
 KS_PIN=$(addon_pin klipperscreen | cut -d'|' -f2)
 WANT_TIMELAPSE=$WANT_TIMELAPSE
 WANT_CROWSNEST=$WANT_CROWSNEST
+WANT_SHELLCMD=$WANT_SHELLCMD
 CROWSNEST_PIN=$(addon_pin crowsnest | cut -d'|' -f2)
 TIMELAPSE_PIN=$(addon_pin moonraker-timelapse | cut -d'|' -f2)
 PANEL_SHA=$([ -n "$PANEL_ZIP" ] && sha256sum "$PANEL_ZIP" 2>/dev/null | cut -d' ' -f1)
@@ -746,10 +771,12 @@ load_answers() {
         case "$k" in
             VERSION) OLD_VERSION="$v" ;; CROWSNEST_PIN) OLD_CN_PIN="$v" ;; TIMELAPSE_PIN) OLD_TL_PIN="$v" ;; PANEL_SHA) OLD_PANEL_SHA="$v" ;;
             MODEL) [ -n "${MODEL_SET:-}" ] || MODEL="$v" ;; SRC_KIND) : ;;
-            WANT_PANEL|WANT_SCREEN|WANT_TIMELAPSE|WANT_CROWSNEST) printf -v "$k" '%s' "$v" ;;
+            WANT_PANEL|WANT_SCREEN|WANT_TIMELAPSE|WANT_CROWSNEST|WANT_SHELLCMD) printf -v "$k" '%s' "$v" ;;
             SCREEN_BACKEND) printf -v "$k" '%s' "$v" ;; KS_PIN) OLD_KS_PIN="$v" ;;
         esac
     done < "$CONF"
+    [ -n "${CLI_SHELLCMD:-}" ] && WANT_SHELLCMD="$CLI_SHELLCMD"    # --shell-command on|off given now wins over the saved answer
+    return 0
 }
 show_plan() {
     print_header "Plan (nothing has been changed yet)"
@@ -758,7 +785,7 @@ show_plan() {
     local d moved=""; for d in klipper moonraker printer_data fluidd TM_T1; do [ -e "$HOME_DIR/$d" ] && moved="$moved ~/$d"; done
     [ -n "$moved" ] && echo "  Moved to backup (~/wm-rpi-backup/old-*):$moved"
     echo "  Installs:        system packages, Python 3.9, Klipper/Moonraker environments, Moonraker + nginx services, can0 rule"
-    echo "  Optional:        panel=$([ "$WANT_PANEL" = 1 ] && echo yes || echo no)  webcam=$([ "$WANT_CROWSNEST" = 1 ] && echo yes || echo no)  timelapse=$([ "$WANT_TIMELAPSE" = 1 ] && echo yes || echo no)  touchscreen=$([ "$WANT_SCREEN" = 1 ] && echo yes || { [ "$WANT_SCREEN" = macros ] && echo "macros only" || echo no; })"
+    echo "  Optional:        panel=$([ "$WANT_PANEL" = 1 ] && echo yes || echo no)  webcam=$([ "$WANT_CROWSNEST" = 1 ] && echo yes || echo no)  timelapse=$([ "$WANT_TIMELAPSE" = 1 ] && echo yes || echo no)  shell-command=$([ "$WANT_SHELLCMD" = 1 ] && echo yes || echo no)  touchscreen=$([ "$WANT_SCREEN" = 1 ] && echo yes || { [ "$WANT_SCREEN" = macros ] && echo "macros only" || echo no; })"
     [ "$AUTOSTART" = 1 ] && echo "  At the end:      Klipper, Moonraker, nginx and crowsnest are enabled and started (checks are shown; failures are reported)" \
                          || echo "  At the end:      Klipper stays off (--no-start)"
 }
@@ -945,6 +972,7 @@ do_update() {
     fi
     if [ "$WANT_SCREEN" = macros ]; then step_macros; fi
     if [ "$WANT_TIMELAPSE" = 1 ]; then step_timelapse; fi
+    if [ "$WANT_SHELLCMD" = 1 ]; then step_shellcmd; fi
     if [ "$WANT_CROWSNEST" = 1 ] && [ "$(addon_pin crowsnest | cut -d'|' -f2)" != "${OLD_CN_PIN:-}" ]; then step_crowsnest; fi
     save_answers
     SUDO systemctl restart moonraker; SUDO systemctl restart nginx
@@ -1044,6 +1072,10 @@ do_doctor() {
     if [ "$TESTING" != 1 ] && [ -x "$HOME_DIR/klippy-env/bin/python" ]; then
         "$HOME_DIR/klippy-env/bin/python" -c 'import can,serial,cffi,greenlet,jinja2,numpy' 2>/dev/null && doc_ok "Klipper's Python packages import" \
             || { doc_bad "Klipper's Python packages do not import" "The environment is damaged or incomplete."; offer_fix "rebuild ~/klippy-env" bash -c "rm -rf '$HOME_DIR/klippy-env'; true"; step_python; step_venvs; }
+    fi
+    if [ "$WANT_SHELLCMD" = 1 ]; then
+        cmp -s "$SCRIPT_DIR/config/gcode_shell_command.py" "$HOME_DIR/klipper/klippy/extras/gcode_shell_command.py" 2>/dev/null && doc_ok "gcode_shell_command extension is installed" \
+            || { doc_bad "gcode_shell_command extension is missing or different" "RUN_SHELL_COMMAND will not work (Klipper stops at start if printer.cfg has a [gcode_shell_command] section)."; offer_fix "copy it again" step_shellcmd; }
     fi
     local miss; miss="$(modules_present | tr '\n' ' ')"
     if [ -z "$miss" ]; then doc_ok "WonderMaker's compiled modules are present"
@@ -1198,7 +1230,7 @@ show_plan
 guard_not_printing
 save_answers
 step_packages; step_groups; step_python; step_unpack; step_model; step_venvs; step_modules
-step_services; step_nginx; step_can; step_panel; step_screen; step_timelapse; step_crowsnest; step_start
+step_services; step_nginx; step_can; step_panel; step_screen; step_timelapse; step_shellcmd; step_crowsnest; step_start
 save_answers
 self_test
 if [ "$AUTOSTART" = 1 ] && [ "$DRY" != 1 ]; then do_first_start auto || true; fi

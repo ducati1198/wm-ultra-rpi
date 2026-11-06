@@ -198,6 +198,7 @@ The installer first asks **which printer you have** (ZR Ultra or ZR Ultra-S; or 
 | CAN rule | brings `can0` up at 1 Mbit when the main board appears |
 | Fluidd panel | optional, see 5. The panel is **downloaded from [wm-ultra-fluidd-acepro-panel](https://github.com/ducati1198/wm-ultra-fluidd-acepro-panel) every time** (so you always get its latest), checked against the checksum published next to it. It needs internet (no copy is kept in this repo); if the download fails the web page is skipped with a warning and `--update` retries. `--update` installs a newer panel when there is one |
 | Timelapse | `ffmpeg` and `moonraker-timelapse` at a pinned commit (see `config/pins/addons.txt`), downloaded from mainsail-crew on GitHub and checked |
+| Klipper gcode shell command (optional, asked, default no) | `config/gcode_shell_command.py`, copied into `~/klipper/klippy/extras/`. It is the module by Arksine (GPLv3, the same one KIAUH installs) and is kept in this repository, so no download is needed |
 | Webcams | `crowsnest` at a pinned commit (see `config/pins/addons.txt`), installed unattended (builds `ustreamer`); your camera goes in `~/printer_data/config/crowsnest.conf` |
 
 ### 3.3 Safety checks
@@ -218,6 +219,7 @@ The installer first asks **which printer you have** (ZR Ultra or ZR Ultra-S; or 
 | `./installer.sh --from-github --model ultra --modules DIR` | use the factory files in this repo; modules from your printer |
 | `./installer.sh --check` | report problems, change nothing |
 | `./installer.sh --dry-run` | show the plan and what would change |
+| `./installer.sh --shell-command on` | with `--update` or a first install: adds the Klipper gcode shell command extension (`off` stops updating it; the file stays) |
 | `./installer.sh --screen-remove` | removes KlipperScreen from the Pi (Klipper, Moonraker, Fluidd stay) |
 | `./installer.sh --first-start` | checks with the main board connected, fixes `canbus_uuid` (asks, keeps a copy), then enables and starts Klipper and the other services |
 | `./installer.sh --hw-test` | read-only live test: USB bridge, can0, CAN devices, camera picture, services |
@@ -526,3 +528,16 @@ tests/                  run_tests.sh (installer, fake home) and test_screen.py (
 ## 11. Credits and license
 
 Klipper, Moonraker and Fluidd are their own projects and licenses. The Anycubic ACE Pro and WonderMaker are trademarks of their owners; this project is unaffiliated. Layout inspired by [acepro-any-klipper](https://github.com/ducati1198/acepro-any-klipper). The Fluidd Toolheads card, the ACE Pro driver config and the OrcaSlicer plugin live in [wm-ultra-fluidd-acepro-panel](https://github.com/ducati1198/wm-ultra-fluidd-acepro-panel) ([plugin](https://github.com/ducati1198/wm-ultra-fluidd-acepro-panel/tree/main/orca_plugin)). This repository is under the GPL v3, see [LICENSE](LICENSE).
+
+## Klipper gcode shell command (optional)
+
+`./installer.sh --shell-command on` (or answer yes when the installer asks; the default is no) copies Arksine's `gcode_shell_command` module into Klipper. It adds one command, `RUN_SHELL_COMMAND CMD=name`, which runs a Linux command or script from a G-code macro. It does nothing until you define a command in `printer.cfg` and restart Klipper:
+
+```
+[gcode_shell_command hello]
+command: echo hello
+timeout: 2.0
+verbose: True
+```
+
+Run it with `RUN_SHELL_COMMAND CMD=hello`; extra words go in `PARAMS="a b"`. Commands run as the Pi user `t13dp` and are stopped after `timeout` seconds. Only add commands you trust, since anything that can send G-code to the printer (Fluidd console, a sliced file) can start them. If you remove the extension while `printer.cfg` still has a `[gcode_shell_command ...]` section, Klipper will not start. `--doctor` checks that the file is in place, and `--uninstall` removes it.

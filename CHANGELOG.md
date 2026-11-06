@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.4.0
+
+- New optional add-on: the Klipper gcode shell command extension (`RUN_SHELL_COMMAND CMD=name`, module by Arksine, GPLv3, bundled as `config/gcode_shell_command.py`). Asked during install (default no), or `./installer.sh --shell-command on|off`. It is copied into `~/klipper/klippy/extras/`, put back by `--update`, checked by `--doctor` and removed by `--uninstall`. It does nothing until you add a `[gcode_shell_command ...]` section to `printer.cfg`.
+
 ## 1.3.0
 
 - New `./installer.sh --check-updates`: read-only, lists the changes on GitHub that your copy does not have yet and the new version number, then says how to update.
