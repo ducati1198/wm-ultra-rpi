@@ -801,6 +801,15 @@ do_update_board() {
     [ -n "$new" ] || die_with_fix "the download has no VERSION file." "try again later."
     echo "  Installed: ${old:-unknown}    Newest: $new"
     if [ "$new" = "$old" ]; then print_success "Already up to date."; return 0; fi
+    if { [ "$TESTING" != 1 ] && [ ! -d "$KS_DIR" ]; } || [ "${WM_TEST_NO_KS:-0}" = 1 ]; then   # nothing to update on the screen yet: only the installer folder is made current
+        print_info "KlipperScreen is not installed on this board yet, so there are no screen files to update."
+        if [ "$DRY" != 1 ] && ask_yn "Update the installer files in $REPO_DIR to $new?" y; then
+            if [ "$TESTING" = 1 ] && [ "${WM_TEST_REFRESH_REPO:-0}" = 1 ]; then cp -a "$w"/. "$REPO_DIR"/ 2>/dev/null
+            else refresh_installer_folder "$w"; fi
+            print_success "The installer files are now version $new. Choose 1 (Install) from the menu to set up KlipperScreen."
+        fi
+        return 0
+    fi
     need_ks; guard_printing
     echo "  This copies the new ZR Tools panels and this script's copies. KlipperScreen itself, your settings and the factory services are not touched."
     ask_yn "Update now?" y || { echo "Nothing changed."; return 0; }

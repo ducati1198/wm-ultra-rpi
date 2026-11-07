@@ -559,6 +559,7 @@ check "Pi menu: Update now with nothing installed still reopens on the new versi
 cp -a "$UN/new" "$UN/oldb"; echo "$(cat $ROOT/VERSION)" > "$UN/oldb/VERSION"
 check "board menu: Update now reopens on the new version even when there is nothing to back up" "printf '2\n2\ny\n0\n0\n' | WM_TEST_REFRESH_REPO=1 WM_HOME=$UN/bh WM_INSTALLER_TEST=1 WM_TEST_UPDATE_DIR=$UN/new bash $UN/oldb/scripts/screen_board.sh --menu 2>&1 | grep -q 'installer 9.9.9'"
 
+check "board menu: Update now with no KlipperScreen updates the installer files and reopens on the new version" "rm -rf $UN/oldb2; cp -a $UN/new $UN/oldb2; echo 1.0.0 > $UN/oldb2/VERSION; printf '2\n2\ny\n0\n0\n' | WM_TEST_NO_KS=1 WM_TEST_REFRESH_REPO=1 WM_HOME=$UN/bh WM_INSTALLER_TEST=1 WM_TEST_UPDATE_DIR=$UN/new bash $UN/oldb2/scripts/screen_board.sh --menu 2>&1 | tee $UN/nok.out | grep -q 'installer 9.9.9' && grep -q 'not installed on this board yet' $UN/nok.out && ! grep -q \"Can't continue\" $UN/nok.out"
 echo "== ZR Tools on the Pi, and the clock fix"
 mkpi() { local h="$1"; mkdir -p "$h/printer_data/config"; printf '[include mainsail.cfg]\n\n[save_variables]\nfilename: /tmp/v.cfg\n\n#*# <---- SAVE_CONFIG ---->\n' > "$h/printer_data/config/printer.cfg"; }
 PZ="$T/pz"; mkpi "$PZ"

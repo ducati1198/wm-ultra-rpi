@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.21.2
+
+- Screen board menu: Update now on a board where KlipperScreen is not installed yet (factory mode) no longer stops with "KlipperScreen is not installed here". It updates the installer files, says so, and reopens the menu on the new version; choose 1 (Install) next.
+
 ## 1.21.1
 
 - Pi installer menu: Update, Update now on a Pi with nothing installed yet updated the installer files but left the old menu open. It now reopens the menu on the new version, like the other cases.
