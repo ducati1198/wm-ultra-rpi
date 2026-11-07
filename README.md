@@ -177,6 +177,32 @@ chmod +x installer.sh
 > ./installer.sh
 > ```
 
+### The installer menu
+
+`./installer.sh` opens this menu (also on an empty Pi). Nothing changes until you pick an entry and confirm. To skip the menu, run `./installer.sh --install`.
+
+![Installer menu](docs/img/menu-pi-main.png)
+
+**2 Update** has two entries: *See what is new* (reads GitHub, changes nothing) and *Update now* (works without git).
+
+![Update page](docs/img/menu-pi-update.png)
+
+**3 Add-ons**: touchscreen, webcam, timelapse, shell command, Shake&Tune, Spoolman, Obico, OctoApp, OctoEverywhere. Each shows whether it is installed.
+
+![Add-ons page](docs/img/menu-pi-addons.png)
+
+**4 Check and fix**: Doctor, Repair, Hardware test, Quick check, Status, Fix everything.
+
+![Check and fix page](docs/img/menu-pi-check.png)
+
+**5 Backup and restore**: back up your settings, restore one, or undo the last install.
+
+![Backup and restore page](docs/img/menu-pi-backup.png)
+
+**7 Advanced**: first start, start or stop Klipper, support bundle, last log, network and system.
+
+![Advanced page](docs/img/menu-pi-advanced.png)
+
 ![Installer steps](docs/img/install-flow.svg)
 
 ### 3.1 The questions
