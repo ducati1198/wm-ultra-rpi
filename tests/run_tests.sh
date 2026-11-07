@@ -551,6 +551,14 @@ check "board: printer is named WonderMaker and the size defaults to comfortable"
 check "board: ZR Tools files copied" "[ -f $B1/KlipperScreen/panels/zr_tools.py ] && [ -f $B1/KlipperScreen/panels/zr_logic.py ]"
 check "board: uses pinned KlipperScreen commit" "grep -q '34610ceae31e12a10cc980e20a1dec9976f97dd4' $B1/.sudo.log"
 
+echo "== menu: Update now reopens the menu on the new version"
+UN="$T/un"; mkdir -p "$UN/new" "$UN/home/printer_data/config" "$UN/bh/printer_data/config" "$UN/bh/KlipperScreen"
+cp -a "$ROOT/." "$UN/new/"; rm -rf "$UN/new/.git"; echo 9.9.9 > "$UN/new/VERSION"
+cp -a "$UN/new" "$UN/oldpi"; echo "$(cat $ROOT/VERSION)" > "$UN/oldpi/VERSION"
+check "Pi menu: Update now with nothing installed still reopens on the new version" "printf '2\n2\ny\n0\n0\n' | WM_TEST_NO_FETCH=1 WM_HOME=$UN/home WM_INSTALLER_TEST=1 WM_TEST_UPDATE_DIR=$UN/new bash $UN/oldpi/installer.sh --menu 2>&1 | grep -q 'installer 9.9.9'"
+cp -a "$UN/new" "$UN/oldb"; echo "$(cat $ROOT/VERSION)" > "$UN/oldb/VERSION"
+check "board menu: Update now reopens on the new version even when there is nothing to back up" "printf '2\n2\ny\n0\n0\n' | WM_TEST_REFRESH_REPO=1 WM_HOME=$UN/bh WM_INSTALLER_TEST=1 WM_TEST_UPDATE_DIR=$UN/new bash $UN/oldb/scripts/screen_board.sh --menu 2>&1 | grep -q 'installer 9.9.9'"
+
 echo "== ZR Tools on the Pi, and the clock fix"
 mkpi() { local h="$1"; mkdir -p "$h/printer_data/config"; printf '[include mainsail.cfg]\n\n[save_variables]\nfilename: /tmp/v.cfg\n\n#*# <---- SAVE_CONFIG ---->\n' > "$h/printer_data/config/printer.cfg"; }
 PZ="$T/pz"; mkpi "$PZ"

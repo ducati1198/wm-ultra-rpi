@@ -2215,7 +2215,7 @@ menu_updates() {
             2) bash "$SCRIPT_DIR/installer.sh" --get-latest || { menu_pause; continue; }
                if [ ! -f "$CONF" ]; then   # nothing to update yet: the installer folder is now current, so say so instead of failing
                    echo; print_info "Nothing is installed on this Pi yet, so there is nothing to update. The installer files above are the newest. Go back and choose 1 (Install)."
-                   menu_pause; continue
+                   menu_pause; exec bash "$SCRIPT_DIR/installer.sh" --menu
                fi
                bash "$SCRIPT_DIR/installer.sh" --update; echo; menu_pause
                exec bash "$SCRIPT_DIR/installer.sh" --menu ;;   # restart the menu so the new version is the one running

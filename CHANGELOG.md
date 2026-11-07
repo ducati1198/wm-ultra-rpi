@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.21.1
+
+- Pi installer menu: Update, Update now on a Pi with nothing installed yet updated the installer files but left the old menu open. It now reopens the menu on the new version, like the other cases.
+- Screen board menu: a backup that cannot be made (nothing to back up yet) no longer ends the update silently before the files are copied and the menu reopens.
+
 ## 1.21.0
 
 - Screen board installer: the install now starts with the clock. If the board's time is not synchronised it asks once and turns on automatic time sync (NTP); if no time server answers, it sets the clock once from GitHub's reply. apt's expired-date check is still switched off. Also available alone: `--fix-clock` and Settings > Fix the clock.
