@@ -736,6 +736,7 @@ mb() { local in="$1"; shift; printf "$in" | WM_TEST_SERVICES="makerbase-client k
 check "board menu: lists every entry and exits with 0" "mb '0\n' --menu | grep -q 'Install KlipperScreen' && mb '0\n' --menu | grep -q 'Backup and restore' && mb '0\n' --menu | grep -q 'Dry run'"
 check "board menu: settings page has the Pi address and network entries, and no screen driver entry" "mb '5\n0\n0\n' --menu | grep -q 'Change the Pi address' && mb '5\n0\n0\n' --menu | grep -q 'Network and system' && ! mb '5\n0\n0\n' --menu | grep -q 'Change the screen driver'"
 check "board menu: check and fix page" "mb '3\n0\n0\n' --menu | grep -q 'Fix everything' && mb '3\n0\n0\n' --menu | grep -q 'Restart the screen'"
+check "board menu: the header shows the installer version" "mb '0\n' --menu | grep -q \"installer $(tr -d '[:space:]' < $ROOT/VERSION)\""
 check "board menu: a wrong choice is explained" "mb 'x\n0\n' --menu | grep -q 'Choose a number'"
 check "board menu: status is read-only" "mb '3\n3\n0\n0\n' --menu | grep -q 'Screen board status' && [ ! -e $MB/.sudo.log ]"
 check "board menu: dry run changes nothing" "mb '7\n192.0.2.10\n\n0\n' --menu | grep -q 'DRY RUN' && [ ! -e $MB/wm-screen-backup/disabled.list ]"

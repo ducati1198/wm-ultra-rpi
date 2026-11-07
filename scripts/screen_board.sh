@@ -971,7 +971,7 @@ menu_system() {
 menu_main() {
     [ -t 0 ] || [ "$TESTING" = 1 ] || die_with_fix "the menu needs a terminal." "run it in an ssh session, or use the options (--help)."
     while true; do
-        echo; echo -e "${BLUE}KlipperScreen on the WonderMaker screen board${NC}"
+        echo; echo -e "${BLUE}KlipperScreen on the WonderMaker screen board${NC}   installer $(tr -d '[:space:]' < "$REPO_DIR/VERSION" 2>/dev/null || echo dev)"
         echo "  Mode: $([ -f "$BK/board_mode" ] && echo "KlipperScreen" || echo factory)"
         menu_item 1 "Install KlipperScreen + ZR Tools" "asks for the Pi address, shows the plan, then asks"
         menu_item 2 "Update" "see what is new, then update the ZR Tools screen files (backup first)"

@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.20.9
+
+- Screen board menu: the header now shows the installer version (like the Pi installer menu).
+
 ## 1.20.8
 
 - Screen board installer and README section 7: removed the "not tested on hardware" notes (script banner, menu title, rescue tool, USB flag, factory restore). No code changes.
