@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.21.0
+
+- Screen board installer: the install now starts with the clock. If the board's time is not synchronised it asks once and turns on automatic time sync (NTP); if no time server answers, it sets the clock once from GitHub's reply. apt's expired-date check is still switched off. Also available alone: `--fix-clock` and Settings > Fix the clock.
+- Screen board installer: new optional question in the install (default no): "Also check and set up the ZR Tools macros on the Pi?". It asks the Pi user name (default t13dp) and password once; the password is used for that run only and is never saved or put on a command line. It checks the Pi first and says "already installed" when nothing is missing, otherwise installs what is missing (`zr_tools.cfg`, the include line, `[save_variables]`) and restarts Klipper on the Pi (not during a print). Also available alone: `--zr-pi --pi HOST` and Settings > Set up ZR Tools on the Pi.
+- Pi installer: new Add-ons entry "ZR Tools macros (screen board)" and option `--zr-tools`: checks, then installs only what is missing, restarts Klipper after a change. Both installers use the same script, `zr_tools/ensure_zr_tools_pi.sh`.
+
 ## 1.20.9
 
 - Screen board menu: the header now shows the installer version (like the Pi installer menu).

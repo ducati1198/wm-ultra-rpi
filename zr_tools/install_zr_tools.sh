@@ -27,7 +27,9 @@ fi
 echo "2) change_macros.cfg: left untouched (pressure advance stays with the slicer)"
 
 echo "3) KlipperScreen panel"
-if [ -d "$KS/panels" ]; then
+if [ "${ZR_MACROS_ONLY:-0}" = 1 ]; then
+  echo "   skipped (macros only: the screen runs on another machine)"
+elif [ -d "$KS/panels" ]; then
   cp "$HERE/zr_tools.py" "$HERE/zr_views.py" "$HERE/zr_logic.py" "$KS/panels/"
   [ -d "$KS/.git" ] && { mkdir -p "$KS/.git/info"; grep -qs '^panels/zr_' "$KS/.git/info/exclude" || echo 'panels/zr_*.py' >> "$KS/.git/info/exclude"; }
   KSC="$CFG/KlipperScreen.conf"

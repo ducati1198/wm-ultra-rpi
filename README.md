@@ -187,7 +187,7 @@ chmod +x installer.sh
 
 ![Update page](docs/img/menu-pi-update.png)
 
-**3 Add-ons**: touchscreen, webcam, timelapse, shell command, Shake&Tune, Spoolman, Obico, OctoApp, OctoEverywhere. Each shows whether it is installed.
+**3 Add-ons**: touchscreen, webcam, timelapse, shell command, Shake&Tune, Spoolman, Obico, OctoApp, OctoEverywhere, and ZR Tools macros (for the screen board). Each shows whether it is installed.
 
 ![Add-ons page](docs/img/menu-pi-addons.png)
 
@@ -414,6 +414,16 @@ Run `bash scripts/screen_board.sh` on the board to get this menu:
 
 ![Screen board menu](docs/img/menu-board-main.png)
 ![Screen board update page](docs/img/menu-board-update.png)
+
+### Clock, and ZR Tools on the Pi
+
+- **Clock.** A wrong date makes HTTPS downloads and apt fail. The install starts by checking whether the board's clock is synchronised. If not, it asks once and turns on automatic time sync (NTP, `systemd-timesyncd`). If no time server answers (some networks block it), it sets the clock once from GitHub's reply. apt's expired-date check is switched off as before. Run it alone with `bash scripts/screen_board.sh --fix-clock` or Settings > Fix the clock.
+- **ZR Tools on the Pi.** The ZR Tools page on the board sends macros such as `ZR_LOAD` to Klipper on the Pi, so the Pi needs `zr_tools.cfg` too. During the install the board asks *Also check and set up the ZR Tools macros on the Pi now?* (default **no**). If you say yes it asks the Pi user name (default `t13dp`) and password. The password is used for this run only and is never saved. The board logs in over ssh (it installs `sshpass` for that), then:
+  1. checks `zr_tools.cfg`, the `[include zr_tools.cfg]` line in `printer.cfg` and `[save_variables]`;
+  2. if all three are fine it says **already installed** and changes nothing;
+  3. if something is missing it installs it (your old files are kept as `.zrbak_<date>`), then restarts Klipper on the Pi (never during a print).
+
+  Later, run it alone with `bash scripts/screen_board.sh --zr-pi --pi <Pi address>` or Settings > Set up ZR Tools on the Pi. On the Pi itself: `./installer.sh --zr-tools`, or menu 3 Add-ons > ZR Tools macros (screen board).
 
 > The board's kernel has no virtual console (`/dev/tty0`), so the installer runs X on its own seat (display, framebuffer and touch assigned to `seat1`) with a custom service.
 

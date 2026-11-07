@@ -187,6 +187,7 @@ while [ $# -gt 0 ]; do
         --first-start|--enable-klipper) MODE=firststart ;;
         --hw-test)      MODE=hwtest ;;
         --doctor)       MODE=doctor ;;
+        --zr-tools)     MODE=zrtools ;;   # check the ZR Tools macros (for the screen board), install them when missing
         --fix-all)      FIXALL=1 ;;
         --repair)       MODE=repair ;;
         --update)       MODE=update ;;
@@ -1574,6 +1575,21 @@ repair_factory_files() {   # a git clone whose factory/ files were deleted or ch
         git -C "$REPO_DIR" checkout -- factory && print_success "Factory files restored." || warn_later "Could not restore the factory files. Try: cd $REPO_DIR && git checkout -- factory"
     fi
 }
+do_zr_tools() {   # ZR Tools macros on this Pi (for the WonderMaker screen board): check first, install only when something is missing
+    print_header "ZR Tools macros (for the screen board)"
+    why "The ZR Tools page on the screen board sends commands such as ZR_SET_TOOL_INFO and ZR_LOAD to Klipper. They are macros in zr_tools.cfg, which printer.cfg must include, and they keep their data in [save_variables]."
+    [ -f "$HOME_DIR/printer_data/config/printer.cfg" ] || die_with_fix "there is no printer.cfg on this Pi yet." "install first (menu 1), then run this again."
+    if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would check zr_tools.cfg, the include line and [save_variables], and add what is missing${NC}"; return 0; fi
+    local out rc; out="$(HOME="$HOME_DIR" ZR_SRC="$REPO_DIR/zr_tools" ZR_NO_RESTART=1 ZR_PRINT_STATE="$( [ "$TESTING" = 1 ] && echo "${WM_TEST_PRINT_STATE:-standby}" )" bash "$REPO_DIR/zr_tools/ensure_zr_tools_pi.sh" 2>&1)"; rc=$?
+    echo "$out" | grep -v '^ZR_RESULT='
+    case "$out" in
+        *ZR_RESULT=already*) print_success "ZR Tools macros are already installed on this Pi." ;;
+        *ZR_RESULT=installed*) print_success "ZR Tools macros installed and configured."; restart_klipper_after ;;
+        *ZR_RESULT=printing*) print_warning "A print is running or paused. Try again when it is done."; return 1 ;;
+        *) print_error "The ZR Tools macros could not be installed (see above)."; return 1 ;;
+    esac
+}
+
 restart_klipper_after() {   # after an install or update: restart Klipper so it loads everything new, then wait for "ready"
     [ "$DRY" = 1 ] && return 0
     if [ "$(service_state klipper)" != active ]; then
@@ -2160,6 +2176,7 @@ addon_status() {   # name -> installed|running|not installed
         webcam)   [ -d "$HOME_DIR/crowsnest" ] && { [ "$(service_state crowsnest)" = active ] && echo running || { camera_present && echo installed || echo "waiting for a camera"; }; } || echo "not installed" ;;
         timelapse) [ -d "$HOME_DIR/moonraker-timelapse" ] && echo installed || echo "not installed" ;;
         shell-command) [ -f "$HOME_DIR/klipper/klippy/extras/gcode_shell_command.py" ] && echo installed || echo "not installed" ;;
+        zr-tools) [ -f "$HOME_DIR/printer_data/config/zr_tools.cfg" ] && grep -qE '^[[:space:]]*\[include[[:space:]]+zr_tools\.cfg\]' "$HOME_DIR/printer_data/config/printer.cfg" 2>/dev/null && echo installed || echo "not installed" ;;
         spoolman) [ -d "$HOME_DIR/Spoolman" ] && { [ "$(service_state Spoolman)" = active ] && echo running || echo installed; } || echo "not installed" ;;
         shaketune) [ -L "$HOME_DIR/klipper/klippy/extras/shaketune" ] && echo installed || { [ -d "$HOME_DIR/klippain_shaketune" ] && echo "downloaded, not linked" || echo "not installed"; } ;;
         fluidd)   [ -d "$HOME_DIR/fluidd" ] && echo installed || echo "not installed" ;;
@@ -2209,9 +2226,9 @@ menu_updates() {
 }
 
 menu_addons() {
-    local k items=(screen network-manager webcam timelapse shell-command shaketune spoolman obico octoapp octoeverywhere)
-    declare -A label=([screen]="Touchscreen (KlipperScreen)" [shaketune]="Klippain Shake&Tune" [spoolman]="Spoolman (filament spools)" [network-manager]="NetworkManager (Network panel)" [webcam]="Webcam (crowsnest)" [timelapse]="Timelapse" [shell-command]="Klipper gcode shell command" [obico]="Obico for Klipper" [octoapp]="OctoApp" [octoeverywhere]="OctoEverywhere")
-    declare -A help=([spoolman]="Filament spool tracking, shown in Fluidd (port 7912)" [shaketune]="Input shaper and vibration graphs (by Frix-x)" [network-manager]="Wi-Fi choice on the screen. Can drop the network until a reboot" [screen]="Screen plugged into the Pi, with the ZR Tools page" [webcam]="USB camera streams for Fluidd" [timelapse]="Moonraker timelapse + ffmpeg" [shell-command]="RUN_SHELL_COMMAND: run Linux commands from G-code" [obico]="Remote view and failure detection (obico.io account)" [octoapp]="Phone app notifications and control" [octoeverywhere]="Remote access, webcam and notifications (free account)")
+    local k items=(screen network-manager webcam timelapse shell-command shaketune spoolman obico octoapp octoeverywhere zr-tools)
+    declare -A label=([screen]="Touchscreen (KlipperScreen)" [shaketune]="Klippain Shake&Tune" [spoolman]="Spoolman (filament spools)" [network-manager]="NetworkManager (Network panel)" [webcam]="Webcam (crowsnest)" [timelapse]="Timelapse" [shell-command]="Klipper gcode shell command" [obico]="Obico for Klipper" [octoapp]="OctoApp" [octoeverywhere]="OctoEverywhere" [zr-tools]="ZR Tools macros (screen board)")
+    declare -A help=([spoolman]="Filament spool tracking, shown in Fluidd (port 7912)" [shaketune]="Input shaper and vibration graphs (by Frix-x)" [network-manager]="Wi-Fi choice on the screen. Can drop the network until a reboot" [screen]="Screen plugged into the Pi, with the ZR Tools page" [webcam]="USB camera streams for Fluidd" [timelapse]="Moonraker timelapse + ffmpeg" [shell-command]="RUN_SHELL_COMMAND: run Linux commands from G-code" [obico]="Remote view and failure detection (obico.io account)" [octoapp]="Phone app notifications and control" [octoeverywhere]="Remote access, webcam and notifications (free account)" [zr-tools]="For the WonderMaker screen board: checks, then installs what is missing")
     while true; do
         echo; echo "  Add-ons"
         local n=0; for k in "${items[@]}"; do n=$((n+1)); menu_item "$n" "${label[$k]}" "[$(addon_status "$k")] ${help[$k]}"; done
@@ -2220,6 +2237,7 @@ menu_addons() {
         [ "$REPLY_MENU" = 0 ] || [ -z "$REPLY_MENU" ] && return 0
         if ! [[ "$REPLY_MENU" =~ ^[0-9]+$ ]] || [ "$REPLY_MENU" -lt 1 ] || [ "$REPLY_MENU" -gt "${#items[@]}" ]; then echo "  Choose a number from the list."; continue; fi
         k="${items[$((REPLY_MENU-1))]}"; local st; st="$(addon_status "$k")"
+        if [ "$k" = zr-tools ]; then menu_run --zr-tools; continue; fi   # checks first: says "already installed", or installs what is missing (nothing to remove: the macros do nothing without the screen)
         if [ "$st" = "not installed" ]; then
             ask_yn "Install ${label[$k]}?" n || continue
             case "$k" in
@@ -2351,7 +2369,7 @@ do_status() {   # read-only overview
     echo "  CAN ids in the config: $n   placeholders: $ph"
     echo
     echo "  Add-ons:"
-    local k; for k in screen network-manager webcam timelapse shell-command shaketune spoolman obico octoapp octoeverywhere; do printf '    %-18s %s\n' "$k" "$(addon_status "$k")"; done
+    local k; for k in screen network-manager webcam timelapse shell-command shaketune spoolman obico octoapp octoeverywhere zr-tools; do printf '    %-18s %s\n' "$k" "$(addon_status "$k")"; done
     echo
     local last; last="$(ls -1t "$HOME_DIR"/wm-backups/*.tgz 2>/dev/null | head -1)"
     echo "  Newest backup: ${last:-none yet (./installer.sh --backup)}"
@@ -2490,6 +2508,7 @@ case "$MODE" in
     check)      do_check; exit 0 ;;
     firststart) do_first_start ask; exit $? ;;
     hwtest)     do_hw_test; exit 0 ;;
+    zrtools)    do_zr_tools; exit $? ;;
     doctor)     do_doctor; exit $? ;;
     repair)     do_repair; exit 0 ;;
     update)     do_update; exit 0 ;;

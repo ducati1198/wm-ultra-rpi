@@ -10,6 +10,8 @@
 # bash scripts/screen_board.sh                               at a terminal with no options: opens the menu (--install goes straight to the install)
 # bash scripts/screen_board.sh --menu                        numbered menu: install, status, change Pi address or screen driver, factory restore, checks, dry run
 # Also: --update  --doctor [--fix-all]  --backup  --restore-backup [N]  --support-bundle  --log  --restart-screen  --system [tz:Zone|host:name]  --remove installer|backups|rescue|restoredata  --set-driver modesetting|fbdev
+# bash scripts/screen_board.sh --zr-pi --pi HOST            check the ZR Tools macros on the Pi (asks its user name and password), install them when missing
+# bash scripts/screen_board.sh --fix-clock                   turn on automatic time sync (NTP), fix apt's date check
 # bash scripts/screen_board.sh --status                      read-only: what is installed / disabled
 # bash scripts/screen_board.sh --uninstall-klipperscreen     same as --factory-restore (KlipperScreen is never removed without turning the factory services back on)
 # bash scripts/screen_board.sh --factory-restore             remove KlipperScreen, turn the factory services back on, reboot
@@ -103,6 +105,8 @@ while [ $# -gt 0 ]; do
         --screen-driver) case "${2:-}" in modesetting|fbdev) DRIVER="$2" ;; *) print_error "--screen-driver needs modesetting or fbdev"; exit 1 ;; esac; shift ;;
         --set-pi) MODE=setpi; PI_HOST="${2:-}"; shift ;;
         --menu) MODE=menu ;;
+        --fix-clock) MODE=fixclock ;;
+        --zr-pi) MODE=zrpi ;;
         --install) MODE=install; NOARGS=0 ;;
         --update) MODE=update ;;
         --check-updates|--whats-new) MODE=whatsnew ;;
@@ -185,6 +189,80 @@ apt_ok() {
     [ "$DRY" = 1 ] && return 0
     sudo apt-get update 2>&1 | tail -n 6; [ "${PIPESTATUS[0]}" = 0 ]
 }
+fix_clock() {   # automatic time sync (NTP): with a wrong date HTTPS downloads and apt fail. Asks once; nothing else on the board is changed.
+    print_header "Date and time"
+    local synced now
+    if [ "$TESTING" = 1 ]; then synced="${WM_TEST_NTP_SYNCED:-no}"
+    else synced="$(timedatectl show -p NTPSynchronized --value 2>/dev/null)"; fi
+    now="$(date '+%Y-%m-%d %H:%M %Z')"
+    if [ "$synced" = yes ]; then print_success "The clock is set automatically (NTP): $now"; return 0; fi
+    echo "  The board's clock is not synchronised automatically. Now: $now"
+    why "A wrong date makes HTTPS downloads and apt fail. Automatic time sync (systemd-timesyncd) keeps it right whenever the board is online."
+    if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would run: sudo timedatectl set-ntp true (and set the date from GitHub's reply if NTP cannot reach a server)${NC}"; return 0; fi
+    ask_yn "Turn on automatic time sync (NTP)?" y || { print_info "Left as it is. If downloads fail with certificate errors, run: bash scripts/screen_board.sh --fix-clock"; return 0; }
+    if [ "$TESTING" = 1 ]; then
+        echo "[test] sudo timedatectl set-ntp true" >> "$HOME_DIR/.sudo.log"
+        if [ "${WM_TEST_NTP_FAIL:-0}" = 1 ]; then echo "[test] sudo date -s (from the GitHub Date header)" >> "$HOME_DIR/.sudo.log"; print_success "Clock set from GitHub's reply (test)"; else print_success "Automatic time sync is on (test)"; fi
+        return 0
+    fi
+    command -v timedatectl >/dev/null 2>&1 || SUDO apt-get install -y systemd-timesyncd >/dev/null 2>&1
+    SUDO timedatectl set-ntp true 2>/dev/null || SUDO systemctl enable --now systemd-timesyncd 2>/dev/null
+    local i; for i in $(seq 1 15); do [ "$(timedatectl show -p NTPSynchronized --value 2>/dev/null)" = yes ] && break; sleep 2; done
+    if [ "$(timedatectl show -p NTPSynchronized --value 2>/dev/null)" = yes ]; then print_success "Automatic time sync is on: $(date '+%Y-%m-%d %H:%M %Z')"; return 0; fi
+    # No NTP server reachable (some networks block port 123): take the time from the Date header of a web server, once
+    local d; d="$(curl -sIk -m 8 https://github.com 2>/dev/null | sed -n 's/^[Dd]ate: *//p' | tr -d '\r' | head -1)"
+    if [ -n "$d" ] && sudo date -u -s "$d" >/dev/null 2>&1; then print_success "NTP is on but no time server answered yet; the clock was set once from GitHub's reply: $(date '+%Y-%m-%d %H:%M %Z')"
+    else warn_later "Could not set the clock. Set it by hand: sudo date -s 'YYYY-MM-DD HH:MM:SS'"; fi
+}
+
+ZR_SSH_OPTS=(-o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 -o PreferredAuthentications=password,keyboard-interactive -o PubkeyAuthentication=no)
+ZR_PI_USER=""; ZR_PI_PASS=""; WANT_ZR_PI=0
+zr_pi_ask() {   # the Pi login for this run only. The password is kept in a variable until the end and is never written to a file or a command line.
+    local u
+    if [ "$TESTING" = 1 ]; then ZR_PI_USER="${WM_TEST_PI_USER:-$WM_USER}"; ZR_PI_PASS="${WM_TEST_PI_PASS:-x}"; return 0; fi
+    read -r -p "$(echo -e "${YELLOW}?${NC} User name on the Pi [$WM_USER]: ")" u || u=""; ZR_PI_USER="${u:-$WM_USER}"
+    [[ "$ZR_PI_USER" =~ ^[a-z_][a-z0-9_-]*$ ]] || { print_warning "'$ZR_PI_USER' is not a valid user name."; return 1; }
+    read -r -s -p "$(echo -e "${YELLOW}?${NC} Password of $ZR_PI_USER on the Pi (not shown, not saved): ")" ZR_PI_PASS || ZR_PI_PASS=""; echo
+    [ -n "$ZR_PI_PASS" ] || { print_warning "No password typed."; return 1; }
+}
+zr_on_pi() {   # check the ZR Tools macros on the Pi; install what is missing; "already installed" when nothing is. Needs PI_HOST, ZR_PI_USER, ZR_PI_PASS
+    print_header "ZR Tools macros on the Pi ($PI_HOST)"
+    why "The ZR Tools page on this board sends macros such as ZR_LOAD to Klipper on the Pi. They must be installed there too."
+    if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would log in to ${ZR_PI_USER:-$WM_USER}@$PI_HOST, check zr_tools.cfg, the include line and [save_variables], and add what is missing${NC}"; return 0; fi
+    local out rc src="$REPO_DIR/zr_tools"
+    [ -f "$src/ensure_zr_tools_pi.sh" ] || { warn_later "ZR Tools on the Pi: $src/ensure_zr_tools_pi.sh is missing. Update this installer and try again."; return 1; }
+    if [ "$TESTING" = 1 ]; then
+        [ -n "${WM_TEST_PI_HOME:-}" ] || { warn_later "ZR Tools on the Pi: no test Pi."; return 1; }
+        [ "${WM_TEST_PI_PASS:-x}" = wrong ] && { print_error "The Pi refused the user name or password."; return 1; }
+        out="$(HOME="$WM_TEST_PI_HOME" ZR_SRC="$src" ZR_NO_RESTART=1 ZR_PRINT_STATE="${WM_TEST_PI_PRINT_STATE:-standby}" bash "$src/ensure_zr_tools_pi.sh" 2>&1)"
+    else
+        command -v sshpass >/dev/null 2>&1 || { print_info "Installing sshpass (it lets this script type the password for you)."; SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y sshpass >/dev/null 2>&1 || true; }
+        command -v sshpass >/dev/null 2>&1 || { warn_later "ZR Tools on the Pi: sshpass could not be installed. On the Pi run: ./installer.sh --zr-tools"; return 1; }
+        export SSHPASS="$ZR_PI_PASS"
+        sshpass -e ssh "${ZR_SSH_OPTS[@]}" "$ZR_PI_USER@$PI_HOST" true 2>/dev/null; rc=$?
+        if [ "$rc" = 5 ]; then unset SSHPASS; print_error "The Pi refused the user name or password."; return 1
+        elif [ "$rc" != 0 ]; then unset SSHPASS; print_error "Could not reach $ZR_PI_USER@$PI_HOST over ssh (is ssh on, is the address right?)."; return 1; fi
+        out="$(tar -C "$src" -cf - zr_tools.cfg install_zr_tools.sh ensure_zr_tools_pi.sh | sshpass -e ssh "${ZR_SSH_OPTS[@]}" "$ZR_PI_USER@$PI_HOST" \
+              'd=$(mktemp -d) && tar -xf - -C "$d" && ZR_SRC="$d" ZR_NO_RESTART=1 bash "$d/ensure_zr_tools_pi.sh"; r=$?; rm -rf "$d"; exit $r' 2>&1)"
+        unset SSHPASS
+    fi
+    echo "$out" | grep -v '^ZR_RESULT=' | sed 's/^/  /'
+    case "$out" in
+        *ZR_RESULT=already*) print_success "ZR Tools macros are already installed on the Pi. Nothing was changed."; ZR_PI_CHANGED=0 ;;
+        *ZR_RESULT=installed*) print_success "ZR Tools macros installed and configured on the Pi."; ZR_PI_CHANGED=1 ;;
+        *ZR_RESULT=printing*) warn_later "The Pi is printing, so the ZR Tools macros were not installed there. Try again after the print."; return 1 ;;
+        *) warn_later "ZR Tools macros could not be installed on the Pi (see above). On the Pi run: ./installer.sh --zr-tools"; return 1 ;;
+    esac
+}
+ZR_PI_CHANGED=0
+do_zr_pi() {   # --zr-pi: only this
+    ask_pi; zr_pi_ask || die_with_fix "no Pi login." "run it again and type the user name and password."
+    zr_on_pi && [ "$ZR_PI_CHANGED" = 1 ] && restart_pi_klipper
+    ZR_PI_PASS=""
+    [ ${#WARNINGS[@]} -gt 0 ] && { local w; for w in "${WARNINGS[@]}"; do print_warning "$w"; done; return 1; }
+    return 0
+}
+
 disk_free_mb() { [ "$TESTING" = 1 ] && { echo "${WM_TEST_DISK_MB:-4000}"; return; }; df -Pm "$HOME_DIR" | awk 'NR==2{print $4}'; }
 
 preflight() {
@@ -198,7 +276,7 @@ preflight() {
     ask_pi   # only written into KlipperScreen.conf; the Pi is not contacted
     if printing_now && [ "$FORCE" != 1 ]; then die_with_fix "a print is running or paused." "wait until it finishes (or --force)."; fi
     local free; free="$(disk_free_mb)"; [ "${free:-0}" -gt 1500 ] && print_success "disk space ${free} MB free" || die_with_fix "only ${free} MB free." "free space (old logs, ~/printer_data/gcodes) first."
-    apt_fix; apt_ok && print_success "apt works (archive.debian.org)" || die_with_fix "apt update fails." "check the board's internet access and date; see README 'Screen board'. Nothing was changed."
+    apt_fix; fix_clock; apt_ok && print_success "apt works (archive.debian.org)" || die_with_fix "apt update fails." "check the board's internet access and date; see README 'Screen board'. Nothing was changed."
     if [ "$TESTING" != 1 ]; then curl -fsS -m 8 -o /dev/null https://github.com 2>/dev/null && print_success "GitHub reachable" || die_with_fix "GitHub is not reachable." "KlipperScreen is downloaded from GitHub."; fi
 }
 
@@ -509,6 +587,11 @@ do_install() {
     echo "  Installs: X11 + KlipperScreen packages, KlipperScreen (pinned) in ~/KlipperScreen, ZR Tools, a Factory-mode button$([ "$RESCUE" = 1 ] && echo ', a rescue window and USB-stick flag')"
     echo "  Connects to: $(pi_url)   Graphics driver: $DRIVER (falls back to fbdev if X does not start)"
     echo "  Go back any time: bash $BK/screen_board.sh --factory-restore"
+    if [ "$DRY" = 1 ]; then echo "  Optional: set up the ZR Tools macros on the Pi $PI_HOST too (asks for the Pi user name and password, default no)"
+    else
+        echo "  The ZR Tools page needs its macros on the Pi. If they are not there yet, this script can install them for you."
+        if ask_yn "Also check and set up the ZR Tools macros on the Pi $PI_HOST now? (asks for its password; nothing is saved)" n; then zr_pi_ask && WANT_ZR_PI=1 || print_warning "Skipping ZR Tools on the Pi. Later: bash scripts/screen_board.sh --zr-pi --pi $PI_HOST"; fi
+    fi
     [ "$DRY" = 1 ] || ask_yn "Go ahead?" y || { echo "Nothing changed."; exit 0; }
     save_state
     add_swap
@@ -522,6 +605,7 @@ do_install() {
     print_header "Done"; progress_bar 100 100 "All 7 steps finished"
     if [ ${#WARNINGS[@]} -gt 0 ]; then local w; for w in "${WARNINGS[@]}"; do print_warning "$w"; done; fi
     print_success "KlipperScreen is set up. Go back: ZR Tools > More > System > Factory mode, or bash $BK/screen_board.sh --factory-restore"
+    if [ "$WANT_ZR_PI" = 1 ] || [ "$DRY" = 1 ]; then zr_on_pi || true; ZR_PI_PASS=""; fi
     restart_pi_klipper
     if [ "$DRY" != 1 ] && [ "$REBOOT" = 1 ]; then      # a clean start: every service, the screen server and the touch rules come up together
         echo "  A reboot starts every service, the screen server and the touch rules together. It is recommended."
@@ -943,11 +1027,15 @@ menu_settings() {
         echo; echo "  Settings"
         menu_item 1 "Change the Pi address" "for an installed KlipperScreen"
         menu_item 2 "Network and system" "host name, time zone, clock, addresses"
+        menu_item 3 "Set up ZR Tools on the Pi" "checks the Pi (asks its password), installs the macros if missing"
+        menu_item 4 "Fix the clock" "turns on automatic time sync (NTP) so downloads and apt work"
         menu_item 0 "Back" ""
         menu_read "Choose:" || return 0
         case "$REPLY_MENU" in
             1) menu_ask_pi || return 0; menu_sub --set-pi "$PI_HOST" ;;
             2) menu_system ;;
+            3) menu_ask_pi || return 0; menu_sub --zr-pi --pi "$PI_HOST" ;;
+            4) menu_sub --fix-clock ;;
             0|"") return 0 ;; *) echo "  Choose a number from the list." ;;
         esac
     done
@@ -1002,6 +1090,8 @@ menu_main() {
 
 case "$MODE" in
     menu) menu_main ;;
+    fixclock) apt_fix; fix_clock ;;
+    zrpi) do_zr_pi ;;
     setdriver) do_setdriver ;;
     update) do_update_board ;;
     whatsnew) do_whatsnew_board ;;
