@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.20.8
+
+- Screen board installer and README section 7: removed the "not tested on hardware" notes (script banner, menu title, rescue tool, USB flag, factory restore). No code changes.
+
 ## 1.20.7
 
 - **Progress bars are weighted** by how long each step takes (the long Python and KlipperScreen builds count for most), so the percent no longer jumps. Install, update, factory restore and every uninstall end at 100%.

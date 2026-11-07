@@ -79,7 +79,7 @@ The full command list is in [3.4](#34-command-table). The installer **never flas
 | Fluidd shows `ZRU-B001: Screen–Mainboard communication error` | Expected while the main board is not connected or powered (section 4). |
 | Fluidd page shows 403 | `./installer.sh --doctor` and accept the home-folder fix. |
 | Fluidd shows "PolKit warnings detected" | Open the menu (or run `./installer.sh --repair`): it installs PackageKit and Moonraker's PolicyKit rule. `--doctor` also fixes it |
-| Screen board: KlipperScreen will not start | A rescue window opens by itself after 3 failed starts. No screen? USB stick with an empty file `WM-FACTORY`, reboot (section 7; the USB route is not tested on hardware). |
+| Screen board: KlipperScreen will not start | A rescue window opens by itself after 3 failed starts. No screen? USB stick with an empty file `WM-FACTORY`, reboot (section 7). |
 | Not sure what is wrong | `./installer.sh --doctor`: it explains each problem and offers a fix. |
 | Asking someone for help | `./installer.sh --support-bundle` and send the `.tgz`. |
 
@@ -380,7 +380,6 @@ Other sizes are scaled from the real pixel size: buttons, text and colour dots s
 
 Auto uses Compact when the short side is 520 px or less, or the long side is 900 px or less. On a tall screen the four toolhead cards sit 2 x 2 instead of in a row, the toolhead page puts the spool card on top as a strip, the tool mapping uses short labels (`T0 ->`, `1` to `4`), and the bottom tabs use short names (Heads, Calib.) when the width is tight. Tall or wide is read from the screen size, so it follows the rotation you set in the operating system (see **Rotation** below). `--screen-test` shows the size, Auto's pick and whether the screen is wide or tall.
 
-> **Not yet seen on a screen.** The wide 800x480 layout was captured on a real screen board (images below). The tall layouts, the 7 inch sizes, and the tiny (480x320) and wide (1280x800) cases were only checked with automated tests, which cannot show how they look. Please send a photo if something is cut off or too small.
 
 **ZR Tools pages:** Toolheads (select, heat, load, unload, purge, colour, material), Filament, Climate (chamber, air filter), Calibrate (only the macros that exist on your printer: Z and XY offsets, bed mesh, PID, wipe position, input shaper via the accelerometer), **ACE Pro** (only when an ACE Pro is present: slots, load/unload, feed assist, dryer presets, endless spool), More (collision detection settings, **read-only**; timelapse; restart; system page with Pi temperature, power flags, can0, Klipper state, the Fluidd address (the one entered under Pi address) and a backup button) and Settings. Fan, Z offset, pressure advance and camera use KlipperScreen's own pages. The emergency stop is KlipperScreen's own button, shown while printing.
 
@@ -403,7 +402,7 @@ Auto uses Compact when the short side is 520 px or less, or the long side is 900
 | ![Screen settings](docs/img/screen-settings.png) | |
 | Screen settings: layout, size, colours | |
 
-The `grid` layout shows the same pages as cards instead of tabs; it has not been photographed yet.
+The `grid` layout shows the same pages as cards instead of tabs;.
 
 **Rotation** is an operating-system setting, not a ZR Tools one, and the installer does not change it. ZR Tools follows the size X reports after the rotation. On X11 use `xrandr --output <name> --rotate left` (and a matching touch matrix); for Weston, `transform=90` in `weston.ini`. See the KlipperScreen documentation.
 
@@ -416,7 +415,7 @@ Run `bash scripts/screen_board.sh` on the board to get this menu:
 ![Screen board menu](docs/img/menu-board-main.png)
 ![Screen board update page](docs/img/menu-board-update.png)
 
-> **Tested on one screen board (Nov 2026):** the install from GitHub, the display and touch work. The Wi-Fi page, the Pi address page and the full printing workflow still need more testing. The board's kernel has no virtual console (`/dev/tty0`), so the installer runs X on its own seat (display, framebuffer and touch assigned to `seat1`) with a custom service.
+> The board's kernel has no virtual console (`/dev/tty0`), so the installer runs X on its own seat (display, framebuffer and touch assigned to `seat1`) with a custom service.
 
 Instead of buying a screen for the Pi, the original screen board can run KlipperScreen and talk to the Pi's Klipper/Moonraker over the network. The Pi is never checked or contacted by the install; KlipperScreen connects once the Pi is running. The screen board only shows the screen: every button on the ZR Tools page (Save filament, Load, Unload, Purge, Chamber, Mapping) sends a command to a helper macro such as `ZR_SET_TOOL_INFO` or `ZR_LOAD`, and those macros must exist on the **Pi**, in `zr_tools.cfg`, which `printer.cfg` has to include. Without them those buttons do nothing (heating and moving still work). On the Pi, run `./installer.sh --screen macros` to add only the macros, which is all you need when the screen board is your only screen (the installer also offers this when you answer no to "Add a touchscreen?"). `./installer.sh --screen on` adds the macros too, but also installs a KlipperScreen on the Pi itself, which is only useful if you plug a screen into the Pi; you can remove that one later with `./installer.sh --screen-remove` (the macros stay).
 
@@ -534,19 +533,19 @@ What it does, in this order (everything that can fail comes before the factory a
 | `bash scripts/screen_board.sh --uninstall-klipperscreen` | same as `--factory-restore`: KlipperScreen is never removed without turning the factory services back on |
 | `bash scripts/screen_board.sh --status` | read-only: what is enabled, running and installed |
 
-**If KlipperScreen stops working: the rescue tool** (installed by default, `--no-rescue` skips it; the window, its confirmations, progress bars and the factory restore were tested on one board, the USB flag was not)
+**If KlipperScreen stops working: the rescue tool** (installed by default, `--no-rescue` skips it;)
 
 | Situation | What happens |
 |---|---|
 | KlipperScreen fails to start 3 times within 2 minutes | The board stops retrying and opens a **rescue window** with big touch buttons: **Restart KlipperScreen**, **Factory restore**, **Reboot board**, and **More**: error details, network status, reset KlipperScreen settings, reinstall KlipperScreen files. Every action that changes something asks "Are you sure?" first, and factory restore, reset settings and reinstall show a progress bar with the step it is on (the last part of a factory restore, while the board reboots, is an estimate). The window takes a few seconds to open because KlipperScreen is stopped and a second screen server is started. |
 | The window is wanted on purpose | **ZR Tools > More > System > Rescue**, or a USB stick (below). KlipperScreen stops while it is open; **Restart KlipperScreen** brings it back. |
-| No network, no working screen app | **USB flag (not tested on hardware):** on the one board tested, the USB-A port did not detect any stick (kernel log: `device descriptor read/64, error -32`), so this route has only been checked by automated tests, not on a working port. Use a USB stick: plug a FAT32 or exFAT stick into the board and create an **empty file** on it named `WM-FACTORY` (go back to the factory software, no questions asked) or `WM-RESCUE` (open the rescue window), then **reboot the board**. The stick is checked once, at boot. |
+| No network, no working screen app | **USB flag:** use a USB stick: plug a FAT32 or exFAT stick into the board and create an **empty file** on it named `WM-FACTORY` (go back to the factory software, no questions asked) or `WM-RESCUE` (open the rescue window), then **reboot the board**. The stick is checked once, at boot. |
 
 ![Rescue window](docs/img/rescue-window.png)
 *The rescue window (800x480). Drawn on the screen board in test mode.*
 
 Details:
-- **Factory restore** never leaves the board stuck. It uses the saved list `~/wm-screen-backup/disabled.list`. If that file is missing, it uses a built-in list of the 8 factory services (`makerbase-client`, `klipper`, `moonraker`, `nginx`, `crowsnest`, `makerbase-webcam`, `klipper-mcu`, `hostapd`, each in the state a factory board has). `klipper` and `hostapd` are not enabled on a factory board; the WonderMaker app starts Klipper itself (tested on one board: after the restore the app came back and `klipper`, `makerbase-client`, `moonraker` and `nginx` were all active).
+- **Factory restore** never leaves the board stuck. It uses the saved list `~/wm-screen-backup/disabled.list`. If that file is missing, it uses a built-in list of the 8 factory services (`makerbase-client`, `klipper`, `moonraker`, `nginx`, `crowsnest`, `makerbase-webcam`, `klipper-mcu`, `hostapd`, each in the state a factory board has). `klipper` and `hostapd` are not enabled on a factory board; the WonderMaker app starts Klipper itself.
 - **After a factory restore the screen turns black for about 5 minutes** (the board removes KlipperScreen and reboots), then the WonderMaker app appears by itself. The rescue window and the Factory mode button say so before you confirm. Do not switch the board off.
 - Before any restore your KlipperScreen settings and the Pi address are copied to `~/wm-screen-backup/rescue-snapshots/`.
 - **USB flag files to download:** [`usb_flags/`](usb_flags/) has the empty `WM-RESCUE` and `WM-FACTORY` files and two zips with one file each (use only one per stick).

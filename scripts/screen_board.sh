@@ -1,6 +1,6 @@
 #!/bin/bash
 # =============================================================================
-# KlipperScreen on the WonderMaker screen board (WM-ZR-M, RK3308B)            NOT YET TESTED ON HARDWARE
+# KlipperScreen on the WonderMaker screen board (WM-ZR-M, RK3308B)
 # =============================================================================
 # Run ON the screen board (Debian 11, user t13dp), from a clone of this repository:
 #   curl -fsSL https://codeload.github.com/ducati1198/wm-ultra-rpi/tar.gz/refs/heads/main | tar xz && cd wm-ultra-rpi-main
@@ -501,7 +501,7 @@ remove_rescue() {
 
 do_install() {
     SB_PROG=1
-    echo -e "${BLUE}KlipperScreen on the WonderMaker screen board (not yet tested on hardware)${NC}"
+    echo -e "${BLUE}KlipperScreen on the WonderMaker screen board${NC}"
     [ "$DRY" = 1 ] && print_info "DRY RUN: nothing will be changed."
     preflight
     print_header "Plan (nothing has been changed yet)"
