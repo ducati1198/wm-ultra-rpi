@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.23.0
+
+- Pi installer: **Free up disk space**, same as on the screen board. New last entry in the Uninstall page and the option `--free-space`: lists what is safe to erase (leftover installer downloads in /tmp, pip cache, apt package cache, old system log history, old rotated printer logs, the installer's git history) with sizes and a warning for each, you pick, it shows "This will ERASE" and asks first. Your printer data, gcode files and backups are never listed; `--yes` alone never erases.
+- Pi installer: when the install finds less than 2500 MB free it now offers that cleanup on the spot and re-checks, instead of only stopping.
+
 ## 1.22.0
 
 - Screen board installer: **Free up disk space.** New entry in the Uninstall page (menu 9, entry 5) and the option `--free-space`. It lists what is safe to erase, each with its size and a warning about what it is (leftover installer downloads in /tmp, the pip cache, the apt package cache, old system log history, old rotated printer logs, the installer's git history), you type the numbers, it shows "This will ERASE" and asks before deleting. Gcode files, settings, KlipperScreen and the factory software are never listed. `--yes` alone never erases.

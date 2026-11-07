@@ -199,6 +199,8 @@ chmod +x installer.sh
 
 ![Backup and restore page](docs/img/menu-pi-backup.png)
 
+**6 Uninstall** ends with *Free up disk space*: it lists leftover downloads in `/tmp`, the pip and apt caches, old log history and the installer's git history, each with its size and a warning. You pick the numbers, it shows **This will ERASE** and asks before it deletes. Your printer data, gcode files and backups are never listed.
+
 **7 Advanced**: first start, start or stop Klipper, support bundle, last log, network and system.
 
 ![Advanced page](docs/img/menu-pi-advanced.png)
@@ -261,6 +263,7 @@ The installer first asks **which printer you have** (ZR Ultra or ZR Ultra-S; or 
 | `./installer.sh --hw-test` | read-only live test: USB bridge, can0, CAN devices, camera picture, services |
 | `./installer.sh --doctor` | finds problems, explains them, offers a fix for each (asks first) |
 | `./installer.sh --repair` | puts back services, nginx files, can0 rule, groups; your data is untouched |
+| `./installer.sh --free-space` | lists what is safe to erase (sizes and a warning for each), erases only what you pick and confirm. The install offers it when the SD card is nearly full (about 2500 MB needed) |
 | `./installer.sh --zr-tools` | checks the ZR Tools macros on this Pi (for the screen board); says "already installed" or installs what is missing, then restarts Klipper (not during a print) |
 | `./installer.sh --check-updates` | read-only: lists what is new on GitHub since your copy, and says how to update |
 | `./installer.sh --update` | after `git pull`: refreshes services, packages, panel, add-ons; shows what changed; keeps `printer_data` (an edited `zr_tools.cfg` is saved as `zr_tools.cfg.zrbak_<date>` before it is replaced) |

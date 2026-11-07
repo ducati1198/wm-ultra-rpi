@@ -582,6 +582,26 @@ check "board script never calls a missing helper" "! grep -q 'command not found'
 check "install: still too little space after the cleanup stops with the --free-space hint" "printf 'n\n' | WM_TEST_FREE_OFFER=1 WM_TEST_DISK_MB=1000 WM_TEST_TMP=$FST WM_HOME=$T/fsi2 WM_INSTALLER_TEST=1 bash $SB --install --pi 192.0.2.5 --no-reboot 2>&1 | grep -q 'free-space'"
 check "install: no terminal and not enough space stops without asking" "! WM_TEST_DISK_MB=1000 WM_HOME=$T/fsi3 WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash $SB --install --pi 192.0.2.5 --no-reboot >/dev/null 2>&1"
 
+echo "== free up disk space (Pi installer)"
+PFB="$T/pfb"; PFT="$T/pft"; mkdir -p "$PFB/.cache/pip" "$PFB/printer_data/logs" "$PFB/printer_data/gcodes" "$PFT/tmp.AAA/scripts" "$PFT/tmp.keep"
+dd if=/dev/zero of="$PFB/.cache/pip/x" bs=1M count=3 2>/dev/null; dd if=/dev/zero of="$PFT/tmp.AAA/pad" bs=1M count=3 2>/dev/null
+echo 1.0.0 > "$PFT/tmp.AAA/VERSION"; touch "$PFT/tmp.AAA/scripts/screen_board.sh"; echo mine > "$PFT/tmp.keep/file"; echo gcode > "$PFB/printer_data/gcodes/a.gcode"; echo old > "$PFB/printer_data/logs/klippy.log.1"; dd if=/dev/zero of="$PFB/printer_data/logs/klippy.log.1" bs=1M count=2 2>/dev/null
+pfs() { local ans="$1"; shift; printf "$ans" | WM_TEST_NO_FETCH=1 WM_TEST_TMP="$PFT" WM_HOME="$PFB" WM_INSTALLER_TEST=1 WM_TEST_APT_KB=204800 WM_TEST_JOURNAL_KB=102400 "$@" bash "$ROOT/installer.sh" --free-space 2>&1; }
+pfs '\n' env > $T/pfs1.out
+check "Pi free space: lists what can go, with sizes and warnings" "grep -q 'Leftover installer downloads' $T/pfs1.out && grep -q 'apt package cache' $T/pfs1.out && grep -q 'Old rotated printer logs' $T/pfs1.out && grep -q 'never in this list' $T/pfs1.out"
+check "Pi free space: Enter cancels and erases nothing" "[ -d $PFT/tmp.AAA ] && [ -d $PFB/.cache/pip ] && [ -f $PFB/printer_data/logs/klippy.log.1 ]"
+pfs '1\nn\n' env > $T/pfs2.out
+check "Pi free space: the warning and 'This will ERASE' come before the confirmation, and 'no' erases nothing" "grep -q 'This will ERASE' $T/pfs2.out && grep -q 'Copies of this installer' $T/pfs2.out && [ -d $PFT/tmp.AAA ]"
+check "Pi free space: erases only the chosen item after confirming" "printf '1\ny\n' | WM_TEST_TMP=$PFT WM_HOME=$PFB WM_INSTALLER_TEST=1 bash $ROOT/installer.sh --free-space >/dev/null 2>&1; [ ! -d $PFT/tmp.AAA ] && [ -d $PFT/tmp.keep ] && [ -d $PFB/.cache/pip ] && [ -f $PFB/printer_data/gcodes/a.gcode ]"
+check "Pi free space: all goes through sudo for apt and the journal and keeps gcode files" "printf 'all\ny\n' | WM_TEST_TMP=$PFT WM_HOME=$PFB WM_INSTALLER_TEST=1 WM_TEST_APT_KB=204800 WM_TEST_JOURNAL_KB=102400 bash $ROOT/installer.sh --free-space >/dev/null 2>&1; grep -q 'apt-get clean' $PFB/.sudo.log && grep -q 'vacuum-size=50M' $PFB/.sudo.log && [ ! -d $PFB/.cache/pip ] && [ ! -f $PFB/printer_data/logs/klippy.log.1 ] && [ -f $PFB/printer_data/gcodes/a.gcode ] && [ -d $ROOT/.git ]"
+check "Pi free space: --yes alone never erases" "mkdir -p $PFB/.cache/pip; dd if=/dev/zero of=$PFB/.cache/pip/x bs=1M count=3 2>/dev/null; WM_ASSUME_YES=1 WM_TEST_TMP=$PFT WM_HOME=$PFB WM_INSTALLER_TEST=1 bash $ROOT/installer.sh --free-space >/dev/null 2>&1; [ -d $PFB/.cache/pip ]"
+check "Pi free space: the git history is offered only on a copy of the installer folder" "rm -rf $T/pgcopy; mkdir -p $T/pgcopy/wm-ultra-rpi/.git; cp $ROOT/installer.sh $ROOT/VERSION $T/pgcopy/wm-ultra-rpi/; dd if=/dev/zero of=$T/pgcopy/wm-ultra-rpi/.git/pack bs=1M count=3 2>/dev/null; printf 'all\ny\n' | WM_TEST_REFRESH_REPO=1 WM_TEST_TMP=$PFT WM_HOME=$PFB WM_INSTALLER_TEST=1 bash $T/pgcopy/wm-ultra-rpi/installer.sh --free-space > $T/pgcopy.out 2>&1; grep -q 'Git history' $T/pgcopy.out && [ ! -d $T/pgcopy/wm-ultra-rpi/.git ] && [ -d $ROOT/.git ]; ! pfs '\n' env | grep -q 'Git history'"
+check "Pi Uninstall menu has Free up disk space" "printf '6\n0\n0\n' | WM_TEST_NO_FETCH=1 WM_HOME=$PFB WM_INSTALLER_TEST=1 bash $ROOT/installer.sh --menu 2>&1 | grep -q 'Free up disk space'"
+check "Pi install: no terminal and not enough space stops with the --free-space hint" "WM_TEST_DISK_MB=1000 WM_HOME=$T/pfi1 WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash $ROOT/installer.sh --from-github --model ultra-s 2>&1 </dev/null | grep -q 'free-space'"
+mkdir -p "$T/pfi2/.cache/pip"; dd if=/dev/zero of="$T/pfi2/.cache/pip/x" bs=1M count=3 2>/dev/null
+printf 'y\n1\ny\n' | WM_TEST_FREE_OFFER=1 WM_TEST_DISK_MB=2499 WM_TEST_TMP=$PFT WM_HOME=$T/pfi2 WM_INSTALLER_TEST=1 timeout 100 bash $ROOT/installer.sh --from-github --model ultra-s > $T/pfi2.out 2>&1
+check "Pi install: not enough space offers the cleanup, warns, then goes on" "grep -q 'Only 2499 MB free' $T/pfi2.out && grep -q 'This will ERASE' $T/pfi2.out && grep -q 'Disk space ok' $T/pfi2.out"
+
 echo "== ZR Tools on the Pi, and the clock fix"
 mkpi() { local h="$1"; mkdir -p "$h/printer_data/config"; printf '[include mainsail.cfg]\n\n[save_variables]\nfilename: /tmp/v.cfg\n\n#*# <---- SAVE_CONFIG ---->\n' > "$h/printer_data/config/printer.cfg"; }
 PZ="$T/pz"; mkpi "$PZ"

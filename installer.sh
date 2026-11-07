@@ -12,6 +12,7 @@
 # ./installer.sh --model ultra|ultra-s your printer (asked if not given; sets up printer.cfg for it)
 # ./installer.sh --modules DIR         optional: your own copies of the 5 compiled modules (replace the bundled ones)
 # ./installer.sh --check               report problems, change nothing
+# ./installer.sh --free-space          list what is safe to erase (sizes, warnings), erase what you pick and confirm
 # ./installer.sh --first-start         checks with the main board connected; fixes canbus_uuid; then starts Klipper and the other services
 # ./installer.sh --hw-test             read-only live test: USB bridge, can0, CAN devices, camera, services
 # ./installer.sh --doctor              find problems, explain them, offer a fix for each (asks first)
@@ -187,6 +188,7 @@ while [ $# -gt 0 ]; do
         --first-start|--enable-klipper) MODE=firststart ;;
         --hw-test)      MODE=hwtest ;;
         --doctor)       MODE=doctor ;;
+        --free-space)   MODE=freespace ;;   # list what is safe to erase, erase what you pick and confirm
         --zr-tools)     MODE=zrtools ;;   # check the ZR Tools macros (for the screen board), install them when missing
         --fix-all)      FIXALL=1 ;;
         --repair)       MODE=repair ;;
@@ -246,10 +248,15 @@ check_system() {
             warn_later "This is not Raspberry Pi OS Bookworm. It is tested only on Bookworm."
         fi
         sudo -n true 2>/dev/null || print_info "sudo will ask for your password."
-        local free; free=$(df -Pm "$HOME_DIR" | awk 'NR==2{print $4}')
-        [ "${free:-0}" -gt 2500 ] || die_with_fix "only ${free} MB free." "use a bigger SD card (16 GB or more)."
-        print_success "Disk space ok (${free} MB free)"
     fi
+    local free; free="$(disk_free_mb)"
+    if [ "${free:-0}" -le "$FREE_NEED_MB" ] && { [ -t 0 ] || [ "${WM_TEST_FREE_OFFER:-0}" = 1 ]; } && [ "${WM_ASSUME_YES:-0}" != 1 ] && [ "$DRY" != 1 ]; then
+        print_warning "Only ${free} MB free; the install needs about $FREE_NEED_MB MB."
+        echo "  I can look for files that are safe to erase and show you each one before anything is deleted."
+        ask_yn "Look for files to erase now?" y && { do_free_space; free="$(disk_free_mb)"; }
+    fi
+    [ "${free:-0}" -gt "$FREE_NEED_MB" ] || die_with_fix "only ${free} MB free." "free space first: ./installer.sh --free-space  (it shows what is safe to erase and asks before deleting), or use a bigger SD card (16 GB or more)."
+    print_success "Disk space ok (${free} MB free)"
 }
 
 
@@ -1604,6 +1611,71 @@ restart_klipper_after() {   # after an install or update: restart Klipper so it 
         *) print_warning "Klipper restarted but is not ready yet (state: ${WAIT_ST:-unknown}). Watch: journalctl -u klipper -f" ;;
     esac; fi
 }
+# ============================================================================
+# Free up disk space
+# ============================================================================
+FREE_NEED_MB=2500
+declare -a FS_ID FS_LABEL FS_KB FS_WARN FS_SUDO
+fs_add() { FS_ID+=("$1"); FS_LABEL+=("$2"); FS_KB+=("$3"); FS_WARN+=("$4"); FS_SUDO+=("$5"); }
+fs_kb() { local k; [ $# -gt 0 ] || { echo 0; return; }; k="$(du -sk "$@" 2>/dev/null | awk '{s+=$1} END{print s+0}')"; echo "${k:-0}"; }
+fs_tmpdirs() {   # leftover downloads of this installer in /tmp: only folders made by this user that hold a copy of wm-ultra-rpi
+    local base="${WM_TEST_TMP:-/tmp}" d
+    for d in "$base"/tmp.*; do [ -d "$d" ] && [ -f "$d/VERSION" ] && [ -f "$d/scripts/screen_board.sh" ] && [ "$(stat -c %U "$d" 2>/dev/null)" = "$(id -un)" ] && echo "$d"; done
+}
+fs_scan() {
+    FS_ID=(); FS_LABEL=(); FS_KB=(); FS_WARN=(); FS_SUDO=()
+    local kb d list=()
+    while read -r d; do [ -n "$d" ] && list+=("$d"); done < <(fs_tmpdirs)
+    if [ ${#list[@]} -gt 0 ]; then kb="$(fs_kb "${list[@]}")"; fs_add tmp "Leftover installer downloads in /tmp (${#list[@]} folder(s))" "$kb" "Copies of this installer that an older 'Update now' left behind. Nothing else is in them." 0; fi
+    kb="$(fs_kb "$HOME_DIR/.cache/pip")"; fs_add pip "pip download cache (~/.cache/pip)" "$kb" "Downloaded Python packages. They are downloaded again only if you reinstall something." 0
+    if [ "$TESTING" = 1 ]; then kb="${WM_TEST_APT_KB:-0}"; else kb="$(fs_kb /var/cache/apt/archives)"; fi
+    fs_add apt "apt package cache (/var/cache/apt/archives)" "$kb" "Downloaded .deb files of packages that are already installed. Installed programs are not touched." 1
+    if [ "$TESTING" = 1 ]; then kb="${WM_TEST_JOURNAL_KB:-0}"; else kb="$(fs_kb /var/log/journal)"; kb=$(( kb > 51200 ? kb - 51200 : 0 )); fi
+    fs_add journal "Old system log history (keeps the newest 50 MB)" "$kb" "Erases older system messages (journalctl). Only useful when looking for an old problem." 1
+    kb="$(fs_kb $(ls "$HOME_DIR/printer_data/logs"/*.log.* 2>/dev/null))"; fs_add oldlogs "Old rotated printer logs (~/printer_data/logs/*.log.*)" "$kb" "Older copies of klippy/moonraker logs. The current logs stay." 0
+    # (tests only ever touch a copy of the installer folder, never the real repository)
+    if [ -d "$REPO_DIR/.git" ] && case "$(basename "$REPO_DIR")" in wm-ultra-rpi*) true ;; *) false ;; esac && { [ "$TESTING" != 1 ] || [ "${WM_TEST_REFRESH_REPO:-0}" = 1 ]; }; then kb="$(fs_kb "$REPO_DIR/.git")"; fs_add gitdir "Git history of the downloaded installer ($REPO_DIR/.git)" "$kb" "After this, 'git pull' no longer works in that folder; 'Update now' in the menu downloads the newest files instead." 0; fi
+}
+fs_free_text() { echo "  Free space now: $(disk_free_mb) MB   (the install needs about $FREE_NEED_MB MB)"; }
+fs_do() {   # id
+    case "$1" in
+        tmp) local d; while read -r d; do [ -n "$d" ] && rm -rf "$d"; done < <(fs_tmpdirs) ;;
+        pip) rm -rf "$HOME_DIR/.cache/pip" ;;
+        apt) SUDO apt-get clean ;;
+        journal) SUDO journalctl --vacuum-size=50M ;;
+        oldlogs) rm -f "$HOME_DIR/printer_data/logs"/*.log.* ;;
+        gitdir) rm -rf "$REPO_DIR/.git" ;;
+    esac
+}
+do_free_space() {   # lists what can be erased safely, with sizes and a warning for each; erases only what you pick and confirm
+    print_header "Free up disk space"
+    fs_free_text
+    fs_scan
+    local i n=0 idx=() ans pick=() total=0 k
+    for i in "${!FS_ID[@]}"; do
+        [ "${FS_KB[$i]}" -ge 1024 ] || continue
+        n=$((n+1)); idx+=("$i")
+        printf '   %s) %-62s %5s MB%s\n' "$n" "${FS_LABEL[$i]}" "$(( FS_KB[i] / 1024 ))" "$([ "${FS_SUDO[$i]}" = 1 ] && echo '  (asks for sudo)')"
+        echo -e "      ${DIM}${FS_WARN[$i]}${NC}"
+    done
+    [ "$n" -gt 0 ] || { print_info "Nothing safe to erase was found. Free space yourself: old files in ~/printer_data/gcodes, or other large files (du -xh ~ --max-depth=1 | sort -rh | head)."; return 0; }
+    echo "  Your gcode files, your settings, KlipperScreen and the factory software are never in this list."
+    if [ "${WM_ASSUME_YES:-0}" = 1 ]; then ans="all"; else read -r -p "  Type the numbers to erase (for example 1 3), 'all', or press Enter to cancel: " ans || ans=""; fi
+    ans="$(echo "$ans" | tr ',' ' ')"
+    [ -n "$ans" ] || { echo "  Nothing was erased."; return 0; }
+    if [ "$ans" = all ]; then pick=("${idx[@]}"); else
+        for k in $ans; do [[ "$k" =~ ^[0-9]+$ ]] && [ "$k" -ge 1 ] && [ "$k" -le "$n" ] && pick+=("${idx[$((k-1))]}") || { print_warning "'$k' is not in the list."; return 0; }; done
+    fi
+    echo; echo -e "  ${YELLOW}This will ERASE:${NC}"
+    for i in "${pick[@]}"; do echo "    - ${FS_LABEL[$i]}  (about $(( FS_KB[i] / 1024 )) MB)"; echo -e "      ${DIM}${FS_WARN[$i]}${NC}"; total=$((total + FS_KB[i])); done
+    if [ "$DRY" = 1 ]; then echo -e "  ${DIM}(dry run: nothing is erased)${NC}"; return 0; fi
+    ask_yn "Erase these now? About $((total/1024)) MB will be freed" n || { echo "  Nothing was erased."; return 0; }
+    for i in "${pick[@]}"; do fs_do "${FS_ID[$i]}"; done
+    [ "$TESTING" = 1 ] && export WM_TEST_DISK_MB=$(( ${WM_TEST_DISK_MB:-4000} + total/1024 ))
+    print_success "Erased. Free space now: $(disk_free_mb) MB"
+}
+
+disk_free_mb() { [ "$TESTING" = 1 ] && { echo "${WM_TEST_DISK_MB:-4000}"; return; }; df -Pm "$HOME_DIR" | awk 'NR==2{print $4}'; }
 do_get_latest() {   # download the newest version of this installer folder; git pull in a clone, the GitHub tarball otherwise (no git needed)
     print_header "Get the newest installer"
     local new w=""
@@ -2314,16 +2386,17 @@ menu_restore() {   # shows where the backups are kept and lets you choose one by
 }
 
 menu_uninstall() {
-    local k n items=(screen network-manager webcam timelapse shell-command shaketune spoolman obico octoapp octoeverywhere fluidd moonraker klipper data system cleanup all erase)
-    declare -A label=([screen]="Touchscreen (KlipperScreen)" [network-manager]="NetworkManager (switch back to dhcpcd)" [webcam]="Webcam (crowsnest)" [timelapse]="Timelapse" [shell-command]="Klipper gcode shell command" [shaketune]="Klippain Shake&Tune" [spoolman]="Spoolman (filament spools)" [obico]="Obico for Klipper" [octoapp]="OctoApp" [octoeverywhere]="OctoEverywhere" [fluidd]="Fluidd web page" [moonraker]="Moonraker" [klipper]="Klipper" [data]="My printer data" [system]="System files" [cleanup]="Clean up installer files" [all]="All programs" [erase]="Erase everything")
-    declare -A help=([network-manager]="Only if this installer switched you to it" [fluidd]="The page you open in the browser, with its nginx site" [moonraker]="The web API Fluidd and the add-ons use" [klipper]="The printer firmware host" [data]="printer.cfg, calibration, database, gcode files (a backup is made first)" [system]="Services, nginx files and the can0 rule the installer added" [cleanup]="Old backups, support bundles, moved-aside folders, saved copies, the installer folder" [all]="Every program above and the system files. Keeps my printer data, backups and installer files" [erase]="Programs, printer data, backups, logs and every installer file. Keeps only the installer folder")
+    local k n items=(screen network-manager webcam timelapse shell-command shaketune spoolman obico octoapp octoeverywhere fluidd moonraker klipper data system cleanup all erase freespace)
+    declare -A label=([freespace]="Free up disk space" [screen]="Touchscreen (KlipperScreen)" [network-manager]="NetworkManager (switch back to dhcpcd)" [webcam]="Webcam (crowsnest)" [timelapse]="Timelapse" [shell-command]="Klipper gcode shell command" [shaketune]="Klippain Shake&Tune" [spoolman]="Spoolman (filament spools)" [obico]="Obico for Klipper" [octoapp]="OctoApp" [octoeverywhere]="OctoEverywhere" [fluidd]="Fluidd web page" [moonraker]="Moonraker" [klipper]="Klipper" [data]="My printer data" [system]="System files" [cleanup]="Clean up installer files" [all]="All programs" [erase]="Erase everything")
+    declare -A help=([freespace]="Shows what is safe to erase, with sizes and warnings; erases only what you pick" [network-manager]="Only if this installer switched you to it" [fluidd]="The page you open in the browser, with its nginx site" [moonraker]="The web API Fluidd and the add-ons use" [klipper]="The printer firmware host" [data]="printer.cfg, calibration, database, gcode files (a backup is made first)" [system]="Services, nginx files and the can0 rule the installer added" [cleanup]="Old backups, support bundles, moved-aside folders, saved copies, the installer folder" [all]="Every program above and the system files. Keeps my printer data, backups and installer files" [erase]="Programs, printer data, backups, logs and every installer file. Keeps only the installer folder")
     while true; do
         echo; echo "  Uninstall"; echo "  Choose what to remove. Each choice explains what goes and asks before it changes anything."
-        n=0; for k in "${items[@]}"; do n=$((n+1)); case "$k" in all|cleanup|erase) menu_item "$n" "${label[$k]}" "${help[$k]}" ;; *) menu_item "$n" "${label[$k]}" "[$(addon_status "$k")] ${help[$k]:-}" ;; esac; done
+        n=0; for k in "${items[@]}"; do n=$((n+1)); case "$k" in all|cleanup|erase|freespace) menu_item "$n" "${label[$k]}" "${help[$k]}" ;; *) menu_item "$n" "${label[$k]}" "[$(addon_status "$k")] ${help[$k]:-}" ;; esac; done
         menu_item 0 "Back" ""
         menu_read "Choose:" || return 0
         [ "$REPLY_MENU" = 0 ] || [ -z "$REPLY_MENU" ] && return 0
         if ! [[ "$REPLY_MENU" =~ ^[0-9]+$ ]] || [ "$REPLY_MENU" -lt 1 ] || [ "$REPLY_MENU" -gt "${#items[@]}" ]; then echo "  Choose a number from the list."; continue; fi
+        if [ "${items[$((REPLY_MENU-1))]}" = freespace ]; then menu_run --free-space; continue; fi
         menu_run --remove "${items[$((REPLY_MENU-1))]}"
         [ -f "$SCRIPT_DIR/installer.sh" ] || { echo "  The installer folder was removed, so the menu closes."; exit 0; }
     done
@@ -2510,6 +2583,7 @@ case "$MODE" in
     firststart) do_first_start ask; exit $? ;;
     hwtest)     do_hw_test; exit 0 ;;
     zrtools)    do_zr_tools; exit $? ;;
+    freespace)  do_free_space; exit $? ;;
     doctor)     do_doctor; exit $? ;;
     repair)     do_repair; exit 0 ;;
     update)     do_update; exit 0 ;;
