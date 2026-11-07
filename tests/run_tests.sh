@@ -560,6 +560,28 @@ cp -a "$UN/new" "$UN/oldb"; echo "$(cat $ROOT/VERSION)" > "$UN/oldb/VERSION"
 check "board menu: Update now reopens on the new version even when there is nothing to back up" "printf '2\n2\ny\n0\n0\n' | WM_TEST_REFRESH_REPO=1 WM_HOME=$UN/bh WM_INSTALLER_TEST=1 WM_TEST_UPDATE_DIR=$UN/new bash $UN/oldb/scripts/screen_board.sh --menu 2>&1 | grep -q 'installer 9.9.9'"
 
 check "board menu: Update now with no KlipperScreen updates the installer files and reopens on the new version" "rm -rf $UN/oldb2; cp -a $UN/new $UN/oldb2; echo 1.0.0 > $UN/oldb2/VERSION; printf '2\n2\ny\n0\n0\n' | WM_TEST_NO_KS=1 WM_TEST_REFRESH_REPO=1 WM_HOME=$UN/bh WM_INSTALLER_TEST=1 WM_TEST_UPDATE_DIR=$UN/new bash $UN/oldb2/scripts/screen_board.sh --menu 2>&1 | tee $UN/nok.out | grep -q 'installer 9.9.9' && grep -q 'not installed on this board yet' $UN/nok.out && ! grep -q \"Can't continue\" $UN/nok.out"
+echo "== free up disk space (screen board)"
+FSB="$T/fsb"; FST="$T/fst"; mkdir -p "$FSB/.cache/pip" "$FSB/printer_data/config" "$FSB/printer_data/logs" "$FSB/printer_data/gcodes" "$FST/tmp.AAA/scripts" "$FST/tmp.keep" "$FSB/wm-ultra-rpi"
+dd if=/dev/zero of="$FSB/.cache/pip/x" bs=1M count=3 2>/dev/null; dd if=/dev/zero of="$FST/tmp.AAA/pad" bs=1M count=3 2>/dev/null
+echo 1.0.0 > "$FST/tmp.AAA/VERSION"; touch "$FST/tmp.AAA/scripts/screen_board.sh"; echo mine > "$FST/tmp.keep/file"; echo gcode > "$FSB/printer_data/gcodes/a.gcode"
+fsb() { local ans="$1"; shift; printf "$ans" | WM_TEST_TMP="$FST" WM_HOME="$FSB" WM_INSTALLER_TEST=1 WM_TEST_APT_KB=204800 WM_TEST_JOURNAL_KB=102400 "$@" bash "$SB" --free-space 2>&1; }
+check "free space: lists what can go, with warnings and sizes" "fsb '\n' env | grep -q 'Leftover installer downloads' && fsb '\n' env | grep -q 'apt package cache' && fsb '\n' env | grep -q 'never in this list'"
+check "free space: Enter cancels and erases nothing" "fsb '\n' env >/dev/null; [ -d $FST/tmp.AAA ] && [ -d $FSB/.cache/pip ]"
+check "free space: answering no at the confirmation erases nothing" "fsb '1\nn\n' env | grep -q 'This will ERASE'; [ -d $FST/tmp.AAA ]"
+check "free space: the warning is shown before the confirmation" "fsb '1\nn\n' env | grep -q 'Copies of this installer'"
+check "free space: erases only the chosen item after confirming" "printf '1\ny\n' | WM_TEST_TMP=$FST WM_HOME=$FSB WM_INSTALLER_TEST=1 bash $SB --free-space >/dev/null 2>&1; [ ! -d $FST/tmp.AAA ] && [ -d $FST/tmp.keep ] && [ -d $FSB/.cache/pip ] && [ -f $FSB/printer_data/gcodes/a.gcode ]"
+check "free space: tests never offer the real repository's .git for erasing" "fsb '\n' env | grep -qv 'Git history'"
+check "free space: the git history is offered (and erased) only on a copy of the installer folder" "rm -rf $T/gcopy; mkdir -p $T/gcopy/wm-ultra-rpi/scripts; cp $SB $T/gcopy/wm-ultra-rpi/scripts/; cp $ROOT/VERSION $T/gcopy/wm-ultra-rpi/; mkdir -p $T/gcopy/wm-ultra-rpi/.git; dd if=/dev/zero of=$T/gcopy/wm-ultra-rpi/.git/pack bs=1M count=3 2>/dev/null; printf 'all\ny\n' | WM_TEST_REFRESH_REPO=1 WM_TEST_TMP=$FST WM_HOME=$FSB WM_INSTALLER_TEST=1 bash $T/gcopy/wm-ultra-rpi/scripts/screen_board.sh --free-space > $T/gcopy.out 2>&1; grep -q 'Git history' $T/gcopy.out && [ ! -d $T/gcopy/wm-ultra-rpi/.git ] && [ -d $ROOT/.git ]"
+check "free space: sudo items go through sudo (apt clean, journal vacuum)" "printf 'all\ny\n' | WM_TEST_TMP=$FST WM_HOME=$FSB WM_INSTALLER_TEST=1 WM_TEST_APT_KB=204800 WM_TEST_JOURNAL_KB=102400 bash $SB --free-space >/dev/null 2>&1; grep -q 'apt-get clean' $FSB/.sudo.log && grep -q 'vacuum-size=50M' $FSB/.sudo.log && [ ! -d $FSB/.cache/pip ] && [ -f $FSB/printer_data/gcodes/a.gcode ]"
+check "free space: --yes alone never erases (confirmation defaults to no)" "mkdir -p $FSB/.cache/pip; dd if=/dev/zero of=$FSB/.cache/pip/x bs=1M count=3 2>/dev/null; WM_ASSUME_YES=1 WM_TEST_TMP=$FST WM_HOME=$FSB WM_INSTALLER_TEST=1 bash $SB --free-space >/dev/null 2>&1; [ -d $FSB/.cache/pip ]"
+check "board Uninstall menu has Free up disk space" "printf '9\n0\n0\n' | WM_HOME=$FSB WM_INSTALLER_TEST=1 bash $SB --menu 2>&1 | grep -q 'Free up disk space'"
+FSI="$T/fsi"; mkdir -p "$FSI/.cache/pip" "$FSI/printer_data/config"; dd if=/dev/zero of="$FSI/.cache/pip/x" bs=1M count=3 2>/dev/null
+printf 'y\n1\ny\ny\n' | WM_TEST_FREE_OFFER=1 WM_TEST_DISK_MB=1499 WM_TEST_TMP=$FST WM_HOME=$FSI WM_INSTALLER_TEST=1 bash $SB --install --pi 192.0.2.5 --no-reboot > $T/fsi.out 2>&1
+check "install: not enough space offers the cleanup, warns, then goes on" "grep -q 'Only 1499 MB free' $T/fsi.out && grep -q 'This will ERASE' $T/fsi.out && grep -q 'disk space' $T/fsi.out"
+check "board script never calls a missing helper" "! grep -q 'command not found' $T/fsi.out"
+check "install: still too little space after the cleanup stops with the --free-space hint" "printf 'n\n' | WM_TEST_FREE_OFFER=1 WM_TEST_DISK_MB=1000 WM_TEST_TMP=$FST WM_HOME=$T/fsi2 WM_INSTALLER_TEST=1 bash $SB --install --pi 192.0.2.5 --no-reboot 2>&1 | grep -q 'free-space'"
+check "install: no terminal and not enough space stops without asking" "! WM_TEST_DISK_MB=1000 WM_HOME=$T/fsi3 WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash $SB --install --pi 192.0.2.5 --no-reboot >/dev/null 2>&1"
+
 echo "== ZR Tools on the Pi, and the clock fix"
 mkpi() { local h="$1"; mkdir -p "$h/printer_data/config"; printf '[include mainsail.cfg]\n\n[save_variables]\nfilename: /tmp/v.cfg\n\n#*# <---- SAVE_CONFIG ---->\n' > "$h/printer_data/config/printer.cfg"; }
 PZ="$T/pz"; mkpi "$PZ"

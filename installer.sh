@@ -1607,6 +1607,7 @@ restart_klipper_after() {   # after an install or update: restart Klipper so it 
 do_get_latest() {   # download the newest version of this installer folder; git pull in a clone, the GitHub tarball otherwise (no git needed)
     print_header "Get the newest installer"
     local new w=""
+    _rmw() { [ -n "${WM_TEST_UPDATE_DIR:-}" ] || { [ -n "$w" ] && rm -rf "$w"; }; return 0; }   # the downloaded copy (about 50 MB) never stays in /tmp
     if [ -d "$REPO_DIR/.git" ] && command -v git >/dev/null 2>&1; then
         local g=(git -C "$REPO_DIR")
         [ -n "${WM_TEST_NO_FETCH:-}" ] || timeout 60 "${g[@]}" fetch --quiet 2>/dev/null || die_with_fix "could not reach GitHub." "connect the Pi to the internet and try again."
@@ -1621,16 +1622,16 @@ do_get_latest() {   # download the newest version of this installer folder; git 
     if [ -n "${WM_TEST_UPDATE_DIR:-}" ]; then w="$WM_TEST_UPDATE_DIR"
     else
         w="$(mktemp -d)"; print_info "Downloading the newest version from GitHub ..."
-        curl -fsSL -m 180 https://codeload.github.com/ducati1198/wm-ultra-rpi/tar.gz/refs/heads/main | tar -xz --strip-components=1 -C "$w" || die_with_fix "could not download the update." "connect the Pi to the internet and try again."
+        curl -fsSL -m 180 https://codeload.github.com/ducati1198/wm-ultra-rpi/tar.gz/refs/heads/main | tar -xz --strip-components=1 -C "$w" || { _rmw; die_with_fix "could not download the update." "connect the Pi to the internet and try again."; }
     fi
-    new="$(head -1 "$w/VERSION" 2>/dev/null)"; [ -n "$new" ] && [ -f "$w/installer.sh" ] || die_with_fix "the download is not a complete installer." "try again later."
+    new="$(head -1 "$w/VERSION" 2>/dev/null)"; [ -n "$new" ] && [ -f "$w/installer.sh" ] || { _rmw; die_with_fix "the download is not a complete installer." "try again later."; }
     echo "  Your copy: $VERSION    On GitHub: $new"
-    if [ "$new" = "$VERSION" ]; then print_success "Already up to date."; return 0; fi
+    if [ "$new" = "$VERSION" ]; then print_success "Already up to date."; _rmw; return 0; fi
     echo "  This folder is not a git clone. The files in $REPO_DIR are replaced by the new ones; your printer data is not touched."
-    ask_yn "Replace them now?" y || { echo "Nothing changed."; return 1; }
-    [ "$DRY" = 1 ] && { echo -e "  ${DIM}would copy the new files over $REPO_DIR${NC}"; return 0; }
-    cp -a "$w"/. "$REPO_DIR"/ || die_with_fix "could not copy the new files into $REPO_DIR." "check the folder permissions."
-    [ -n "${WM_TEST_UPDATE_DIR:-}" ] || rm -rf "$w"
+    ask_yn "Replace them now?" y || { echo "Nothing changed."; _rmw; return 1; }
+    [ "$DRY" = 1 ] && { echo -e "  ${DIM}would copy the new files over $REPO_DIR${NC}"; _rmw; return 0; }
+    cp -a "$w"/. "$REPO_DIR"/ || { _rmw; die_with_fix "could not copy the new files into $REPO_DIR." "check the folder permissions."; }
+    _rmw
     print_success "Installer folder updated to $new."
 }
 do_repair() {

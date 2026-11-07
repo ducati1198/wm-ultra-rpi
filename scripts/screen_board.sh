@@ -12,6 +12,7 @@
 # Also: --update  --doctor [--fix-all]  --backup  --restore-backup [N]  --support-bundle  --log  --restart-screen  --system [tz:Zone|host:name]  --remove installer|backups|rescue|restoredata  --set-driver modesetting|fbdev
 # bash scripts/screen_board.sh --zr-pi --pi HOST            check the ZR Tools macros on the Pi (asks its user name and password), install them when missing
 # bash scripts/screen_board.sh --fix-clock                   turn on automatic time sync (NTP), fix apt's date check
+# bash scripts/screen_board.sh --free-space                  list what is safe to erase (sizes, warnings), erase what you pick and confirm
 # bash scripts/screen_board.sh --status                      read-only: what is installed / disabled
 # bash scripts/screen_board.sh --uninstall-klipperscreen     same as --factory-restore (KlipperScreen is never removed without turning the factory services back on)
 # bash scripts/screen_board.sh --factory-restore             remove KlipperScreen, turn the factory services back on, reboot
@@ -89,7 +90,7 @@ print_success() { echo -e "${GREEN}✓ ${1}${NC}"; }
 print_warning() { echo -e "${YELLOW}⚠ ${1}${NC}"; }
 print_error()   { echo -e "${RED}✗ ${1}${NC}"; }
 warn_later()    { WARNINGS+=("$1"); }
-die_with_fix()  { print_error "Can't continue: $1"; echo -e "  Fix: $2"; exit 1; }
+die_with_fix()  { print_error "Can't continue: $1"; echo -e "  Fix: $2"; rm -rf "${LATEST_TMP:-}"; exit 1; }
 ask_yn() { local p="$1" d="${2:-y}" a; if [ "${WM_ASSUME_YES:-0}" = 1 ]; then [ "$d" = y ]; return; fi
     read -r -p "$(echo -e "${YELLOW}?${NC} $p [${d}] ")" a || a=""; a="${a:-$d}"; [[ "$a" =~ ^[Yy] ]]; }
 SUDO() {
@@ -105,6 +106,7 @@ while [ $# -gt 0 ]; do
         --screen-driver) case "${2:-}" in modesetting|fbdev) DRIVER="$2" ;; *) print_error "--screen-driver needs modesetting or fbdev"; exit 1 ;; esac; shift ;;
         --set-pi) MODE=setpi; PI_HOST="${2:-}"; shift ;;
         --menu) MODE=menu ;;
+        --free-space) MODE=freespace ;;
         --fix-clock) MODE=fixclock ;;
         --zr-pi) MODE=zrpi ;;
         --install) MODE=install; NOARGS=0 ;;
@@ -197,7 +199,7 @@ fix_clock() {   # automatic time sync (NTP): with a wrong date HTTPS downloads a
     now="$(date '+%Y-%m-%d %H:%M %Z')"
     if [ "$synced" = yes ]; then print_success "The clock is set automatically (NTP): $now"; return 0; fi
     echo "  The board's clock is not synchronised automatically. Now: $now"
-    why "A wrong date makes HTTPS downloads and apt fail. Automatic time sync (systemd-timesyncd) keeps it right whenever the board is online."
+    echo -e "  ${DIM}Why: a wrong date makes HTTPS downloads and apt fail. Automatic time sync (systemd-timesyncd) keeps it right whenever the board is online.${NC}"
     if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would run: sudo timedatectl set-ntp true (and set the date from GitHub's reply if NTP cannot reach a server)${NC}"; return 0; fi
     ask_yn "Turn on automatic time sync (NTP)?" y || { print_info "Left as it is. If downloads fail with certificate errors, run: bash scripts/screen_board.sh --fix-clock"; return 0; }
     if [ "$TESTING" = 1 ]; then
@@ -227,7 +229,7 @@ zr_pi_ask() {   # the Pi login for this run only. The password is kept in a vari
 }
 zr_on_pi() {   # check the ZR Tools macros on the Pi; install what is missing; "already installed" when nothing is. Needs PI_HOST, ZR_PI_USER, ZR_PI_PASS
     print_header "ZR Tools macros on the Pi ($PI_HOST)"
-    why "The ZR Tools page on this board sends macros such as ZR_LOAD to Klipper on the Pi. They must be installed there too."
+    echo -e "  ${DIM}Why: the ZR Tools page on this board sends macros such as ZR_LOAD to Klipper on the Pi. They must be installed there too.${NC}"
     if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would log in to ${ZR_PI_USER:-$WM_USER}@$PI_HOST, check zr_tools.cfg, the include line and [save_variables], and add what is missing${NC}"; return 0; fi
     local out rc src="$REPO_DIR/zr_tools"
     [ -f "$src/ensure_zr_tools_pi.sh" ] || { warn_later "ZR Tools on the Pi: $src/ensure_zr_tools_pi.sh is missing. Update this installer and try again."; return 1; }
@@ -265,6 +267,68 @@ do_zr_pi() {   # --zr-pi: only this
 
 disk_free_mb() { [ "$TESTING" = 1 ] && { echo "${WM_TEST_DISK_MB:-4000}"; return; }; df -Pm "$HOME_DIR" | awk 'NR==2{print $4}'; }
 
+# ---------------------------------------------------------------- free up disk space
+FREE_NEED_MB=1500
+declare -a FS_ID FS_LABEL FS_KB FS_WARN FS_SUDO
+fs_add() { FS_ID+=("$1"); FS_LABEL+=("$2"); FS_KB+=("$3"); FS_WARN+=("$4"); FS_SUDO+=("$5"); }
+fs_kb() { local k; [ $# -gt 0 ] || { echo 0; return; }; k="$(du -sk "$@" 2>/dev/null | awk '{s+=$1} END{print s+0}')"; echo "${k:-0}"; }
+fs_tmpdirs() {   # leftover downloads of this installer in /tmp: only folders made by this user that hold a copy of wm-ultra-rpi
+    local base="${WM_TEST_TMP:-/tmp}" d
+    for d in "$base"/tmp.*; do [ -d "$d" ] && [ -f "$d/VERSION" ] && [ -f "$d/scripts/screen_board.sh" ] && [ "$(stat -c %U "$d" 2>/dev/null)" = "$(id -un)" ] && echo "$d"; done
+}
+fs_scan() {
+    FS_ID=(); FS_LABEL=(); FS_KB=(); FS_WARN=(); FS_SUDO=()
+    local kb d list=()
+    while read -r d; do [ -n "$d" ] && list+=("$d"); done < <(fs_tmpdirs)
+    if [ ${#list[@]} -gt 0 ]; then kb="$(fs_kb "${list[@]}")"; fs_add tmp "Leftover installer downloads in /tmp (${#list[@]} folder(s))" "$kb" "Copies of this installer that an older 'Update now' left behind. Nothing else is in them." 0; fi
+    kb="$(fs_kb "$HOME_DIR/.cache/pip")"; fs_add pip "pip download cache (~/.cache/pip)" "$kb" "Downloaded Python packages. They are downloaded again only if you reinstall something." 0
+    if [ "$TESTING" = 1 ]; then kb="${WM_TEST_APT_KB:-0}"; else kb="$(fs_kb /var/cache/apt/archives)"; fi
+    fs_add apt "apt package cache (/var/cache/apt/archives)" "$kb" "Downloaded .deb files of packages that are already installed. Installed programs are not touched." 1
+    if [ "$TESTING" = 1 ]; then kb="${WM_TEST_JOURNAL_KB:-0}"; else kb="$(fs_kb /var/log/journal)"; kb=$(( kb > 51200 ? kb - 51200 : 0 )); fi
+    fs_add journal "Old system log history (keeps the newest 50 MB)" "$kb" "Erases older system messages (journalctl). Only useful when looking for an old problem." 1
+    kb="$(fs_kb $(ls "$CFG_DIR"/../logs/*.log.* 2>/dev/null))"; fs_add oldlogs "Old rotated printer logs (~/printer_data/logs/*.log.*)" "$kb" "Older copies of klippy/moonraker logs. The current logs stay." 0
+    # (tests only ever touch a copy of the installer folder, never the real repository)
+    if [ -d "$REPO_DIR/.git" ] && case "$(basename "$REPO_DIR")" in wm-ultra-rpi*) true ;; *) false ;; esac && { [ "$TESTING" != 1 ] || [ "${WM_TEST_REFRESH_REPO:-0}" = 1 ]; }; then kb="$(fs_kb "$REPO_DIR/.git")"; fs_add gitdir "Git history of the downloaded installer ($REPO_DIR/.git)" "$kb" "After this, 'git pull' no longer works in that folder; 'Update now' in the menu downloads the newest files instead." 0; fi
+}
+fs_free_text() { echo "  Free space now: $(disk_free_mb) MB   (the install needs about $FREE_NEED_MB MB)"; }
+fs_do() {   # id
+    case "$1" in
+        tmp) local d; while read -r d; do [ -n "$d" ] && rm -rf "$d"; done < <(fs_tmpdirs) ;;
+        pip) rm -rf "$HOME_DIR/.cache/pip" ;;
+        apt) SUDO apt-get clean ;;
+        journal) SUDO journalctl --vacuum-size=50M ;;
+        oldlogs) rm -f "$CFG_DIR"/../logs/*.log.* ;;
+        gitdir) rm -rf "$REPO_DIR/.git" ;;
+    esac
+}
+do_free_space() {   # lists what can be erased safely, with sizes and a warning for each; erases only what you pick and confirm
+    print_header "Free up disk space"
+    fs_free_text
+    fs_scan
+    local i n=0 idx=() ans pick=() total=0 k
+    for i in "${!FS_ID[@]}"; do
+        [ "${FS_KB[$i]}" -ge 1024 ] || continue
+        n=$((n+1)); idx+=("$i")
+        printf '   %s) %-62s %5s MB%s\n' "$n" "${FS_LABEL[$i]}" "$(( FS_KB[i] / 1024 ))" "$([ "${FS_SUDO[$i]}" = 1 ] && echo '  (asks for sudo)')"
+        echo -e "      ${DIM}${FS_WARN[$i]}${NC}"
+    done
+    [ "$n" -gt 0 ] || { print_info "Nothing safe to erase was found. Free space yourself: old files in ~/printer_data/gcodes, or other large files (du -xh ~ --max-depth=1 | sort -rh | head)."; return 0; }
+    echo "  Your gcode files, your settings, KlipperScreen and the factory software are never in this list."
+    if [ "${WM_ASSUME_YES:-0}" = 1 ]; then ans="all"; else read -r -p "  Type the numbers to erase (for example 1 3), 'all', or press Enter to cancel: " ans || ans=""; fi
+    ans="$(echo "$ans" | tr ',' ' ')"
+    [ -n "$ans" ] || { echo "  Nothing was erased."; return 0; }
+    if [ "$ans" = all ]; then pick=("${idx[@]}"); else
+        for k in $ans; do [[ "$k" =~ ^[0-9]+$ ]] && [ "$k" -ge 1 ] && [ "$k" -le "$n" ] && pick+=("${idx[$((k-1))]}") || { print_warning "'$k' is not in the list."; return 0; }; done
+    fi
+    echo; echo -e "  ${YELLOW}This will ERASE:${NC}"
+    for i in "${pick[@]}"; do echo "    - ${FS_LABEL[$i]}  (about $(( FS_KB[i] / 1024 )) MB)"; echo -e "      ${DIM}${FS_WARN[$i]}${NC}"; total=$((total + FS_KB[i])); done
+    if [ "$DRY" = 1 ]; then echo -e "  ${DIM}(dry run: nothing is erased)${NC}"; return 0; fi
+    ask_yn "Erase these now? About $((total/1024)) MB will be freed" n || { echo "  Nothing was erased."; return 0; }
+    for i in "${pick[@]}"; do fs_do "${FS_ID[$i]}"; done
+    [ "$TESTING" = 1 ] && export WM_TEST_DISK_MB=$(( ${WM_TEST_DISK_MB:-4000} + total/1024 ))
+    print_success "Erased. Free space now: $(disk_free_mb) MB"
+}
+
 preflight() {
     print_header "Checking this board"
     if [ "$TESTING" != 1 ]; then
@@ -275,7 +339,13 @@ preflight() {
     fi
     ask_pi   # only written into KlipperScreen.conf; the Pi is not contacted
     if printing_now && [ "$FORCE" != 1 ]; then die_with_fix "a print is running or paused." "wait until it finishes (or --force)."; fi
-    local free; free="$(disk_free_mb)"; [ "${free:-0}" -gt 1500 ] && print_success "disk space ${free} MB free" || die_with_fix "only ${free} MB free." "free space (old logs, ~/printer_data/gcodes) first."
+    local free; free="$(disk_free_mb)"
+    if [ "${free:-0}" -le "$FREE_NEED_MB" ] && { [ -t 0 ] || [ "${WM_TEST_FREE_OFFER:-0}" = 1 ]; } && [ "${WM_ASSUME_YES:-0}" != 1 ]; then
+        print_warning "Only ${free} MB free; the install needs about $FREE_NEED_MB MB."
+        echo "  I can look for files that are safe to erase and show you each one before anything is deleted."
+        ask_yn "Look for files to erase now?" y && { do_free_space; free="$(disk_free_mb)"; }
+    fi
+    [ "${free:-0}" -gt "$FREE_NEED_MB" ] && print_success "disk space ${free} MB free" || die_with_fix "only ${free} MB free." "free space first: bash scripts/screen_board.sh --free-space  (it shows what is safe to erase and asks before deleting)."
     apt_fix; fix_clock; apt_ok && print_success "apt works (archive.debian.org)" || die_with_fix "apt update fails." "check the board's internet access and date; see README 'Screen board'. Nothing was changed."
     if [ "$TESTING" != 1 ]; then curl -fsS -m 8 -o /dev/null https://github.com 2>/dev/null && print_success "GitHub reachable" || die_with_fix "GitHub is not reachable." "KlipperScreen is downloaded from GitHub."; fi
 }
@@ -762,7 +832,7 @@ do_restore_board() {
 }
 fetch_latest() {   # sets LATEST_DIR to a folder with the newest version from GitHub (no git needed)
     if [ "$TESTING" = 1 ]; then LATEST_DIR="${WM_TEST_UPDATE_DIR:-}"; [ -d "$LATEST_DIR" ]; return; fi
-    LATEST_DIR="$(mktemp -d)"; print_info "Downloading the newest version from GitHub ..."
+    LATEST_DIR="$(mktemp -d)"; LATEST_TMP="$LATEST_DIR"; print_info "Downloading the newest version from GitHub ..."
     curl -fsSL -m 120 https://codeload.github.com/ducati1198/wm-ultra-rpi/tar.gz/refs/heads/main | tar -xz --strip-components=1 -C "$LATEST_DIR" || return 1
 }
 do_whatsnew_board() {   # reads only two small text files (VERSION and CHANGELOG.md); nothing is downloaded or saved
@@ -790,7 +860,8 @@ refresh_installer_folder() {   # the folder this script runs from must be the ne
     [ -f "$REPO_DIR/scripts/screen_board.sh" ] && cp -a "$w"/. "$REPO_DIR"/ 2>/dev/null
     return 0
 }
-do_update_board() {
+do_update_board() { do_update_board_core; local rc=$?; rm -rf "${LATEST_TMP:-}"; return $rc; }   # the downloaded copy (about 50 MB) never stays in /tmp
+do_update_board_core() {
     print_header "Update the ZR Tools screen files"
     local new old w; old="$(cat "$REPO_DIR/VERSION" 2>/dev/null)"
     if [ "$TESTING" = 1 ] && [ -z "${WM_TEST_UPDATE_DIR:-}" ]; then print_info "Test: no update folder."; return 0; fi
@@ -979,9 +1050,10 @@ menu_uninstall() {
         menu_item 2 "My backups and bundles" "screen backups, support bundles, board report"
         menu_item 3 "Saved restore data" "only possible when KlipperScreen is gone"
         menu_item 4 "Downloaded installer folder" "the folder you ran this script from"
+        menu_item 5 "Free up disk space" "shows what is safe to erase (with sizes and warnings), erases only what you pick"
         menu_item 0 "Back" ""
         menu_read "Choose:" || return 0
-        case "$REPLY_MENU" in 1) menu_sub --remove rescue ;; 2) menu_sub --remove backups ;; 3) menu_sub --remove restoredata ;; 4) menu_sub --remove installer; return 0 ;; 0|"") return 0 ;; *) echo "  Choose a number from the list." ;; esac
+        case "$REPLY_MENU" in 1) menu_sub --remove rescue ;; 2) menu_sub --remove backups ;; 3) menu_sub --remove restoredata ;; 4) menu_sub --remove installer; return 0 ;; 5) menu_sub --free-space ;; 0|"") return 0 ;; *) echo "  Choose a number from the list." ;; esac
     done
 }
 menu_item() { printf '   %s) %-34s %b%s%b\n' "$1" "$2" "$DIM" "$3" "$NC"; }
@@ -1099,6 +1171,7 @@ menu_main() {
 
 case "$MODE" in
     menu) menu_main ;;
+    freespace) do_free_space ;;
     fixclock) apt_fix; fix_clock ;;
     zrpi) do_zr_pi ;;
     setdriver) do_setdriver ;;

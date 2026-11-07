@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.22.0
+
+- Screen board installer: **Free up disk space.** New entry in the Uninstall page (menu 9, entry 5) and the option `--free-space`. It lists what is safe to erase, each with its size and a warning about what it is (leftover installer downloads in /tmp, the pip cache, the apt package cache, old system log history, old rotated printer logs, the installer's git history), you type the numbers, it shows "This will ERASE" and asks before deleting. Gcode files, settings, KlipperScreen and the factory software are never listed. `--yes` alone never erases.
+- Screen board installer: when the install stops because there is not enough free space (about 1500 MB are needed), it now offers that same cleanup right there, then re-checks.
+- Fixed a leak: "Update now" on the board (and `--get-latest` on the Pi) left a downloaded copy of about 50 MB in /tmp on every run. It is now removed when the command finishes, fails or is cancelled. Run Free up disk space once to clear old ones.
+- Fixed: the clock step of the board install printed "why: command not found" (harmless).
+
 ## 1.21.2
 
 - Screen board menu: Update now on a board where KlipperScreen is not installed yet (factory mode) no longer stops with "KlipperScreen is not installed here". It updates the installer files, says so, and reopens the menu on the new version; choose 1 (Install) next.

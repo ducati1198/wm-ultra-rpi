@@ -272,6 +272,7 @@ The installer first asks **which printer you have** (ZR Ultra or ZR Ultra-S; or 
 | `./installer.sh --disable-klipper` | stop Klipper and disable it |
 | `./installer.sh --uninstall` | remove what the installer added to the system |
 | `bash scripts/screen_board.sh --zr-pi --pi IP` | on the screen board: checks the ZR Tools macros on the Pi over ssh (asks its user name and password), installs them if missing |
+| `bash scripts/screen_board.sh --free-space` | on the screen board: lists what is safe to erase (sizes, warnings), erases only what you pick and confirm |
 | `bash scripts/screen_board.sh --fix-clock` | on the screen board: turns on automatic time sync (NTP) and fixes apt's date check |
 | `scripts/board_check.sh` | read-only: main board on USB, can0, CAN devices, services, Moonraker |
 
@@ -417,6 +418,23 @@ Run `bash scripts/screen_board.sh` on the board to get this menu:
 
 ![Screen board menu](docs/img/menu-board-main.png)
 ![Screen board update page](docs/img/menu-board-update.png)
+
+### Not enough free space
+
+The install needs about 1500 MB free. If there is less, it stops with "only N MB free" and offers to look for files that are safe to erase. You can also run it any time: menu 9 (Uninstall installer files) > 5 Free up disk space, or `bash scripts/screen_board.sh --free-space`.
+
+It lists each candidate with its size and a warning, you pick the numbers, then it shows **This will ERASE** and asks before deleting anything:
+
+| Candidate | What goes | What the warning says |
+|---|---|---|
+| Leftover installer downloads in `/tmp` | Copies of this installer that older "Update now" runs left behind (about 50 MB each) | nothing else is in them |
+| pip cache `~/.cache/pip` | Downloaded Python packages | downloaded again only if you reinstall something |
+| apt package cache | `.deb` files of packages already installed (needs sudo) | installed programs are not touched |
+| Old system log history | everything except the newest 50 MB of the journal (needs sudo) | only useful for finding an old problem |
+| Old rotated printer logs | `~/printer_data/logs/*.log.*` | the current logs stay |
+| Installer git history | `.git` in the downloaded installer folder | `git pull` stops working there; "Update now" downloads instead |
+
+Your gcode files, settings, KlipperScreen and the factory software are never in the list. `--yes` alone never erases anything.
 
 ### Clock, and ZR Tools on the Pi
 
