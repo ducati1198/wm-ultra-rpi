@@ -174,8 +174,9 @@ chmod +x installer.sh
 > ```bash
 > cd ~/wm-ultra-rpi
 > ./installer.sh --get-latest
-> ./installer.sh --update
 > ```
+>
+> That only gets the newest files from GitHub and changes nothing else. To also apply the update to the printer, run `./installer.sh --update` afterwards (optional).
 
 ### The installer menu
 
