@@ -110,7 +110,7 @@ print_success() { echo -e "${GREEN}✓ ${1}${NC}"; }
 print_warning() { echo -e "${YELLOW}⚠ ${1}${NC}"; }
 print_error()   { echo -e "${RED}✗ ${1}${NC}"; }
 warn_later()    { WARNINGS+=("$1"); }
-die_with_fix()  { print_error "Can't continue: $1"; echo -e "  Fix: $2"; rm -rf "${LATEST_TMP:-}"; exit 1; }
+die_with_fix()  { live_bar_stop; print_error "Can't continue: $1"; echo -e "  Fix: $2"; rm -rf "${LATEST_TMP:-}"; exit 1; }
 ask_yn() { local p="$1" d="${2:-y}" a; if [ "${WM_ASSUME_YES:-0}" = 1 ]; then [ "$d" = y ]; return; fi
     read -r -p "$(echo -e "${YELLOW}?${NC} $p [${d}] ")" a || a=""; a="${a:-$d}"; [[ "$a" =~ ^[Yy] ]]; }
 SUDO() {
@@ -213,6 +213,7 @@ apt_ok() {
 }
 fix_clock() {   # automatic time sync (NTP): with a wrong date HTTPS downloads and apt fail. Asks once; nothing else on the board is changed.
     print_header "Date and time"
+    progress_bar 0 2 "Date and time 1 of 2: looking at the clock"
     local synced now
     if [ "$TESTING" = 1 ]; then synced="${WM_TEST_NTP_SYNCED:-no}"
     else synced="$(timedatectl show -p NTPSynchronized --value 2>/dev/null)"; fi
@@ -232,7 +233,9 @@ fix_clock() {   # automatic time sync (NTP): with a wrong date HTTPS downloads a
     fi
     command -v timedatectl >/dev/null 2>&1 || SUDO apt-get install -y systemd-timesyncd >/dev/null 2>&1
     SUDO timedatectl set-ntp true 2>/dev/null || SUDO systemctl enable --now systemd-timesyncd 2>/dev/null
+    progress_bar 1 2 "Date and time 2 of 2: waiting for a time server"
     local i; for i in $(seq 1 15); do [ "$(timedatectl show -p NTPSynchronized --value 2>/dev/null)" = yes ] && break; sleep 2; done
+    progress_bar 2 2 "Done"
     if [ "$(timedatectl show -p NTPSynchronized --value 2>/dev/null)" = yes ]; then print_success "Automatic time sync is on: $(date '+%Y-%m-%d %H:%M %Z')"; return 0; fi
     # No NTP server reachable (some networks block port 123): take the time from the Date header of a web server, once
     local d; d="$(curl -sI -m 8 http://github.com 2>/dev/null | sed -n 's/^[Dd]ate: *//p' | tr -d '\r' | head -1)"
@@ -281,8 +284,11 @@ zr_on_pi() {   # check the ZR Tools macros on the Pi; install what is missing; "
 }
 ZR_PI_CHANGED=0
 do_zr_pi() {   # --zr-pi: only this
+    progress_bar 0 3 "ZR Tools on the Pi 1 of 3: Pi login"
     ask_pi; zr_pi_ask || die_with_fix "no Pi login." "run it again and type the user name and password."
-    zr_on_pi && [ "$ZR_PI_CHANGED" = 1 ] && restart_pi_klipper
+    progress_bar 1 3 "ZR Tools on the Pi 2 of 3: checking and installing on the Pi"
+    zr_on_pi && [ "$ZR_PI_CHANGED" = 1 ] && { progress_bar 2 3 "ZR Tools on the Pi 3 of 3: restarting Klipper"; restart_pi_klipper; }
+    progress_bar 3 3 "Done"
     ZR_PI_PASS=""
     [ ${#WARNINGS[@]} -gt 0 ] && { local w; for w in "${WARNINGS[@]}"; do print_warning "$w"; done; return 1; }
     return 0
@@ -925,17 +931,22 @@ do_doctor_board() {
 }
 do_bundle_board() {
     print_header "Support bundle (screen board)"
+    progress_bar 0 4 "Bundle 1 of 4: system report"
     local w out="$HOME_DIR/wm-screen-support-$STAMP.tgz"; w="$(mktemp -d)"; mkdir -p "$w/b/config" "$w/b/logs"
     { echo "screen_board $(cat "$REPO_DIR/VERSION" 2>/dev/null) $(date -u +%FT%TZ) user=$(id -un)"; uname -a; grep PRETTY /etc/os-release 2>/dev/null; free -m | sed -n 2p; df -h "$HOME_DIR" | tail -1
       do_status 2>&1 | sed 's/\x1b\[[0-9;]*m//g'; } | board_scrub > "$w/b/system.txt"
+    progress_bar 1 4 "Bundle 2 of 4: settings"
     local f; for f in KlipperScreen.conf zr_screen.conf; do [ -f "$CFG_DIR/$f" ] && board_scrub < "$CFG_DIR/$f" > "$w/b/config/$f"; done
     [ -f "$BK/disabled.list" ] && cp "$BK/disabled.list" "$w/b/config/"
+    progress_bar 2 4 "Bundle 3 of 4: logs"
     if [ "$TESTING" != 1 ]; then
         journalctl -u KlipperScreen -n 150 --no-pager 2>/dev/null | board_scrub > "$w/b/logs/journal-KlipperScreen.txt"
         tail -n 150 "$HOME_DIR/.local/share/xorg/Xorg.0.log" 2>/dev/null | board_scrub > "$w/b/logs/Xorg.0.log"
         tail -n 150 /tmp/KlipperScreen.log "$HOME_DIR/printer_data/logs/KlipperScreen.log" 2>/dev/null | board_scrub > "$w/b/logs/KlipperScreen.log"
     fi
+    progress_bar 3 4 "Bundle 4 of 4: packing the file"
     tar czf "$out" -C "$w" b && chmod 600 "$out" && rm -rf "$w"
+    progress_bar 4 4 "Done"
     print_success "Saved $out"
     echo "  Passwords, tokens, Wi-Fi names, private IP and MAC addresses are removed. Look inside before you send it."
 }

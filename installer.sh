@@ -163,7 +163,7 @@ print_warning() { echo -e "${YELLOW}⚠ ${1}${NC}"; }
 print_error()   { echo -e "${RED}✗ ${1}${NC}"; }
 why()           { echo -e "  ${DIM}Why: $1${NC}"; }
 warn_later()    { WARNINGS+=("$1"); }
-die_with_fix()  { print_error "Can't continue: $1"; echo -e "  Fix: $2"; exit 1; }
+die_with_fix()  { live_bar_stop; print_error "Can't continue: $1"; echo -e "  Fix: $2"; exit 1; }
 
 ask_yn() {  # prompt default(y/n)
     local p="$1" d="${2:-y}" a
@@ -1475,8 +1475,11 @@ do_backup() {
     why "Your calibration and config live only on this SD card. SD cards fail."
     local items=() i
     for i in printer_data/config printer_data/database printer_data/wm-model TM_T1/factory_settings; do [ -e "$HOME_DIR/$i" ] && items+=("$i"); done
+    progress_bar 0 2 "Backup 1 of 2: packing your settings"
     tar czf "$out" -C "$HOME_DIR" "${items[@]}" 2>/dev/null || die_with_fix "could not write the backup." "free disk space, or choose another folder: ./installer.sh --backup /path"
+    progress_bar 1 2 "Backup 2 of 2: protecting the file"
     chmod 600 "$out"
+    progress_bar 2 2 "Done"
     print_success "Saved $out ($(du -h "$out" | cut -f1))"
     echo "  Copy it off the Pi (scp or a USB stick). It holds your private settings: do not publish it."
 }
@@ -1606,9 +1609,12 @@ repair_factory_files() {   # a git clone whose factory/ files were deleted or ch
 do_zr_tools() {   # ZR Tools macros on this Pi (for the WonderMaker screen board): check first, install only when something is missing
     print_header "ZR Tools macros (for the screen board)"
     why "The ZR Tools page on the screen board sends commands such as ZR_SET_TOOL_INFO and ZR_LOAD to Klipper. They are macros in zr_tools.cfg, which printer.cfg must include, and they keep their data in [save_variables]."
+    progress_bar 0 3 "ZR Tools 1 of 3: looking at printer.cfg"
     [ -f "$HOME_DIR/printer_data/config/printer.cfg" ] || die_with_fix "there is no printer.cfg on this Pi yet." "install first (menu 1), then run this again."
     if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would check zr_tools.cfg, the include line and [save_variables], and add what is missing${NC}"; return 0; fi
+    progress_bar 1 3 "ZR Tools 2 of 3: checking and installing what is missing"
     local out rc; out="$(HOME="$HOME_DIR" ZR_SRC="$REPO_DIR/zr_tools" ZR_NO_RESTART=1 ZR_PRINT_STATE="$( [ "$TESTING" = 1 ] && echo "${WM_TEST_PRINT_STATE:-standby}" )" bash "$REPO_DIR/zr_tools/ensure_zr_tools_pi.sh" 2>&1)"; rc=$?
+    progress_bar 3 3 "Done"
     echo "$out" | grep -v '^ZR_RESULT='
     case "$out" in
         *ZR_RESULT=already*) print_success "ZR Tools macros are already installed on this Pi." ;;
@@ -1738,6 +1744,7 @@ do_doctor() {
         ask_yn "Apply every fix without asking again?" n && DOC_FIXALL=1 || echo "  Normal mode: the Doctor asks before each fix."
     fi
     [ "$(id -un)" = "$WM_USER" ] || [ "$TESTING" = 1 ] && doc_ok "user is $WM_USER" || doc_bad "user is $(id -un), not $WM_USER" "WonderMaker's paths are fixed to /home/$WM_USER. Log in as $WM_USER."
+    progress_bar 0 5 "Doctor 1 of 5: folders"
     local d dl="klipper moonraker printer_data fluidd klippy-env moonraker-env"; [ "$TESTING" = 1 ] && dl="klipper moonraker printer_data fluidd"
     for d in $dl; do
         [ -d "$HOME_DIR/$d" ] && doc_ok "~/$d" || doc_bad "~/$d is missing" "Run ./installer.sh (or ./installer.sh --undo if a run was interrupted)."
@@ -1750,6 +1757,7 @@ do_doctor() {
         cmp -s "$SCRIPT_DIR/config/gcode_shell_command.py" "$HOME_DIR/klipper/klippy/extras/gcode_shell_command.py" 2>/dev/null && doc_ok "gcode_shell_command extension is installed" \
             || { doc_bad "gcode_shell_command extension is missing or different" "RUN_SHELL_COMMAND will not work (Klipper stops at start if printer.cfg has a [gcode_shell_command] section)."; offer_fix "copy it again" step_shellcmd; }
     fi
+    progress_bar 1 5 "Doctor 2 of 5: programs"
     local rp rn rv rdir rsvc
     for rp in "Obico:WANT_OBICO:moonraker-obico:moonraker-obico" "OctoApp:WANT_OCTOAPP:octoapp:octoapp" "OctoEverywhere:WANT_OCTOEVERYWHERE:octoeverywhere:octoeverywhere"; do
         IFS=: read -r rn rv rdir rsvc <<< "$rp"
@@ -1774,6 +1782,7 @@ do_doctor() {
             [ "$(service_state crowsnest)" = active ] && doc_ok "webcam service is running" || { doc_bad "a camera is plugged in but the webcam service is not running" "No picture in Fluidd."; offer_fix "start the webcam service" bash -c "sudo systemctl enable --now crowsnest"; }
         else doc_ok "webcam service is waiting for a camera (none plugged in)"; fi
     fi
+    progress_bar 2 5 "Doctor 3 of 5: modules and printer config"
     local miss; miss="$(modules_present | tr '\n' ' ')"
     if [ -z "$miss" ]; then doc_ok "WonderMaker's compiled modules are present"
     else doc_bad "missing modules: $miss" "Klipper cannot run the heaters, load cells or calibration without them."; offer_fix "copy the factory modules from this repository (checksums are verified)" restore_modules_from_repo; fi
@@ -1782,6 +1791,7 @@ do_doctor() {
         doc_bad "printer.cfg has $nerr problem(s) (listed above)" "A missing include stops Klipper at start. A wrong zru-s.cfg line means the chamber/air-filter settings do not match your model."
         grep -q 'zru-s.cfg' < <(validate_config 2>&1) && offer_fix "set printer.cfg for the $(model_now)" step_model
     fi
+    progress_bar 3 5 "Doctor 4 of 5: services"
     local s; for s in moonraker nginx; do
         [ "$(service_state $s)" = active ] && doc_ok "$s is running" || { doc_bad "$s is not running" "journalctl -u $s -n 30"; offer_fix "restart $s" bash -c "sudo systemctl restart $s"; }
         [ "$(service_enabled $s)" = enabled ] && doc_ok "$s starts at boot" || { doc_bad "$s will not start at boot" "The Pi would come up without the web page."; offer_fix "enable $s" bash -c "sudo systemctl enable $s"; }
@@ -1799,6 +1809,7 @@ do_doctor() {
         [ "$hc" = 200 ] && doc_ok "Fluidd page opens" || { doc_bad "Fluidd page answers HTTP ${hc:-none}" "403 means nginx cannot read your home folder (Debian 12 makes it private)."; offer_fix "let nginx pass through the home folder" bash -c "chmod o+x '$HOME_DIR' && sudo systemctl reload nginx"; }
     fi
     [ -n "$(api_get /server/info)" ] && doc_ok "Moonraker API answers" || doc_bad "Moonraker API does not answer" "Last log lines: $(tail -n 3 "$HOME_DIR/printer_data/logs/moonraker.log" 2>/dev/null | tr '\n' ' ')"
+    progress_bar 4 5 "Doctor 5 of 5: disk space and power"
     local free; free=$(df -Pm "$HOME_DIR" | awk 'NR==2{print $4}'); [ "${free:-0}" -gt 800 ] && doc_ok "disk space (${free} MB free)" || doc_bad "only ${free} MB free" "Old backups: ~/wm-rpi-backup and ~/wm-backups. Gcode files: ~/printer_data/gcodes."
     local p; p="$(power_flags)"; if [ -z "$p" ] || [ "$p" = 0x0 ]; then doc_ok "no power problems reported"; else doc_bad "the Pi reported power/heat flags $p" "Use the official 5 V / 3 A supply and a short cable."; fi
     if [ "$WANT_SCREEN" = 1 ]; then
@@ -1816,6 +1827,7 @@ do_doctor() {
         { [ -f "$c/zr_tools.cfg" ] && grep -q '^\[include zr_tools.cfg\]' "$c/printer.cfg" 2>/dev/null; } && doc_ok "ZR Tools macros are in printer.cfg" || doc_bad "ZR Tools macros are missing from printer.cfg" "Run ./installer.sh --update."
     fi
     ntp_ok && doc_ok "clock is synchronized" || doc_bad "clock is not synchronized" "HTTPS downloads and file times go wrong. Check the network."
+    progress_bar 5 5 "Doctor finished"
     echo; [ "$DOC_PROBLEMS" = 0 ] && print_success "No problems found." || { print_warning "$DOC_PROBLEMS problem(s) found. For a report to share: ./installer.sh --support-bundle"; return 1; }
 }
 
@@ -1826,6 +1838,7 @@ scrub() {  # remove secrets and private addresses from a stream
 }
 do_support_bundle() {
     print_header "Support bundle"
+    progress_bar 0 4 "Bundle 1 of 4: system report"
     local w; w="$(mktemp -d)"; local out="$HOME_DIR/wm-support-$STAMP.tgz" b="$w/wm-support"; mkdir -p "$b"
     {
         echo "wm-ultra-rpi installer $VERSION   model: $(model_now)   date: $(date -u +%FT%TZ)"
@@ -1839,8 +1852,10 @@ do_support_bundle() {
         echo "--- canbus uuids in config"; cfg_uuids | sed "s#$HOME_DIR#~#"
     } 2>&1 | scrub > "$b/system.txt"
     cp "$CONF" "$b/install.conf" 2>/dev/null; cp "$STATE" "$b/installed.manifest" 2>/dev/null
+    progress_bar 1 4 "Bundle 2 of 4: config files"
     local f; mkdir -p "$b/config"
     for f in "$(cfg_dir)"/*.cfg "$(cfg_dir)"/moonraker.conf "$(cfg_dir)"/crowsnest.conf; do [ -f "$f" ] && scrub < "$f" > "$b/config/$(basename "$f")"; done
+    progress_bar 2 4 "Bundle 3 of 4: logs"
     mkdir -p "$b/logs"
     local lf; lf="$(ls -1t "$LOG_DIR"/installer-*.log 2>/dev/null | head -n1)"; [ -n "$lf" ] && scrub < "$lf" > "$b/logs/last-installer-run.log"
     for f in klippy moonraker crowsnest; do [ -f "$HOME_DIR/printer_data/logs/$f.log" ] && tail -n 400 "$HOME_DIR/printer_data/logs/$f.log" | scrub > "$b/logs/$f.log"; done
@@ -1850,7 +1865,9 @@ This bundle was made by ./installer.sh --support-bundle. Passwords, tokens, keys
 were removed from the text files. Gcode files, calibration databases and backups are NOT included.
 Please look through it before sharing.
 E
+    progress_bar 3 4 "Bundle 4 of 4: packing the file"
     tar czf "$out" -C "$w" wm-support; rm -rf "$w"; chmod 600 "$out"
+    progress_bar 4 4 "Done"
     print_success "Saved $out ($(du -h "$out" | cut -f1)). Look through it, then send it along with your question."
 }
 
@@ -1859,18 +1876,22 @@ E
 # ============================================================================
 do_check() {
     print_header "Check (changes nothing)"
+    progress_bar 0 3 "Check 1 of 3: folders and printer.cfg"
     local bad=0
     local dirs="klipper moonraker printer_data fluidd klippy-env moonraker-env"; [ "$TESTING" = 1 ] && dirs="klipper moonraker printer_data fluidd"
     for d in $dirs; do
         [ -d "$HOME_DIR/$d" ] && print_success "~/$d" || { print_error "~/$d missing"; bad=1; }
     done
     [ -f "$HOME_DIR/printer_data/config/printer.cfg" ] && print_success "printer.cfg" || { print_error "printer.cfg missing"; bad=1; }
+    progress_bar 1 3 "Check 2 of 3: services"
     [ "$TESTING" = 1 ] || {
         print_info "moonraker: $(service_state moonraker)   nginx: $(service_state nginx)   klipper: $(service_state klipper) (enabled: $(systemctl is-enabled klipper 2>/dev/null))"
         [ "$(service_state moonraker)" = active ] || { print_error "Moonraker is not running"; bad=1; }
         [ -x "$SCRIPT_DIR/scripts/board_check.sh" ] && bash "$SCRIPT_DIR/scripts/board_check.sh"
     }
+    progress_bar 2 3 "Check 3 of 3: Fluidd warnings"
     if [ -n "$(polkit_warnings)" ] || ! packagekit_present; then print_warning "Fluidd shows 'PolKit warnings detected' (PackageKit missing). Fix: ./installer.sh --repair"; fi
+    progress_bar 3 3 "Check finished"
     [ "$bad" = 0 ] && print_success "All good." || { print_error "Problems found."; exit 1; }
 }
 

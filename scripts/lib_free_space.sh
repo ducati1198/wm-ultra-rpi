@@ -57,7 +57,8 @@ do_free_space() {   # lists what can be erased safely, with sizes and a warning 
     for i in "${pick[@]}"; do echo "    - ${FS_LABEL[$i]}  (about $(( FS_KB[i] / 1024 )) MB)"; echo -e "      ${DIM}${FS_WARN[$i]}${NC}"; total=$((total + FS_KB[i])); done
     if [ "$DRY" = 1 ]; then echo -e "  ${DIM}(dry run: nothing is erased)${NC}"; return 0; fi
     ask_yn "Erase these now? About $((total/1024)) MB will be freed" n || { echo "  Nothing was erased."; return 0; }
-    for i in "${pick[@]}"; do fs_do "${FS_ID[$i]}"; done
+    local fi_=0; for i in "${pick[@]}"; do progress_bar "$fi_" "${#pick[@]}" "Erasing (step $((fi_+1)) of ${#pick[@]})"; fs_do "${FS_ID[$i]}"; fi_=$((fi_+1)); done
+    progress_bar "${#pick[@]}" "${#pick[@]}" "Done"
     [ "$TESTING" = 1 ] && export WM_TEST_DISK_MB=$(( ${WM_TEST_DISK_MB:-4000} + total/1024 ))
     print_success "Erased. Free space now: $(disk_free_mb) MB"
 }

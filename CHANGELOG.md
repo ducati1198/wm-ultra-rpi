@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.23.4
+
+- The live bar now also covers the sections that had none. Pi installer: Check, Doctor, support bundle, backup, ZR Tools and Free up disk space. Screen board: clock fix, ZR Tools on the Pi, support bundle and Free up disk space.
+
 ## 1.23.3
 
 - The progress bar is now live. In a terminal the current bar stays on the last screen line with a spinner and the time the step has taken (`[████░░░░]  20%  Step 3 of 8  / 1m05s`), so a slow step (apt, pip, a download) visibly keeps running. Before, the bar was printed once per step and stayed still. The normal log lines are unchanged, and nothing is drawn when the output is not a terminal.

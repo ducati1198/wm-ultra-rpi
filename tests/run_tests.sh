@@ -972,4 +972,5 @@ EOP
 }
 check "Pi installer: the bar line is repainted every second and released at 100 percent" "live_check $ROOT/installer.sh"
 check "screen board: the bar line is repainted every second and released at 100 percent" "live_check $ROOT/scripts/screen_board.sh"
+check "bars: Check, Doctor, support bundle and backup all end at 100 percent" "M '' $LG --check | grep -q '100%  Check finished' && M '' $LG --doctor | grep -q '100%  Doctor finished' && M '' $LG --support-bundle | grep -q '100%  Done' && M '' $LG --backup | grep -q '100%  Done'"
 echo; echo "passed: $PASS  failed: $FAIL"; [ "$FAIL" = 0 ]
