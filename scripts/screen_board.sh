@@ -847,7 +847,8 @@ do_update_board_core() {
     echo "  This copies the new ZR Tools panels and this script's copies. KlipperScreen itself, your settings and the factory services are not touched."
     ask_yn "Update now?" y || { echo "Nothing changed."; return 0; }
     progress_bar 35 100 "Update step 2 of 6: backup of your settings"
-    ( do_backup_board ) >/dev/null 2>&1 || true   # in a subshell: a failed backup (die) must not end the update
+    ( STAMP="$STAMP-before-update" do_backup_board ) >/dev/null 2>&1 || true   # in a subshell: a failed backup (die) must not end the update
+    ls -1t "$BKDIR"/screen-backup-*-before-update.tgz 2>/dev/null | tail -n +6 | while read -r o; do rm -f "$o"; done   # only the newest 5 automatic backups stay; ones you made yourself are never deleted
     progress_bar 40 100 "Update step 3 of 6: copying the new files"
     if [ "$DRY" != 1 ]; then
         mkdir -p "$KS_DIR/panels"; cp "$w"/zr_tools/{zr_tools.py,zr_views.py,zr_logic.py} "$KS_DIR/panels/"

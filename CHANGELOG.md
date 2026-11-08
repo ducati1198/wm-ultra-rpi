@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.23.9
+
+- Screen board, Update now: the backup it saves first is named `screen-backup-<date>-before-update.tgz`, and only the newest 5 of those are kept in `~/wm-screen-backups`. Backups you make yourself are never deleted.
+
 ## 1.23.8
 
 - The automatic backup saved before `--update` (and before an add-on install) now also holds `~/TM_T1/factory_settings`, WonderMaker's factory settings. `--restore` puts it back when the backup has it.
