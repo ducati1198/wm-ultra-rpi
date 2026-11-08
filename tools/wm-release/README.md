@@ -1,4 +1,4 @@
-# wm_release.py - WonderMaker release tool (version 1.3.0)
+# wm_release.py - WonderMaker release tool (version 1.4.0)
 
 For bringing a new WonderMaker System release (for example 1.1.14) to your Pi **without losing your own changes**.
 It is not part of any installer and no installer runs it. It lives in the `tools/wm-release/` folder of the repo, so `git pull` brings it to the Pi (the repo is public, so this folder is public too).
@@ -287,6 +287,7 @@ python3 tools/wm-release/wm_release.py --version
 `python3 wm_release.py --version` prints the tool's version; the menu title and `status` show it too, and every line in the history (`log`) records the version that wrote it. It is the tool's own number and has nothing to do with the installer's `VERSION` file, so changing the tool's version alone does not publish a GitHub release (the installer's `VERSION` does).
 
 Version history:
+- **1.4.0** - knows the machine's version from `~/iso_version.txt` (a short log with `Add System_x.y.z` lines; the newest one is the version in use, the same file the old board has in the home folder). The installer now puts it there (`factory/<model>/iso_version.txt`, System_1.1.13), `apply` adds a line `<date>: Add System_x.y.z` to it, like the factory image, keeping its header and history (rollback puts the old file back), and `status`, the menu header and option 1 (website) use it: they say "up to date" by it, warn when it differs from your baseline, and offer to record the baseline for the version it names. Without the file the tool falls back to its newest baseline, as before.
 - **1.3.0** - `clean` (menu `x`): lists and then deletes everything the tool created (`~/wm-private-data`, `~/wm-firmware`, temp files) after you type `DELETE`. It never touches the printer's live files, so updates you applied stay applied; it also removes the baseline and backups, so there is nothing left to roll back to. `--keep-firmware` and `--keep-backups` keep those.
 - **1.2.0** - takes WonderMaker releases without the factory screen board: `fetch --from-soc FILE` (decrypts a `TM_T1_SOC` on the Pi) and `fetch --from-web [VERSION]` (menu `w`; downloads it from WonderMaker's firmware page). Option 1 asks first: old screen board or website. Firmware archive (`~/wm-firmware`, `firmware`, `fetch --from-archive`, menu `a`), `compare OLD NEW` (menu `v`), `settings` (menu `g`), guarded `flash` (menu `m`). The tool now finds the repo root from any folder.
 - **1.1.0** - checks WonderMaker's firmware page for a newer System version: menu item `c`, command `check`, a line in the menu header and a note at the start of option 1. Read only; works offline too (it just says the page could not be read).
@@ -295,7 +296,7 @@ Version history:
 
 ## Tests
 
-`bash tools/wm-release/test.sh` runs 105 checks on throwaway folders (it never touches your real files).
+`bash tools/wm-release/test.sh` runs 109 checks on throwaway folders (it never touches your real files).
 
 ## Checking for a new WonderMaker version
 

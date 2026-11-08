@@ -31,7 +31,7 @@ Version: see --version.  Data folder: $WMR_HOME (default ~/wm-private-data).  Li
 """
 import argparse, atexit, getpass, hashlib, io, json, os, re, shutil, subprocess, sys, tarfile, tempfile, time, urllib.request, urllib.parse, zipfile
 
-TOOL_VERSION = "1.3.0"   # this tool's own version (not the installer's VERSION file); see README "Version history"
+TOOL_VERSION = "1.4.0"   # this tool's own version (not the installer's VERSION file); see README "Version history"
 HOME = os.path.expanduser("~")
 DATA = os.environ.get("WMR_HOME", os.path.join(HOME, "wm-private-data"))
 LIVE = os.environ.get("WMR_LIVE_HOME", HOME)
@@ -133,6 +133,22 @@ def baseline_dir(for_ver=None):
 def board_version(text):
     v = re.findall(r"System_(\d+\.\d+\.\d+)", text)
     return v[-1] if v else None
+
+
+def live_version():
+    """the System version this machine says it has: ~/iso_version.txt (System_x.y.z), or None"""
+    try: return board_version(open(p(LIVE, "iso_version.txt")).read())
+    except OSError: return None
+
+
+def write_live_version(ver):
+    """record a System version the way the factory image does: keep the file's header and history, add one line
+    '<date time>: Add System_x.y.z' (the newest System_ line is the version in use)"""
+    path = p(LIVE, "iso_version.txt")
+    try: old = open(path).read()
+    except OSError: old = ""
+    if old and not old.endswith("\n"): old += "\n"
+    with open(path, "w") as f: f.write(old + "%s: Add System_%s\n" % (time.strftime("%Y-%m-%d %H:%M:%S"), ver))
 
 
 BOARD = {"host": None, "user": None, "dir": None, "sock": None}   # one SSH connection to the board, reused by every step
@@ -868,7 +884,9 @@ def cmd_apply(a):
             lp = p(LIVE, r)
             if os.path.lexists(lp): t.add(lp, arcname=r); existing.append(r)
             else: added.append(r)
-        info = json.dumps({"version": a.version, "added": added, "existing": existing}).encode()
+        try: iso_before = open(p(LIVE, "iso_version.txt")).read()
+        except OSError: iso_before = None
+        info = json.dumps({"version": a.version, "added": added, "existing": existing, "iso_before": iso_before}).encode()
         ti = tarfile.TarInfo("wm-release-manifest.json"); ti.size = len(info); t.addfile(ti, io.BytesIO(info))
     os.chmod(bk, 0o600)
     for r, (c, text) in sorted(todo.items()):
@@ -883,8 +901,10 @@ def cmd_apply(a):
             ok, text = merge3(L[r], B[r], N[r]) if r in B and r in L else (False, None)
             if text is not None: open(p(d, os.path.basename(r) + ".merge"), "wb").write(text)
         shutil.copy2(N[r], p(d, os.path.basename(r) + ".theirs"))
+    write_live_version(a.version)
     log("apply", a.version, files=len(todo), conflicts=len(conf), backup=bk)
     say("Applied %d files. Backup: %s" % (len(todo), bk))
+    say("~/iso_version.txt now says System_%s." % a.version)
     if conf: say("%d conflict(s) left for you: %s" % (len(conf), p(DATA, "conflicts", a.version)))
     say("Next: restart Klipper (sudo systemctl restart klipper), then run the checklist: python3 wm_release.py checklist %s" % a.version)
     say("When the new version works for you: python3 wm_release.py promote %s   (so the next release is compared with it)" % a.version)
@@ -913,6 +933,12 @@ def cmd_rollback(a):
             t.extract(m, p(DATA, "tmp-rollback"), filter="data") if sys.version_info >= (3, 12) else t.extract(m, p(DATA, "tmp-rollback"))
             shutil.move(p(DATA, "tmp-rollback", m.name), dst)
     shutil.rmtree(p(DATA, "tmp-rollback"), ignore_errors=True)
+    if "iso_before" in man:
+        iv = p(LIVE, "iso_version.txt")
+        if man["iso_before"] is None:
+            if os.path.lexists(iv): os.remove(iv)
+        else: open(iv, "w").write(man["iso_before"])
+        say("~/iso_version.txt put back: %s" % (live_version() or "none"))
     for r in man["added"]:
         if os.path.lexists(p(LIVE, r)): os.remove(p(LIVE, r))
     log("rollback", man["version"], backup=bk)
@@ -1004,6 +1030,8 @@ def cmd_status(a):
     say("Releases:     " + (", ".join(sorted(os.listdir(rd))) if os.path.isdir(rd) and os.listdir(rd) else "none fetched"))
     iv = p(LIVE, "iso_version.txt")
     if os.path.isfile(iv): say("This machine's iso_version.txt says: " + (board_version(open(iv).read()) or "?"))
+    else: say("This machine has no ~/iso_version.txt (the installer puts it there; apply writes it).")
+    if bl and live_version() and live_version() != bl[-1]: say("Note: iso_version.txt (%s) differs from your newest baseline (%s)." % (live_version(), bl[-1]))
     if os.path.isdir(p(DATA, "backups")): say("Backups:       %d in %s" % (len(os.listdir(p(DATA, "backups"))), p(DATA, "backups")))
 
 
@@ -1068,7 +1096,7 @@ def wiki_line(board_ver=None):
     """one line saying whether WonderMaker has published something newer than what you have; None when the page cannot be read"""
     lat, _ = wiki_latest()
     if not lat: return None
-    have = board_ver or (known_versions() or [None])[-1]
+    have = board_ver or live_version() or (known_versions() or [None])[-1]
     if not have: return "WonderMaker's newest published version is %s." % lat
     if vkey(lat) > vkey(have): return "NEW: WonderMaker published %s (you have %s). Get it with:  python3 wm_release.py fetch --from-web   (or menu option w), then diff and apply." % (lat, have)
     return "WonderMaker's newest published version is %s - you have %s, up to date." % (lat, have)
@@ -1152,17 +1180,29 @@ def _all_web(a):
     if not lat: die("WonderMaker's firmware page could not be read.",
                     "check the Pi's internet, or use the board path, or 'fetch --from-soc FILE'")
     bl = versions("baseline"); newest = bl[-1] if bl else None
-    say("\n  Newest published System version: %s.  Baselines saved: %s" % (lat, ", ".join(bl) if bl else "none"))
+    inst = live_version()
+    say("\n  Newest published System version: %s.  This machine (iso_version.txt): %s.  Baselines saved: %s" % (lat, inst or "unknown", ", ".join(bl) if bl else "none"))
+    if inst and (newest is None or vkey(inst) > vkey(newest)):
+        step(1, 4, "Baseline for the version this machine says it has (%s)" % inst)
+        say("  The tool needs the files of %s as the starting point so your own changes are kept." % inst)
+        if ask("Record %s as the baseline? (y/n)" % inst, "y").lower().startswith("y"):
+            src = dict(from_archive=inst, from_web=None) if inst in archived_versions() else dict(from_archive=None, from_web=inst)
+            cmd_init_baseline(argparse.Namespace(from_board=None, from_dir=None, from_soc=None, src=None, version=None, force=False, **src))
+            bl = versions("baseline"); newest = bl[-1] if bl else None
+        else: return
+    elif inst and newest and inst != newest:
+        say("  Note: iso_version.txt (%s) is older than your newest baseline (%s)." % (inst, newest))
     if newest is None:
         step(1, 4, "No baseline yet")
         say("  To merge an update without losing your changes, the tool needs the version you had BEFORE, as a baseline.")
-        say("  I can record the current published version (%s) as that baseline now; the NEXT release then merges cleanly." % lat)
+        say("  This machine has no ~/iso_version.txt, so I will assume it matches the current published version (%s)." % lat)
         if ask("Record %s as the baseline? (y/n)" % lat, "y").lower().startswith("y"):
             cmd_init_baseline(argparse.Namespace(from_board=None, from_dir=None, from_soc=None, from_web=lat, from_archive=None, src=None, version=None, force=False))
-            say("\nBaseline %s saved. When WonderMaker publishes a newer version, run this again." % lat)
+            write_live_version(lat)
+            say("\nBaseline %s saved and ~/iso_version.txt set to System_%s. When WonderMaker publishes a newer version, run this again." % (lat, lat))
         return
-    if vkey(lat) <= vkey(newest):
-        say("\nUp to date: newest published is %s and your baseline is %s. Nothing to bring over." % (lat, newest)); return
+    if vkey(lat) <= vkey(inst or newest):
+        say("\nUp to date: newest published is %s and you have %s. Nothing to bring over." % (lat, inst or newest)); return
     step(1, 4, "Downloading System %s from WonderMaker (kept in the firmware archive)" % lat)
     if lat in versions("releases"): say("  Already downloaded; using it.")
     else: cmd_fetch(argparse.Namespace(board=None, host=None, from_dir=None, from_soc=None, from_web=lat, from_archive=None, version=None))
@@ -1210,6 +1250,7 @@ def menu_status():
         except (ValueError, IndexError): pass
     host = os.environ.get("WMR_BOARD_HOST", "") or conf_get("board_host")
     say("\nWonderMaker release tool %s" % TOOL_VERSION)
+    say("  This machine (iso_version.txt): " + (live_version() or "none (~/iso_version.txt missing)"))
     say("  Baseline (version before):  " + (", ".join(bl) if bl else "none yet -> choose 1 now, BEFORE you update the board"))
     say("  Fetched new version:        " + (", ".join(rs) if rs else "none yet -> choose 1 again after you updated the board"))
     say("  Board address:              " + (host or "not set (choose 1 or s)"))

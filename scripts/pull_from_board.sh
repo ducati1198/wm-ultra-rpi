@@ -30,5 +30,5 @@ pull() {  # name, remote tar arguments
 pull klipper    "--exclude=__pycache__ klipper"
 pull moonraker  "--exclude=__pycache__ moonraker"
 pull data       "--exclude=printer_data/gcodes --exclude=printer_data/logs --exclude=printer_data/comms \
-                 printer_data fluidd \$(ls -d TM_T1/factory_settings TM_T1/scripts 2>/dev/null)"
+                 printer_data fluidd \$(ls -d iso_version.txt TM_T1/factory_settings TM_T1/scripts 2>/dev/null)"
 echo "Done: $(du -sh "$STAGE" | cut -f1) in $STAGE"

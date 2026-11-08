@@ -304,6 +304,12 @@ check "option 1 web: downloads the newer version, compares, shows the plan" bash
 check "...your own change is kept, and answering no applies nothing" bash -c "grep -q 'Nothing applied' $T/w3 && grep -q 'v120' $T/live7/printer_data/config/macros.cfg"
 printf 'yes\ny\n' | WMR_SOURCE=web WMR_TEST_TYPED=APPLY python3 "$PY" all > "$T/w4" 2>&1
 check "option 1 web: yes -> backup, apply (your edit kept), baseline promoted" bash -c "grep -q 'v121' $T/live7/printer_data/config/macros.cfg && grep -q 'my own line' $T/live7/TM_T1/scripts/s.sh && test -d $WMR_HOME/baseline/1.2.1 && ls $WMR_HOME/backups/*.tgz"
+check "apply writes ~/iso_version.txt with the applied version" bash -c "grep -q \"Add System_1.2.1\" $T/live7/iso_version.txt"
+R status > "$T/st9"
+check "status shows the machine's version" grep -q "iso_version.txt says: 1.2.1" "$T/st9"
+check "rollback puts the old iso_version.txt back" bash -c "WMR_TEST_TYPED=ROLLBACK python3 $PY rollback >/dev/null 2>&1; ! grep -q System_1.2.1 $T/live7/iso_version.txt"
+printf 'IMG_HEADER\n2026-01-01 00:00:00: Add System_1.2.0\n' > "$T/live7/iso_version.txt"; WMR_TEST_TYPED=APPLY python3 "$PY" apply 1.2.1 --apply --force >/dev/null 2>&1
+check "apply keeps the file's header and history and adds a line" bash -c "head -1 $T/live7/iso_version.txt | grep -q IMG_HEADER && grep -q 'Add System_1.2.0' $T/live7/iso_version.txt && tail -1 $T/live7/iso_version.txt | grep -q 'Add System_1.2.1'"
 
 # guarded MCU flash
 mkdir -p "$T/live7/mcu_update"; printf '#!/bin/bash\necho flashed > "%s/flashed"\n' "$T" > "$T/live7/mcu_update/mcu_update.sh"
@@ -324,6 +330,6 @@ mkdir -p "$WMR_HOME/baseline/x" "$T/fw"; echo z > "$T/fw/a.zip"
 check "clean --keep-firmware keeps the archive" bash -c "WMR_TEST_TYPED=DELETE python3 $PY clean --run --keep-firmware >/dev/null && test -f $T/fw/a.zip && ! test -e $WMR_HOME"
 check "clean refuses a protected location" bash -c "WMR_HOME=$T/live WMR_LIVE_HOME=$T/live python3 $PY clean --run 2>&1 | grep -q refusing; test -d $T/live"
 
-check "the tool has a version: --version, the menu title, status and the history" bash -c "python3 $PY --version | grep -q 'wm_release.py [0-9]' && printf '0\n' | python3 $PY | grep -q 'WonderMaker release tool [0-9]' && python3 $PY status | grep -q 'Tool version: [0-9]' && grep -q '(version 1.3.0)' $HERE/README.md"
+check "the tool has a version: --version, the menu title, status and the history" bash -c "python3 $PY --version | grep -q 'wm_release.py [0-9]' && printf '0\n' | python3 $PY | grep -q 'WonderMaker release tool [0-9]' && python3 $PY status | grep -q 'Tool version: [0-9]' && grep -q '(version 1.4.0)' $HERE/README.md"
 
 echo; echo "passed: $pass  failed: $fail"; [ "$fail" = 0 ]
