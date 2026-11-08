@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.23.5
+
+- The live bar no longer uses a pinned bottom line (it came out garbled in some phone terminal apps). While a slow step runs, the same bar is now printed again on its own line every 15 seconds with the time so far, like `[███░░░]  32%  Step 5 of 14  | 2m25s`. It works in every terminal.
+- pip no longer checks PyPI for a newer pip. On a slow link that check printed "There was an error checking the latest version of pip" twice during a fresh install; it was harmless, and now it does not appear.
+
 ## 1.23.4
 
 - The live bar now also covers the sections that had none. Pi installer: Check, Doctor, support bundle, backup, ZR Tools and Free up disk space. Screen board: clock fix, ZR Tools on the Pi, support bundle and Free up disk space.

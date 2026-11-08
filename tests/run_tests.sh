@@ -952,7 +952,7 @@ echo "Live progress bar"
 live_check() {   # script-with-progress_bar : in a terminal the bar line is repainted every second, and given back at 100 percent
     local LB; LB="$(mktemp -d)"
     cat > "$LB/lt.sh" <<EOT
-GREEN=; NC=; TESTING=0; DRY=0
+GREEN=; NC=; TESTING=0; DRY=0; LIVE_BAR_EVERY=1
 eval "\$(sed -n '/^prog_repeat()/p;/^progress_bar()/,/^}/p;/^live_bar_stop()/,/^}/p;/^live_bar_start()/,/^}/p' $1)"
 progress_bar 1 5 "Step 2 of 5"; sleep 2.5; progress_bar 5 5 Done
 EOT
@@ -967,10 +967,11 @@ while time.time()-t<6:
     except OSError: break
     if not d: break
     out+=d
-sys.exit(0 if out.count(b'\x1b[24;1H')>=2 and b'0m01s' in out and b'\x1b[r' in out else 1)
+sys.exit(0 if b'0m01s' in out and b'\x1b[' not in out.replace(b'\x1b[0m',b'') and out.count(b'Step 2 of 5')>=2 else 1)
 EOP
 }
-check "Pi installer: the bar line is repainted every second and released at 100 percent" "live_check $ROOT/installer.sh"
-check "screen board: the bar line is repainted every second and released at 100 percent" "live_check $ROOT/scripts/screen_board.sh"
+check "Pi installer: the bar is repeated with the time so far, on its own line, while a step runs (no cursor tricks)" "live_check $ROOT/installer.sh"
+check "screen board: the bar is repeated with the time so far, on its own line, while a step runs (no cursor tricks)" "live_check $ROOT/scripts/screen_board.sh"
 check "bars: Check, Doctor, support bundle and backup all end at 100 percent" "M '' $LG --check | grep -q '100%  Check finished' && M '' $LG --doctor | grep -q '100%  Doctor finished' && M '' $LG --support-bundle | grep -q '100%  Done' && M '' $LG --backup | grep -q '100%  Done'"
+check "pip is told not to check for a newer pip (no warning on slow links)" "grep -q '^export PIP_DISABLE_PIP_VERSION_CHECK=1' $ROOT/installer.sh && grep -q '^export PIP_DISABLE_PIP_VERSION_CHECK=1' $ROOT/scripts/screen_board.sh"
 echo; echo "passed: $PASS  failed: $FAIL"; [ "$FAIL" = 0 ]

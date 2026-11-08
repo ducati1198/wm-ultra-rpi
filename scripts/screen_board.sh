@@ -24,6 +24,7 @@
 # What it never does: flash anything, run "apt upgrade", touch the factory printer_data or the printer's MCUs.
 # =============================================================================
 set -u
+export PIP_DISABLE_PIP_VERSION_CHECK=1   # pip must not ask PyPI for a newer pip (slow links print a warning)
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BLUE='\033[0;34m'; DIM='\033[2m'; NC='\033[0m'
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
@@ -79,22 +80,19 @@ progress_bar() {   # steps-done total label : a bar like [██████░�
     local txt; txt="$(printf '%b[%s%s]%b %3d%%  %s' "$GREEN" "$(prog_repeat '█' "$f")" "$(prog_repeat '░' $((w-f)))" "$NC" "$pct" "$label")"
     if [ "$n" -ge "$t" ]; then live_bar_stop; else live_bar_start "$txt"; fi
 }
-live_bar_stop() {   # stop the live bottom line and give the whole screen back
+live_bar_stop() {   # stop the "still running" bar lines
     [ -n "${LIVE_PID:-}" ] || return 0
     kill "$LIVE_PID" 2>/dev/null; wait "$LIVE_PID" 2>/dev/null; LIVE_PID=""
-    printf '\0337\033[r\033[999;1H\033[2K\0338'
 }
-live_bar_start() {   # text : keeps the bar on the last screen line with a spinner and the time this step has taken
+live_bar_start() {   # text : while a slow step runs, print the same bar again on its own line every 15 s with the time so far (works in every terminal)
     live_bar_stop
     [ -t 1 ] && [ "${TESTING:-0}" != 1 ] && [ "${DRY:-0}" != 1 ] || return 0
-    local rows main=$$ text="$1"; rows="$(stty size 2>/dev/null | awk '{print $1}')"; [ "${rows:-0}" -ge 10 ] 2>/dev/null || return 0
-    printf '\n\0337\033[1;%dr\0338\033[A' $((rows-1))
-    ( local t0 i=0 sp='|/-\' s; t0="$(date +%s)"
-      while kill -0 "$main" 2>/dev/null; do
+    local main=$$ text="$1" every="${LIVE_BAR_EVERY:-15}"
+    ( local t0 s; t0="$(date +%s)"
+      while sleep "$every" && kill -0 "$main" 2>/dev/null; do
           s=$(( $(date +%s) - t0 ))
-          printf '\0337\033[%d;1H\033[2K%s  %s %dm%02ds\0338' "$rows" "$text" "${sp:$((i%4)):1}" $((s/60)) $((s%60)); i=$((i+1)); sleep 1
-      done
-      printf '\0337\033[r\033[%d;1H\033[2K\0338' "$rows" ) &
+          printf '  %s  | %dm%02ds\n' "$text" $((s/60)) $((s%60))
+      done ) &
     LIVE_PID=$!
 }
 heartbeat_start() {   # slow command ahead: say "still working" every 30 s so it does not look frozen
