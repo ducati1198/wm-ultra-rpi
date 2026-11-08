@@ -42,6 +42,8 @@ cp "$HERE/config/env/"*.env "$W/printer_data/systemd/"
 cp "$HERE/config/moonraker.asvc" "$W/printer_data/moonraker.asvc"
 tar czf "$STAGE/klipper.tgz"   -C "$W" klipper
 tar czf "$STAGE/moonraker.tgz" -C "$W" moonraker
-tar czf "$STAGE/data.tgz"      -C "$W" printer_data fluidd TM_T1
+# the System version of these factory files (optional file factory/<model>/iso_version.txt, one line: System_x.y.z)
+ISO=""; [ -s "$SRC/iso_version.txt" ] && { cp "$SRC/iso_version.txt" "$W/iso_version.txt"; ISO=iso_version.txt; }
+tar czf "$STAGE/data.tgz"      -C "$W" printer_data fluidd TM_T1 $ISO
 echo "$MODULES_OK" > "$STAGE/modules_ok"
 echo "Done: factory files for '$MODEL' in $STAGE"

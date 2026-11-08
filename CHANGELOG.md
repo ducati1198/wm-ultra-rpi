@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.23.15
+
+- `~/iso_version.txt` (the System version, `System_1.1.13`) is now installed in the home folder by `installer.sh` for both models, and kept if one already exists (a copy goes to the backup folder). Release tool 1.4.0 reads it to know which version the machine has, rewrites it after `apply` (rollback restores it), and shows it in `status` and the menu. 516 installer tests, 108 tool tests.
+
 ## 1.23.14
 
 - Release tool 1.3.0 (`tools/wm-release/`): new `clean` command (menu `x`) that lists and then deletes every file the tool created (`~/wm-private-data`, `~/wm-firmware`, temporary files) after you type `DELETE`. Dry run unless you add `--run`; `--keep-firmware` and `--keep-backups` keep those. It never touches the printer's live files. 105 tests.

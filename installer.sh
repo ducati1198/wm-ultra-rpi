@@ -368,10 +368,21 @@ step_unpack() {
             run mkdir -p "$keep"; run mv "$HOME_DIR/$d" "$keep/$d"; print_info "Existing ~/$d moved to $keep/"
         fi
     done
+    # keep a real ~/iso_version.txt (the System version) before the unpacked one replaces it
+    if [ -s "$HOME_DIR/iso_version.txt" ]; then run mkdir -p "$keep"; run cp -p "$HOME_DIR/iso_version.txt" "$keep/iso_version.txt"; fi
     for f in klipper moonraker data; do run tar xzf "$STAGE/$f.tgz" -C "$HOME_DIR"; done
     run mkdir -p "$HOME_DIR/printer_data/gcodes" "$HOME_DIR/printer_data/logs" "$HOME_DIR/printer_data/comms" "$HOME_DIR/printer_data/systemd"
     for d in klipper moonraker printer_data fluidd; do record "HOMEDIR $d"; done
     [ -d "$HOME_DIR/klipper/klippy" ] || [ "$DRY" = 1 ] || die_with_fix "~/klipper/klippy is missing after unpacking." "the stage folder is incomplete: pull again."
+    # iso_version.txt (System_x.y.z, in the home folder like on the old board): the System version these files belong to.
+    # It comes from factory/<model>/iso_version.txt. wm_release.py reads it to know your version and rewrites it after an update.
+    if [ "$DRY" != 1 ]; then
+        if [ -s "$HOME_DIR/iso_version.txt" ]; then
+            record "FILE $HOME_DIR/iso_version.txt"; print_info "System version: $(head -n1 "$HOME_DIR/iso_version.txt")  (~/iso_version.txt)"
+        else
+            warn_later "No ~/iso_version.txt (the System version) came with these files. tools/wm-release/wm_release.py will use its own recorded baseline instead; or create it: echo System_1.1.13 > ~/iso_version.txt (use your real version)."
+        fi
+    fi
     print_success "Unpacked"
 }
 
