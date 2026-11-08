@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.23.13
+
+- Release tool 1.2.0 (`tools/wm-release/`): takes a new WonderMaker System release **without the factory screen board**. `fetch --from-soc FILE` decrypts a `TM_T1_SOC` file on the Pi, and `fetch --from-web [VERSION]` (menu `w`) downloads it from WonderMaker's firmware page first. Option 1 now asks where the update comes from: the old screen board or the website; the website path downloads, compares with your baseline and live files, checks MCU firmware and always asks before applying.
+- Release tool: kept copies of every downloaded version in `~/wm-firmware` for offline reinstall or downgrade (`firmware`, `fetch --from-archive`, menu `a`); `compare OLD NEW` shows what WonderMaker changed between two versions (menu `v`); `settings` for the decrypt key, firmware page URL and board address (menu `g`); a guarded `flash` step for MCU firmware that is a dry run unless you add `--run` and type `FLASH` (menu `m`, never part of option 1). The SoC's own `boot.img` and kernel modules are never used on the Pi. 99 tests.
+- README: new section "Tools: new WonderMaker releases", a cheat-sheet line, and `tools/wm-release/` in the repository layout.
+
 ## 1.23.12
 
 - Release tool 1.1.0 (`tools/wm-release/`): it can now read WonderMaker's firmware download page and tell you when a newer System version than yours is published (new menu item `c` and command `check`; a line in the menu header; a note at the start of option 1). It only reads the page: nothing is downloaded or changed, and if the page cannot be read the tool carries on.

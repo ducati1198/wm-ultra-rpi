@@ -1,7 +1,10 @@
 #!/bin/bash
 # Tests for wm_release.py on throwaway folders. Run: bash tools/wm-release/test.sh
 set -u
-HERE="$(cd "$(dirname "$0")" && pwd)"; REPO="$(cd "$HERE/../.." && pwd)"; PY="$HERE/wm_release.py"
+HERE="$(cd "$(dirname "$0")" && pwd)"; PY="$HERE/wm_release.py"
+# repo root, however deep this folder sits
+REPO="$(git -C "$HERE" rev-parse --show-toplevel 2>/dev/null || true)"
+[ -n "$REPO" ] && [ -d "$REPO/factory/ultra-s" ] || { d="$HERE"; for _ in 1 2 3 4 5; do [ -d "$d/factory/ultra-s" ] && REPO="$d" && break; d="$(dirname "$d")"; done; }
 T="$(mktemp -d)"; trap 'rm -rf "$T"; [ -n "${SRV:-}" ] && kill $SRV 2>/dev/null' EXIT
 mkdir -p "$T/wiki"; printf '<a href="/tm_t1_soc(1.1.08).zip">V1.1.08</a><a href="/tm_t1_soc(1.1.13).zip">V1.1.13</a><a href="/tm_t1_soc(1.1.12).zip">x</a><a href="/1.0.71.zip">old</a>' > "$T/wiki/page.html"
 export WMR_WIKI_URL="file://$T/wiki/page.html"
@@ -197,6 +200,7 @@ src="${@: -2:1}"; dst="${@: -1}"; rel="${src#*:~/}"; rel="${rel%/}"
 FS
 chmod +x "$T/bin/ssh" "$T/bin/rsync"
 export FAKE_LOG="$T/fake.log" FAKE_PW=secret123 TMPDIR="$T/tmp"
+export WMR_SOURCE=board   # these option-1 tests cover the board path
 export WMR_HOME="$T/data4" WMR_LIVE_HOME="$T/live4"; mkdir -p "$T/live4"; cp -a "$T/b1/klipper" "$T/b1/moonraker" "$T/b1/printer_data" "$T/b1/mcu_update" "$T/b1/TM_T1" "$T/live4/" 2>/dev/null
 run() { PATH="$T/bin:$PATH" setsid -w python3 "$PY" "$@"; }   # setsid: no terminal, so the hidden password prompt reads the piped line
 # A: nothing saved yet, the board needs a password (first one wrong)
@@ -223,6 +227,92 @@ check "...and a different address typed there is used and remembered" bash -c "p
 printf '\n' | FAKE_PASSWORDLESS=1 FAKE_BOARD="$T/b1" run all > "$T/a5" 2>&1
 check "the command line has it too: wm_release.py all" grep -q "Board runs System" "$T/a5"
 
-check "the tool has a version: --version, the menu title, status and the history" bash -c "python3 $PY --version | grep -q 'wm_release.py [0-9]' && printf '0\n' | python3 $PY | grep -q 'WonderMaker release tool [0-9]' && python3 $PY status | grep -q 'Tool version: [0-9]' && grep -q '(version 1.1.0)' $HERE/README.md"
+# ---- TM_T1_SOC on the Pi: --from-soc, --from-web, firmware archive, compare, settings, option 1 web path, flash
+# a tiny but real System package, encrypted exactly like WonderMaker's: .deb -> openssl AES-256-CBC "tmt1-mks" -> XOR "tmt1-mks"
+unset WMR_SOURCE
+cat > "$T/mksoc.py" <<'PYEOF'
+import io, os, subprocess, sys, tarfile, zipfile
+ver, macros, out_dir = sys.argv[1], sys.argv[2], sys.argv[3]
+def tgz(files):
+    b = io.BytesIO()
+    with tarfile.open(fileobj=b, mode="w:gz") as t:
+        for name, data in files.items():
+            ti = tarfile.TarInfo(name); ti.size = len(data); t.addfile(ti, io.BytesIO(data))
+    return b.getvalue()
+ctl = tgz({"./control": ("Package: TM-T1-System\nVersion: %s\nArchitecture: arm64\n" % ver).encode()})
+data = {"./home/t13dp/printer_data/config/macros.cfg": macros.encode(),
+        "./home/t13dp/printer_data/config/printer.cfg": b"[include macros.cfg]\n",
+        "./home/t13dp/klipper/klippy/x.py": b"print(1)\n",
+        "./home/t13dp/TM_T1/scripts/s.sh": b"echo hi\n",
+        "./home/t13dp/boot.img": b"ANDROID!fake-kernel",
+        "./etc/systemd/system/makerbase-ap.service": b"[Unit]\n"}
+if ver != "1.2.0": data["./home/t13dp/printer_data/config/new_%s.cfg" % ver.replace(".", "")] = b"# new\n"
+dat = tgz(data)
+def member(name, blob):
+    h = "%-16s%-12s%-6s%-6s%-8s%-10s`\n" % (name, "0", "0", "0", "100644", len(blob))
+    return h.encode() + blob + (b"\n" if len(blob) % 2 else b"")
+deb = b"!<arch>\n" + member("debian-binary", b"2.0\n") + member("control.tar.gz", ctl) + member("data.tar.gz", dat)
+enc = subprocess.run(["openssl", "enc", "-aes-256-cbc", "-md", "sha256", "-salt", "-k", "tmt1-mks"],
+                     input=deb, capture_output=True, check=True).stdout
+k = b"tmt1-mks"; soc = bytes(b ^ k[i % 8] for i, b in enumerate(enc))
+open(os.path.join(out_dir, "TM_T1_SOC_%s" % ver), "wb").write(soc)
+with zipfile.ZipFile(os.path.join(out_dir, "tm_t1_soc(%s).zip" % ver), "w") as z:
+    z.writestr("TM_T1_SOC", soc); z.writestr("boot.img", b"x")
+PYEOF
+mkdir -p "$T/web"
+python3 "$T/mksoc.py" 1.2.0 "# macros v120" "$T/web"
+python3 "$T/mksoc.py" 1.2.1 "# macros v121" "$T/web"
+printf '<a href="tm_t1_soc(1.2.0).zip">1.2.0</a> <a href="tm_t1_soc(1.2.1).zip">1.2.1</a>' > "$T/web/fw.html"
+export WMR_WIKI_URL="file://$T/web/fw.html" WMR_FIRMWARE_DIR="$T/fwstore"
+export WMR_HOME="$T/data5" WMR_LIVE_HOME="$T/live5"; mkdir -p "$T/live5"
+
+R fetch --from-soc "$T/web/TM_T1_SOC_1.2.0" > "$T/s1"
+check "fetch --from-soc decrypts a TM_T1_SOC and records the release" bash -c "grep -q 'Release 1.2.0 copied' $T/s1 && grep -q 'v120' $WMR_HOME/releases/1.2.0/printer_data/config/macros.cfg"
+check "...the SoC boot.img is never part of the release" bash -c "! find $WMR_HOME/releases/1.2.0 -name boot.img | grep -q ."
+check "...a wrong key is refused clearly" bash -c "WMR_SOC_KEY=wrong python3 $PY fetch --from-soc $T/web/TM_T1_SOC_1.2.0 2>&1 | grep -q 'does not look like a TM_T1_SOC'"
+R fetch --from-web > "$T/s2"
+check "fetch --from-web takes the newest version from the firmware page" bash -c "grep -q 'Downloading System 1.2.1' $T/s2 && grep -q 'v121' $WMR_HOME/releases/1.2.1/printer_data/config/macros.cfg"
+check "...and keeps the zip in the firmware archive" test -f "$T/fwstore/tm_t1_soc(1.2.1).zip"
+R firmware > "$T/s3"
+check "firmware lists the saved versions" grep -q "1.2.1" "$T/s3"
+rm -rf "$WMR_HOME/releases/1.2.1"; R fetch --from-web 1.2.1 > "$T/s4"
+check "a second download of the same version uses the archived copy (no network)" grep -q "Using the archived copy of System 1.2.1" "$T/s4"
+check "fetch --from-archive refuses a version that is not saved" bash -c "python3 $PY fetch --from-archive 9.9.9 2>&1 | grep -q 'no archived firmware for 9.9.9'"
+rm -rf "$WMR_HOME/releases/1.2.1"; R fetch --from-archive 1.2.1 > "$T/s5"
+check "fetch --from-archive reinstalls a saved version offline" bash -c "grep -q 'Using archived System 1.2.1' $T/s5 && test -d $WMR_HOME/releases/1.2.1"
+R compare 1.2.0 1.2.1 > "$T/s6"
+check "compare shows what WonderMaker changed between two versions" bash -c "grep -q 'CHANGED  printer_data/config/macros.cfg' $T/s6 && grep -q 'ADDED    printer_data/config/new_121.cfg' $T/s6"
+check "...and changes nothing in your live files" bash -c "[ -z \"\$(ls -A $WMR_LIVE_HOME)\" ]"
+R settings > "$T/s7"
+check "settings shows the decrypt key, firmware URL and firmware store" bash -c "grep -q 'decrypt key   : tmt1-mks' $T/s7 && grep -q 'fw.html' $T/s7 && grep -q 'fwstore' $T/s7"
+python3 -c "import json,os; p=os.environ['WMR_HOME']+'/config.json'; c=json.load(open(p)) if os.path.exists(p) else {}; c['soc_key']='badkey'; json.dump(c,open(p,'w'))"
+check "a decrypt key saved in settings is used" bash -c "python3 $PY fetch --from-soc $T/web/TM_T1_SOC_1.2.0 2>&1 | grep -q 'does not look like a TM_T1_SOC'"
+python3 -c "import json,os; p=os.environ['WMR_HOME']+'/config.json'; c=json.load(open(p)); c.pop('soc_key'); json.dump(c,open(p,'w'))"
+
+# option 1, website path
+export WMR_HOME="$T/data6" WMR_LIVE_HOME="$T/live6"; mkdir -p "$T/live6"
+printf 'web\ny\n' | python3 "$PY" all > "$T/w1" 2>&1
+check "option 1 asks where from, and on the website path with no baseline offers to record one" bash -c "grep -q 'old screen board, or WonderMaker' $T/w1 && grep -q 'Baseline 1.2.1 recorded' $T/w1"
+printf '' | WMR_SOURCE=web python3 "$PY" all > "$T/w2" 2>&1
+check "...then says up to date while nothing newer is published" grep -q "Up to date: newest published is 1.2.1" "$T/w2"
+export WMR_HOME="$T/data7" WMR_LIVE_HOME="$T/live7"; mkdir -p "$T/live7"
+R init-baseline --from-web 1.2.0 > /dev/null
+cp -a "$WMR_HOME/baseline/1.2.0/." "$T/live7/"; rm -f "$T/live7/_manifest.json" "$T/live7/iso_version.txt"
+echo "# my own line" >> "$T/live7/TM_T1/scripts/s.sh"
+printf 'no\n' | WMR_SOURCE=web python3 "$PY" all > "$T/w3" 2>&1
+check "option 1 web: downloads the newer version, compares, shows the plan" bash -c "grep -q 'Downloading System 1.2.1' $T/w3 && grep -q 'TAKE   printer_data/config/macros.cfg' $T/w3 && grep -q 'ADD    printer_data/config/new_121.cfg' $T/w3"
+check "...your own change is kept, and answering no applies nothing" bash -c "grep -q 'Nothing applied' $T/w3 && grep -q 'v120' $T/live7/printer_data/config/macros.cfg"
+printf 'yes\ny\n' | WMR_SOURCE=web WMR_TEST_TYPED=APPLY python3 "$PY" all > "$T/w4" 2>&1
+check "option 1 web: yes -> backup, apply (your edit kept), baseline promoted" bash -c "grep -q 'v121' $T/live7/printer_data/config/macros.cfg && grep -q 'my own line' $T/live7/TM_T1/scripts/s.sh && test -d $WMR_HOME/baseline/1.2.1 && ls $WMR_HOME/backups/*.tgz"
+
+# guarded MCU flash
+mkdir -p "$T/live7/mcu_update"; printf '#!/bin/bash\necho flashed > "%s/flashed"\n' "$T" > "$T/live7/mcu_update/mcu_update.sh"
+R flash > "$T/f1"
+check "flash is a dry run unless --run, and names what it would run" bash -c "grep -q 'Dry run: nothing was flashed' $T/f1 && grep -q 'mcu_update.sh' $T/f1 && ! test -f $T/flashed"
+check "flash --run does nothing unless you type FLASH" bash -c "WMR_TEST_TYPED=nope python3 $PY flash --run | grep -q 'Nothing flashed' && ! test -f $T/flashed"
+check "flash --run + FLASH runs the board's own flash script" bash -c "WMR_TEST_TYPED=FLASH python3 $PY flash --run >/dev/null && test -f $T/flashed"
+check "flash refuses an unknown board name" bash -c "python3 $PY flash nosuch 2>&1 | grep -q 'unknown target'"
+
+check "the tool has a version: --version, the menu title, status and the history" bash -c "python3 $PY --version | grep -q 'wm_release.py [0-9]' && printf '0\n' | python3 $PY | grep -q 'WonderMaker release tool [0-9]' && python3 $PY status | grep -q 'Tool version: [0-9]' && grep -q '(version 1.2.0)' $HERE/README.md"
 
 echo; echo "passed: $pass  failed: $fail"; [ "$fail" = 0 ]

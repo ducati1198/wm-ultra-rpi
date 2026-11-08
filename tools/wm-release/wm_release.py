@@ -2,18 +2,26 @@
 """wm_release.py - PRIVATE tool: bring a new WonderMaker System release (for example 1.1.14) to this Pi.
 
 Not part of any installer (folder tools/wm-release of the repo).
-Everything is read-only unless you run `apply --apply` (and type APPLY) or `rollback`.
+Everything is read-only unless you run `apply --apply` (and type APPLY), `rollback`, or `flash --run` (and type FLASH).
 
   (no command) / menu          a numbered menu that runs the steps below; option 1 does all the steps
-  all                          every needed step, in order (log in to the board, baseline or fetch, diff, MCU check, plan, apply)
+  all [--source board|web]     every needed step, in order; asks first: old screen board, or WonderMaker's website
   check                        ask WonderMaker's firmware page for the newest published version (downloads nothing)
   status                       what is recorded: baseline, fetched releases, log
   init-baseline --from-board  record the board as it is NOW (the version before the new one); also --from-dir DIR or --src DIR (repo factory copy)
   promote VERSION              make a fetched release the baseline for the next one
   fetch --from-board [HOST]    copy the updated files from the WonderMaker screen board over SSH (read only)
   fetch --from-dir DIR         same, from a folder that has klipper/, moonraker/, printer_data/config/, mcu_update/, TM_T1/scripts/
+  fetch --from-soc FILE        decrypt a WonderMaker TM_T1_SOC file on the Pi and use it as the new version (no board needed)
+  fetch --from-web [VERSION]   download the SOC straight from WonderMaker's firmware page (newest, or a given version), then decrypt it here
+  init-baseline --from-soc FILE  record a TM_T1_SOC file as the baseline (the version before the new one)
+  fetch --from-archive VER     reinstall/downgrade from a SOC zip kept in the firmware archive (offline)
+  firmware                     list the SOC zips kept in the firmware archive (~/wm-firmware)
   diff VERSION                 baseline <-> release <-> your live files; saves a report
+  compare OLD NEW              what WonderMaker changed between two fetched releases (read only)
   mcu ZIP_OR_DIR               check MCU firmware (versions, md5), print the flashing steps; never flashes
+  flash [main|thr|ext|hub|cell] [--run]  flash ~/mcu_update firmware - dry run unless --run, then you type FLASH
+  settings                     show/change the decrypt key, firmware page URL and board address
   apply VERSION [--apply]      plan only; with --apply: backup, then apply after you type APPLY
   rollback [BACKUP]            put back the files from the backup made by apply
   checklist VERSION            test list for after the update
@@ -21,16 +29,16 @@ Everything is read-only unless you run `apply --apply` (and type APPLY) or `roll
   log                          history of what was done
 Version: see --version.  Data folder: $WMR_HOME (default ~/wm-private-data).  Live files: $WMR_LIVE_HOME (default ~).
 """
-import argparse, atexit, getpass, hashlib, io, json, os, re, shutil, subprocess, sys, tarfile, tempfile, time, urllib.request, zipfile
+import argparse, atexit, getpass, hashlib, io, json, os, re, shutil, subprocess, sys, tarfile, tempfile, time, urllib.request, urllib.parse, zipfile
 
-TOOL_VERSION = "1.1.0"   # this tool's own version (not the installer's VERSION file); see README "Version history"
+TOOL_VERSION = "1.2.0"   # this tool's own version (not the installer's VERSION file); see README "Version history"
 HOME = os.path.expanduser("~")
 DATA = os.environ.get("WMR_HOME", os.path.join(HOME, "wm-private-data"))
 LIVE = os.environ.get("WMR_LIVE_HOME", HOME)
 MOONRAKER = os.environ.get("WMR_MOONRAKER", "http://127.0.0.1:7125")
 BOARD_KEY = os.environ.get("WMR_BOARD_KEY", "")
 # WonderMaker's firmware page; the newest tm_t1_soc(x.y.z).zip link on it is the newest published System version
-WIKI_URL = os.environ.get("WMR_WIKI_URL", "https://wiki.wondermaker3d.com/en/ZR-Ultra-S/Standard-Operating-Procedures/Fireware-Download")
+DEFAULT_WIKI_URL = "https://wiki.wondermaker3d.com/en/ZR-Ultra-S/Standard-Operating-Procedures/Fireware-Download"
 # live-relative roots that belong to the WonderMaker release, and the folder names in this repo's factory/ultra-s
 ROOTS = ["klipper", "moonraker", "printer_data/config", "mcu_update", "TM_T1/scripts"]
 REPO_MAP = {"klipper": "klipper", "moonraker": "moonraker", "printer_data/config": "config", "mcu_update": "mcu", "TM_T1/scripts": "scripts"}
@@ -59,6 +67,13 @@ def die(msg, fix=""):
     say("ERROR: " + msg + ("\n  What to do: " + fix if fix else "")); sys.exit(1)
 def p(*a): return os.path.join(*a)
 def ensure(d): os.makedirs(d, exist_ok=True); return d
+def _repo_factory_dir():
+    """find factory/ultra-s in the repo, however deep this script sits"""
+    d = os.path.dirname(os.path.abspath(__file__))
+    for _ in range(6):
+        if os.path.isdir(p(d, "factory", "ultra-s")): return p(d, "factory", "ultra-s")
+        d = os.path.dirname(d)
+    return p(os.path.dirname(os.path.abspath(__file__)), "..", "..", "factory", "ultra-s")
 
 
 def sha(path):
@@ -184,6 +199,12 @@ def conf_set(k, v):
     c[k] = v; ensure(DATA); json.dump(c, open(p(DATA, "config.json"), "w"))
 
 
+# settings resolve env -> saved config -> built-in default (so the settings screen can change them)
+def soc_key():  return os.environ.get("WMR_SOC_KEY") or conf_get("soc_key") or DEFAULT_SOC_KEY
+def wiki_url(): return os.environ.get("WMR_WIKI_URL") or conf_get("wiki_url") or DEFAULT_WIKI_URL
+ARCHIVE = os.environ.get("WMR_FIRMWARE_DIR", p(HOME, "wm-firmware"))   # kept copies of downloaded SOC zips
+
+
 def board_host(h, may_ask=False):
     h = h or os.environ.get("WMR_BOARD_HOST", "") or conf_get("board_host")
     if not h and may_ask:
@@ -265,8 +286,286 @@ def snapshot(dst, host=None, src_dir=None, version=None):
     return ver, dst, n, len(man)
 
 
+# ---------------------------------------------------------------- TM_T1_SOC (encrypted factory update) opened on the Pi
+# A TM_T1_SOC file is WonderMaker's encrypted System package: a Debian package
+# wrapped in two layers - a repeating-key XOR, then OpenSSL AES-256-CBC
+# ("Salted__" + salt, key via EVP_BytesToKey/SHA-256). The key below is
+# WonderMaker's own, read out of the stock `client` binary. Override with
+# WMR_SOC_KEY if a future firmware changes it. This lets you take a new version
+# straight from the TM_T1_SOC file on the Pi, with no factory screen board.
+DEFAULT_SOC_KEY = "tmt1-mks"                 # overridable via WMR_SOC_KEY or the settings screen
+SOC_ONLY = ("home/t13dp/boot.img", "lib/modules/", "usr/lib/modules/exfat.ko")  # SoC kernel bits; never in a Pi release
+
+
+def _soc_xor(data, key):
+    kb = key.encode()
+    return bytes(b ^ kb[i % len(kb)] for i, b in enumerate(data))
+
+
+def soc_to_deb(path, key=None):
+    """decrypt a TM_T1_SOC file to the raw .deb bytes (XOR, then openssl AES-256-CBC)"""
+    key = key or soc_key()
+    raw = open(path, "rb").read()
+    blob = _soc_xor(raw, key)
+    if blob[:8] != b"Salted__":
+        if raw[:8] == b"Salted__": blob = raw            # file already past the XOR layer
+        else: die("this does not look like a TM_T1_SOC (no 'Salted__' after XOR).",
+                  "check the file, or set WMR_SOC_KEY if WonderMaker changed the key")
+    if not shutil.which("openssl"): die("openssl is needed to decrypt the SOC.", "sudo apt-get install -y openssl")
+    with tempfile.NamedTemporaryFile(delete=False) as f: f.write(blob); tmp = f.name
+    try:
+        r = subprocess.run(["openssl", "enc", "-d", "-aes-256-cbc", "-md", "sha256", "-k", key, "-in", tmp],
+                           capture_output=True)
+    finally:
+        os.unlink(tmp)
+    if r.returncode: die("openssl could not decrypt the SOC (wrong key?): " + r.stderr.decode(errors="replace").strip())
+    if r.stdout[:8] != b"!<arch>\n": die("the decrypted SOC is not a Debian package (wrong key?).")
+    return r.stdout
+
+
+def _ar_member(deb, prefix):
+    off = 8
+    while off + 60 <= len(deb):
+        name = deb[off:off + 16].decode(errors="replace").strip()
+        try: size = int(deb[off + 48:off + 58].decode().strip())
+        except ValueError: break
+        start = off + 60
+        if name.startswith(prefix): return deb[start:start + size]
+        off = start + size + (size & 1)
+    return None
+
+
+def _deb_version(deb):
+    blob = _ar_member(deb, "control.tar")
+    if not blob: return None
+    try: tf = tarfile.open(fileobj=io.BytesIO(blob), mode="r:*")
+    except Exception: return None
+    for m in tf.getmembers():
+        if m.name.lstrip("./") == "control":
+            for line in tf.extractfile(m).read().decode(errors="replace").splitlines():
+                if line.startswith("Version:"): return line.split(":", 1)[1].strip()
+    return None
+
+
+def stage_soc(path):
+    """decrypt a TM_T1_SOC and lay it out like a --from-dir source; returns (dir, version)"""
+    say("Decrypting %s ..." % os.path.basename(path))
+    deb = soc_to_deb(os.path.expanduser(path))
+    ver = _deb_version(deb) or die("could not read the version from the SOC package.")
+    data = _ar_member(deb, "data.tar") or die("no data.tar inside the SOC package.")
+    tf = tarfile.open(fileobj=io.BytesIO(data), mode="r:*")
+    base = tempfile.mkdtemp(prefix="soc-%s-" % ver, dir=ensure(p(DATA, "soc")))
+    atexit.register(lambda: shutil.rmtree(base, ignore_errors=True))
+    n = 0
+    for m in tf.getmembers():
+        name = m.name.lstrip("./")
+        if any(name == s or name.startswith(s) for s in SOC_ONLY): continue
+        if name.startswith("home/t13dp/"): rel = name[len("home/t13dp/"):]
+        elif name.startswith("etc/"): rel = name                 # system files go under <base>/etc/...
+        else: continue
+        if not rel: continue
+        dst = p(base, rel)
+        if m.isdir(): ensure(dst); continue
+        ensure(os.path.dirname(dst))
+        if m.issym() or m.islnk():
+            try:
+                if os.path.lexists(dst): os.remove(dst)
+                os.symlink(m.linkname, dst)
+            except OSError: pass
+        else:
+            src = tf.extractfile(m)
+            if src is None: continue
+            with open(dst, "wb") as out: shutil.copyfileobj(src, out)
+            n += 1
+    open(p(base, "iso_version.txt"), "w").write("System_%s\n" % ver)
+    say("Decrypted System %s (%d files) into a private staging folder." % (ver, n))
+    return base, ver
+
+
+def soc_download_links(timeout=20):
+    """{version: absolute url} for every tm_t1_soc(x.y.z).zip link on WonderMaker's firmware page"""
+    req = urllib.request.Request(wiki_url(), headers={"User-Agent": "wm_release/" + TOOL_VERSION})
+    with urllib.request.urlopen(req, timeout=timeout) as f:
+        page_url = f.geturl()
+        html = f.read().decode("utf-8", "replace")
+    links = {}
+    # every href whose target (or its text) names a tm_t1_soc(ver).zip
+    for href in re.findall(r'''href\s*=\s*["']([^"']+)["']''', html, re.I):
+        m = re.search(r"tm_t1_soc\(?(\d+(?:\.\d+)+)\)?\.zip", href, re.I)
+        if m: links[m.group(1)] = urllib.parse.urljoin(page_url, href)
+    return links
+
+
+# ---------------------------------------------------------------- firmware archive (kept SOC zips, for offline reinstall/downgrade)
+def archive_zip_path(ver): return p(ARCHIVE, "tm_t1_soc(%s).zip" % ver)
+
+
+def archived_versions():
+    """versions whose SOC zip is kept in the firmware archive folder"""
+    if not os.path.isdir(ARCHIVE): return []
+    vs = []
+    for n in os.listdir(ARCHIVE):
+        m = re.search(r"tm_t1_soc\(?(\d+(?:\.\d+)+)\)?\.zip", n, re.I)
+        if m: vs.append(m.group(1))
+    return sorted(set(vs), key=vkey)
+
+
+def _soc_from_zip(zpath, out_dir):
+    """pull the raw TM_T1_SOC file out of a tm_t1_soc zip; return its path"""
+    try:
+        z = zipfile.ZipFile(zpath)
+    except zipfile.BadZipFile:
+        die("not a zip: %s" % zpath, "check the file / re-download")
+    names = [n for n in z.namelist() if not n.endswith("/")]
+    soc = (next((n for n in names if os.path.basename(n) == "TM_T1_SOC"), None)
+           or next((n for n in names if os.path.basename(n).upper().endswith("_SOC")), None)
+           or next((n for n in names if "SOC" in os.path.basename(n).upper()), None))
+    if not soc:
+        die("no TM_T1_SOC file inside %s." % os.path.basename(zpath), "zip contains: " + ", ".join(names))
+    dest = p(ensure(out_dir), "TM_T1_SOC")
+    with z.open(soc) as src, open(dest, "wb") as w:
+        shutil.copyfileobj(src, w)
+    return dest
+
+
+def fetch_from_archive(ver):
+    """use a SOC zip already kept in the firmware archive (no network); return (SOC file path, version)"""
+    z = archive_zip_path(ver)
+    if not os.path.isfile(z):
+        die("no archived firmware for %s." % ver, "archived: " + (", ".join(archived_versions()) or "none; download one first"))
+    dest = _soc_from_zip(z, p(DATA, "soc"))
+    atexit.register(lambda: os.path.exists(dest) and os.remove(dest))
+    say("Using archived System %s (%s)." % (ver, z))
+    return dest, ver
+
+
+def download_soc(version=None, timeout=20):
+    """download the chosen (or newest) tm_t1_soc zip, keep it in the archive, return (SOC file path, version)"""
+    try:
+        links = soc_download_links(timeout)
+    except Exception as e:
+        die("could not read WonderMaker's firmware page: %s" % e,
+            "check the Pi's internet, or download the zip yourself and use --from-soc FILE")
+    if not links:
+        die("found no tm_t1_soc(...).zip download link on the firmware page.",
+            "WonderMaker may have changed the page; download the zip yourself and use --from-soc FILE (or set WMR_WIKI_URL)")
+    ver = version or sorted(links, key=vkey)[-1]
+    if ver not in links:
+        die("version %s is not on the page." % ver, "available: " + ", ".join(sorted(links, key=vkey)))
+    zpath = archive_zip_path(ver)
+    if os.path.isfile(zpath):
+        say("Using the archived copy of System %s (already downloaded)." % ver)
+    else:
+        url = links[ver]; ensure(ARCHIVE)
+        say("Downloading System %s from %s ..." % (ver, url))
+        req = urllib.request.Request(url, headers={"User-Agent": "wm_release/" + TOOL_VERSION})
+        tmp = zpath + ".part"
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as r, open(tmp, "wb") as w:
+                shutil.copyfileobj(r, w)
+            os.replace(tmp, zpath)                 # keep it in the firmware archive
+        except Exception as e:
+            if os.path.exists(tmp): os.remove(tmp)
+            die("download failed: %s" % e, "try again, or download the zip yourself and use --from-soc FILE")
+        say("Saved to the firmware archive: %s" % zpath)
+    dest = _soc_from_zip(zpath, p(DATA, "soc"))
+    atexit.register(lambda: os.path.exists(dest) and os.remove(dest))
+    say("Got TM_T1_SOC from the zip (%s)." % ver)
+    return dest, ver
+
+
+def cmd_firmware(a):
+    """list the SOC zips kept in the firmware archive"""
+    vs = archived_versions()
+    say("Firmware archive: %s" % ARCHIVE)
+    if not vs: say("  (empty - a web download keeps a copy here automatically)"); return
+    for v in vs:
+        z = archive_zip_path(v)
+        say("  %-10s %6.1f MiB   %s" % (v, os.path.getsize(z) / 1048576, z))
+    say("Reinstall/downgrade one with:  python3 wm_release.py fetch --from-archive <version>")
+
+
+def cmd_compare(a):
+    """what WonderMaker changed between two fetched releases - read only, your live files are never touched"""
+    r1 = p(DATA, "releases", a.old); r2 = p(DATA, "releases", a.new)
+    if not os.path.isdir(r1): die("release %s was not fetched." % a.old, "fetch it (fetch --from-web %s, or --from-archive %s)" % (a.old, a.old))
+    if not os.path.isdir(r2): die("release %s was not fetched." % a.new, "fetch it (fetch --from-web %s, or --from-archive %s)" % (a.new, a.new))
+    A, B = {}, {}
+    for rel in ROOTS:
+        for r, ap in listing(p(r1, rel)).items(): A[p(rel, r)] = ap
+        for r, ap in listing(p(r2, rel)).items(): B[p(rel, r)] = ap
+    keys = sorted(set(A) | set(B))
+    added = [k for k in keys if k in B and k not in A]
+    removed = [k for k in keys if k in A and k not in B]
+    changed = [k for k in keys if k in A and k in B and sha(A[k]) != sha(B[k])]
+    say("What WonderMaker changed from %s to %s (printer files; read only):" % (a.old, a.new))
+    say("  changed %d, added %d, removed %d, unchanged %d" %
+        (len(changed), len(added), len(removed), len(keys) - len(changed) - len(added) - len(removed)))
+    for tag, lst in (("CHANGED", changed), ("ADDED", added), ("REMOVED", removed)):
+        for k in lst: say("  %-8s %s" % (tag, k))
+    m1, m2 = load_manifest(r1), load_manifest(r2)
+    if m1 and m2:
+        dk = [k for k in set(m1) | set(m2) if m1.get(k) != m2.get(k)]
+        say("  (other folders, by checksum: %d differ)" % len(dk))
+
+
+def cmd_settings(a):
+    """show or change the decrypt key, the firmware page URL and the board address (saved in config.json)"""
+    envk, envu = os.environ.get("WMR_SOC_KEY"), os.environ.get("WMR_WIKI_URL")
+    say("Settings (saved in %s):" % p(DATA, "config.json"))
+    say("  decrypt key   : %s%s" % (soc_key(), "   (from WMR_SOC_KEY env, overrides saved)" if envk else ""))
+    say("  firmware URL  : %s%s" % (wiki_url(), "   (from WMR_WIKI_URL env, overrides saved)" if envu else ""))
+    say("  firmware store: %s  (%d saved)" % (ARCHIVE, len(archived_versions())))
+    say("  board address : %s" % (conf_get("board_host") or "(not set)"))
+    say("  board user    : %s" % (conf_get("board_user") or "t13dp"))
+    if not sys.stdin.isatty(): return
+    k = ask("Decrypt key (Enter keeps it)", "")
+    if k: conf_set("soc_key", k); say("  saved." + ("  (note: WMR_SOC_KEY env is set and still overrides this)" if envk else ""))
+    u = ask("Firmware page URL (Enter keeps it; 'default' resets)", "")
+    if u == "default": conf_set("wiki_url", ""); _WIKI.clear(); say("  reset to default.")
+    elif u: conf_set("wiki_url", u); _WIKI.clear(); say("  saved.")
+    h = ask("Board address (Enter keeps it)", "")
+    if h: conf_set("board_host", h); say("  saved.")
+
+
+def cmd_flash(a):
+    """flash the bundled Klipper MCU firmware onto the motion/toolhead boards - guarded; nothing runs unless you add --run and type FLASH"""
+    mdir = p(LIVE, "mcu_update")
+    targets = {"main": "mcu_update.sh", "thr": "mcu_update_THRs.sh", "ext": "mcu_update_EXT.sh",
+               "hub": "mcu_update_HUB.sh", "cell": "mcu_update_CELL.sh"}
+    pick = (getattr(a, "target", None) or "main").lower()
+    if pick not in targets: die("unknown target '%s'." % pick, "one of: " + ", ".join(targets))
+    if not os.path.isdir(mdir): die("no ~/mcu_update on this Pi.", "apply a release first - it installs mcu_update/ with the firmware and scripts")
+    scr = p(mdir, targets[pick])
+    if not os.path.isfile(scr): die("flash script not found: %s" % scr, "this release may not include %s" % targets[pick])
+    say("!! MCU FIRMWARE FLASH - this WRITES firmware to your %s board(s)." % pick.upper())
+    say("   Wrong or interrupted firmware can leave a board unbootable until re-flashed by hand.")
+    say("   The printer must be connected, powered, and NOT printing.")
+    info = p(mdir, "mcu_info.ini")
+    if os.path.isfile(info):
+        say("   mcu_info.ini:")
+        for ln in open(info).read().splitlines()[:20]: say("     " + ln)
+    say("   Would run:  bash %s" % scr)
+    pr, st = printing_now()
+    if pr and not getattr(a, "force", False): die("a print is running (%s)." % st, "wait for it to finish")
+    if not getattr(a, "run", False):
+        say("\nDry run: nothing was flashed. To really flash: python3 wm_release.py flash %s --run" % pick); return
+    typed = os.environ.get("WMR_TEST_TYPED") or input("Type FLASH to write firmware to the %s board(s): " % pick).strip()
+    if typed != "FLASH": say("Nothing flashed."); return
+    log("flash", "-", target=pick)
+    say("Flashing %s ..." % pick)
+    r = subprocess.run(["bash", scr], cwd=mdir)
+    say("Flash script exited with %d. In Fluidd run FIRMWARE_RESTART and check the MCU comes back 'Ready'." % r.returncode)
+
+
 def cmd_init_baseline(a):
     """record the files of the version BEFORE the one you will update to: from the board (best), a folder, or this repo's factory copy"""
+    if getattr(a, "from_archive", None):
+        a.from_soc, _ = fetch_from_archive(a.from_archive)
+    if getattr(a, "from_web", None) is not None:
+        a.from_soc, _ = download_soc(a.from_web or None)
+    if getattr(a, "from_soc", None):
+        a.from_dir, _ = stage_soc(a.from_soc)
     if a.from_board is not None or a.from_dir:
         bdir = p(DATA, "baseline", "_x")
         ver, dst, n, nm = snapshot(bdir, host=board_host(a.from_board, may_ask=True) if a.from_dir is None else None, src_dir=a.from_dir, version=a.version)
@@ -274,7 +573,7 @@ def cmd_init_baseline(a):
         say("Baseline %s recorded from %s: %d files copied, %d other files by checksum, in %s" % (ver, a.from_dir or "the board", n, nm, dst))
         say("Do this BEFORE the board is updated, so the baseline is the version before the new one.")
         return
-    src = a.src or p(os.path.dirname(os.path.abspath(__file__)), "..", "..", "factory", "ultra-s")
+    src = a.src or _repo_factory_dir()
     src = os.path.abspath(src)
     if not os.path.isdir(src): die("no source folder: " + src, "give --src DIR (a folder like factory/ultra-s)")
     ver = a.version or "1.1.13"
@@ -291,7 +590,13 @@ def cmd_init_baseline(a):
 
 
 def cmd_fetch(a):
-    if not a.from_dir and a.host is None and a.board is None: die("say where from.", "fetch --from-board  or  fetch --from-dir DIR")
+    if getattr(a, "from_archive", None):
+        a.from_soc, _ = fetch_from_archive(a.from_archive)
+    if getattr(a, "from_web", None) is not None:
+        a.from_soc, _ = download_soc(a.from_web or None)
+    if getattr(a, "from_soc", None):
+        a.from_dir, _ = stage_soc(a.from_soc)
+    if not a.from_dir and a.host is None and a.board is None: die("say where from.", "fetch --from-web  or  fetch --from-soc FILE  or  fetch --from-board  or  fetch --from-dir DIR")
     rdir = p(DATA, "releases", "_x")
     ver, dst, n, nm = snapshot(rdir, host=board_host(a.host, may_ask=sys.stdin.isatty()) if not a.from_dir else None, src_dir=a.from_dir, version=a.version)
     log("fetch", ver, files=n, checksums=nm)
@@ -462,7 +767,7 @@ def cmd_diff(a):
     notes = []
     if so: notes.append("Compiled modules / binaries changed (%d): %s. Restart Klipper after applying." % (len(so), ", ".join(so[:6])))
     if req: notes.append("Python requirements changed: %s. The Python environments need rebuilding (the installer's --update does this)." % ", ".join(req))
-    if any(r.startswith("mcu_update/") for r in changed): notes.append("mcu_update/ changed: run the mcu command; MCU firmware is never flashed by this tool.")
+    if any(r.startswith("mcu_update/") for r in changed): notes.append("mcu_update/ changed: run the mcu command; MCU firmware is only flashed if you run flash --run and type FLASH.")
     if any(r.startswith("printer_data/config/") and r.endswith("macros.cfg") for r in changed): notes.append("Macros changed: re-test tool change, start print, pause/resume, end print.")
     rep_lines, rep_py, rep_total = report_roots_diff(bd, rd)
     lines += ["", "== Everything else on the board (checksums only; shown for you, never applied; %d files differ)" % rep_total] + rep_lines
@@ -621,7 +926,7 @@ def cmd_mcu(a):
     say("\nNew firmware for: " + ", ".join(flash))
     can = os.path.isdir("/sys/class/net/can0")
     if not can: say("WARNING: can0 is not up on this Pi. THR/EXT/HUB/CELL boards are flashed over CAN, so fix the CAN link first.")
-    say("This tool never flashes. WonderMaker's own commands (read their scripts first):")
+    say("The mcu check never flashes. To flash: menu m or `flash --run` (guarded). WonderMaker's own commands (read their scripts first):")
     for part in flash: say("  %-4s bash ~/mcu_update/%s      # file: ~/mcu_update/%s" % (part, MCU_SCRIPT[part], MCU_BIN[part]))
     say("Steps: 1) copy the package's mcu_update folder to ~/mcu_update  2) make sure Klipper is idle  3) run the command above, one part at a time  4) restart Klipper and check the version shown by this command.")
     log("mcu", "-", source=src, new=flash)
@@ -698,7 +1003,7 @@ def wiki_latest(timeout=6):
     if "r" in _WIKI: return _WIKI["r"]
     r = (None, [])
     try:
-        req = urllib.request.Request(WIKI_URL, headers={"User-Agent": "wm_release/" + TOOL_VERSION})
+        req = urllib.request.Request(wiki_url(), headers={"User-Agent": "wm_release/" + TOOL_VERSION})
         with urllib.request.urlopen(req, timeout=timeout) as f: html = f.read().decode("utf-8", "replace")
         vs = sorted(set(re.findall(r"tm_t1_soc\(?(\d+(?:\.\d+)+)\)?\.zip", html, re.I)), key=vkey)
         if vs: r = (vs[-1], vs)
@@ -717,14 +1022,14 @@ def wiki_line(board_ver=None):
     if not lat: return None
     have = board_ver or (known_versions() or [None])[-1]
     if not have: return "WonderMaker's newest published version is %s." % lat
-    if vkey(lat) > vkey(have): return "NEW: WonderMaker published %s (you have %s). Update the board with their updater, then run option 1." % (lat, have)
+    if vkey(lat) > vkey(have): return "NEW: WonderMaker published %s (you have %s). Get it with:  python3 wm_release.py fetch --from-web   (or menu option w), then diff and apply." % (lat, have)
     return "WonderMaker's newest published version is %s - you have %s, up to date." % (lat, have)
 
 
 def cmd_check(a):
     """ask WonderMaker's firmware page for the newest published System version and compare (nothing is downloaded or changed)"""
     lat, vs = wiki_latest(10)
-    if not lat: die("could not read " + WIKI_URL, "check the internet connection; the page layout may also have changed")
+    if not lat: die("could not read " + wiki_url(), "check the internet connection; the page layout may also have changed")
     say("WonderMaker published: " + ", ".join(vs))
     say("Newest published:      " + lat)
     kv = known_versions()
@@ -733,7 +1038,15 @@ def cmd_check(a):
 
 
 def cmd_all(a):
-    """every needed step, in order, by looking at where you are: nothing is changed on the board; your files change only after you type APPLY"""
+    """every needed step, in order; nothing changes until you type APPLY. First choose where the update comes from."""
+    src = (getattr(a, "source", None) or os.environ.get("WMR_SOURCE")
+           or ask("Update from the old screen board, or WonderMaker's website online? (board/web)", "web")).strip().lower()
+    if src.startswith("w"): return _all_web(a)
+    return _all_board(a)
+
+
+def _all_board(a):
+    """one-shot update by reading the old WonderMaker screen board over SSH"""
     saved = os.environ.get("WMR_BOARD_HOST", "") or conf_get("board_host")
     host = ask("Board address (the WonderMaker screen board's IP; Enter keeps the one shown)", saved)
     if not host: die("which board?", "type the screen board's IP address")
@@ -755,7 +1068,7 @@ def cmd_all(a):
         step(3, 6, "Saving the board as it is now (%s) as the baseline" % bv)
         say("  Do this only while the board still has the OLD version. Then update the board with WonderMaker's own updater.")
         if ask("Save it? (y/n)", "y").lower().startswith("y"):
-            cmd_init_baseline(argparse.Namespace(from_board=host, from_dir=None, src=None, version=None, force=False))
+            cmd_init_baseline(argparse.Namespace(from_board=host, from_dir=None, from_soc=None, from_web=None, from_archive=None, src=None, version=None, force=False))
         say("\nNext: update the board with WonderMaker's updater, then choose this option again.")
         return
     if bv in bl and vkey(bv) == vkey(newest):
@@ -766,7 +1079,7 @@ def cmd_all(a):
         say("\nThe board (%s) is OLDER than your baseline %s. Nothing to do." % (bv, newest)); return
     step(3, 6, "Fetching System %s from the board (read only)" % bv)
     if bv in versions("releases"): say("  Already fetched; using it.")
-    else: cmd_fetch(argparse.Namespace(board=host, host=host, from_dir=None, version=None))
+    else: cmd_fetch(argparse.Namespace(board=host, host=host, from_dir=None, from_soc=None, from_web=None, from_archive=None, version=None))
     step(4, 6, "Comparing %s with %s and with your live files" % (bv, newest))
     cmd_diff(argparse.Namespace(version=bv))
     mcu = p(DATA, "releases", bv, "mcu_update")
@@ -783,6 +1096,44 @@ def cmd_all(a):
             cmd_promote(argparse.Namespace(version=bv))
         else: say("  Later: menu 9, or: python3 wm_release.py promote %s" % bv)
     else: say("  Nothing applied. Run this option again, or menu 6, when you are ready.")
+
+
+def _all_web(a):
+    """one-shot online update straight from WonderMaker's firmware page (no screen board)"""
+    lat, _ = wiki_latest()
+    if not lat: die("WonderMaker's firmware page could not be read.",
+                    "check the Pi's internet, or use the board path, or 'fetch --from-soc FILE'")
+    bl = versions("baseline"); newest = bl[-1] if bl else None
+    say("\n  Newest published System version: %s.  Baselines saved: %s" % (lat, ", ".join(bl) if bl else "none"))
+    if newest is None:
+        step(1, 4, "No baseline yet")
+        say("  To merge an update without losing your changes, the tool needs the version you had BEFORE, as a baseline.")
+        say("  I can record the current published version (%s) as that baseline now; the NEXT release then merges cleanly." % lat)
+        if ask("Record %s as the baseline? (y/n)" % lat, "y").lower().startswith("y"):
+            cmd_init_baseline(argparse.Namespace(from_board=None, from_dir=None, from_soc=None, from_web=lat, from_archive=None, src=None, version=None, force=False))
+            say("\nBaseline %s saved. When WonderMaker publishes a newer version, run this again." % lat)
+        return
+    if vkey(lat) <= vkey(newest):
+        say("\nUp to date: newest published is %s and your baseline is %s. Nothing to bring over." % (lat, newest)); return
+    step(1, 4, "Downloading System %s from WonderMaker (kept in the firmware archive)" % lat)
+    if lat in versions("releases"): say("  Already downloaded; using it.")
+    else: cmd_fetch(argparse.Namespace(board=None, host=None, from_dir=None, from_soc=None, from_web=lat, from_archive=None, version=None))
+    step(2, 4, "Comparing %s with baseline %s and your live files" % (lat, newest))
+    cmd_diff(argparse.Namespace(version=lat))
+    mcu = p(DATA, "releases", lat, "mcu_update")
+    if os.path.isfile(p(mcu, "mcu_info.ini")):
+        step(3, 4, "MCU firmware check (never flashes here; menu m flashes, guarded)")
+        cmd_mcu(argparse.Namespace(source=mcu))
+    else: step(3, 4, "MCU firmware: none in this release, skipped")
+    step(4, 4, "What would be applied")
+    cmd_apply(argparse.Namespace(version=lat, apply=False, force=False))
+    if ask("Apply it now? Type yes to go on (a backup is made first)", "no").lower() == "yes":
+        cmd_apply(argparse.Namespace(version=lat, apply=True, force=False))
+        cmd_checklist(argparse.Namespace(version=lat))
+        if ask("When it works, keep %s as the next baseline? (y/n)" % lat, "y").lower().startswith("y"):
+            cmd_promote(argparse.Namespace(version=lat))
+        else: say("  Later: menu 9, or: python3 wm_release.py promote %s" % lat)
+    else: say("  Nothing applied. Run this again, or menu 6, when you are ready.")
 
 
 def versions(kind):
@@ -823,17 +1174,23 @@ def cmd_menu(a):
     while True:
         menu_status()
         say("""
-   1) ALL STEPS  - does what is needed next, in order (asks the board's user name and password)
+   1) ALL STEPS  - asks first: old screen board, or WonderMaker website; then does the rest
    ---- or one step at a time ----
    2) Save the baseline from the board        (before you update the board)
    3) Fetch the new version from the board    (after you updated it)
+   f) Open a TM_T1_SOC file on the Pi         (decrypt it here; no factory board needed)
+   w) Download the newest from WonderMaker    (gets the SOC from their website, then decrypts it here)
+   a) Saved firmware                          (reinstall or downgrade from a kept copy, offline)
    4) Show the differences                    (read only, saves a report)
+   v) Compare two versions                    (read only: what WonderMaker changed between them)
    5) Check MCU firmware                      (never flashes)
    6) Apply the new version                   (plan first; backup; you type APPLY)
+   m) Flash MCU firmware                      (guarded; writes to the boards; you type FLASH)
    7) Test list and my notes
    8) Roll back the last apply
    9) Keep this version as the next baseline  (after it works)
-   c) Check for a new WonderMaker version    (reads their firmware page)
+   c) Check for a new WonderMaker version     (reads their firmware page)
+   g) Settings                                (decrypt key, firmware page URL, board)
    h) History
    s) Board address and user name
    0) Exit""")
@@ -849,9 +1206,32 @@ def cmd_menu(a):
                 if u: conf_set("board_user", u); say("  Saved. The password is never saved: it is asked each time you log in.")
             elif c == "2":
                 say("  Reads the board's files as they are NOW. Do this only while the board still has the old version.")
-                if ask("Continue? (y/n)", "y").lower().startswith("y"): cmd_init_baseline(argparse.Namespace(from_board="", from_dir=None, src=None, version=None, force=False))
+                if ask("Continue? (y/n)", "y").lower().startswith("y"): cmd_init_baseline(argparse.Namespace(from_board="", from_dir=None, from_soc=None, from_web=None, from_archive=None, src=None, version=None, force=False))
             elif c == "3":
-                cmd_fetch(argparse.Namespace(board="", host=None, from_dir=None, version=None))
+                cmd_fetch(argparse.Namespace(board="", host=None, from_dir=None, from_soc=None, from_web=None, from_archive=None, version=None))
+            elif c == "f":
+                soc = ask("Path to the TM_T1_SOC file on the Pi")
+                if soc: cmd_fetch(argparse.Namespace(board=None, host=None, from_dir=None, from_soc=os.path.expanduser(soc), from_web=None, from_archive=None, version=None))
+            elif c == "w":
+                v = ask("Version to download (Enter for the newest on WonderMaker's page)")
+                cmd_fetch(argparse.Namespace(board=None, host=None, from_dir=None, from_soc=None, from_web=v or "", from_archive=None, version=None))
+            elif c == "a":
+                cmd_firmware(argparse.Namespace())
+                av = archived_versions()
+                if av:
+                    v = ask("Version to reinstall/downgrade from the archive (Enter to skip)", "")
+                    if v: cmd_fetch(argparse.Namespace(board=None, host=None, from_dir=None, from_soc=None, from_web=None, from_archive=v, version=None))
+            elif c == "v":
+                rs = versions("releases")
+                if len(rs) < 2: say("  Need two fetched versions to compare (have: %s). Fetch another with w or a." % (", ".join(rs) or "none")); continue
+                o = ask("Older version", rs[-2]); n = ask("Newer version", rs[-1])
+                if o and n: cmd_compare(argparse.Namespace(old=o, new=n))
+            elif c == "g": cmd_settings(argparse.Namespace())
+            elif c == "m":
+                t = ask("Which board? (main/thr/ext/hub/cell)", "main")
+                cmd_flash(argparse.Namespace(target=t, run=False, force=False))
+                if ask("Flash for real now? (y/n)", "n").lower().startswith("y"):
+                    cmd_flash(argparse.Namespace(target=t, run=True, force=False))
             elif c in ("4", "6", "7", "9"):
                 v = pick_release()
                 if not v: continue
@@ -887,12 +1267,18 @@ def main():
     add("status", cmd_status)
     add("menu", cmd_menu)
     add("check", cmd_check)
-    add("all", cmd_all)
+    add("all", cmd_all, (["--source"], {"choices": ["board", "web"]}))
     add("init-baseline", cmd_init_baseline, (["--src"], {}), (["--version"], {}), (["--force"], {"action": "store_true"}),
-        (["--from-board"], {"nargs": "?", "const": ""}), (["--from-dir"], {}))
+        (["--from-board"], {"nargs": "?", "const": ""}), (["--from-dir"], {}), (["--from-soc"], {}),
+        (["--from-web"], {"nargs": "?", "const": ""}), (["--from-archive"], {}))
     add("promote", cmd_promote, (["version"], {}))
-    add("fetch", cmd_fetch, (["--from-board"], {"nargs": "?", "const": "", "dest": "board"}), (["--from-dir"], {}), (["--version"], {}))
+    add("fetch", cmd_fetch, (["--from-board"], {"nargs": "?", "const": "", "dest": "board"}), (["--from-dir"], {}),
+        (["--from-soc"], {}), (["--from-web"], {"nargs": "?", "const": ""}), (["--from-archive"], {}), (["--version"], {}))
     add("diff", cmd_diff, (["version"], {}))
+    add("compare", cmd_compare, (["old"], {}), (["new"], {}))
+    add("firmware", cmd_firmware)
+    add("settings", cmd_settings)
+    add("flash", cmd_flash, (["target"], {"nargs": "?"}), (["--run"], {"action": "store_true"}), (["--force"], {"action": "store_true"}))
     add("mcu", cmd_mcu, (["source"], {}))
     add("apply", cmd_apply, (["version"], {}), (["--apply"], {"action": "store_true"}), (["--force"], {"action": "store_true"}))
     add("rollback", cmd_rollback, (["backup"], {"nargs": "?"}), (["--force"], {"action": "store_true"}))
@@ -902,7 +1288,9 @@ def main():
     a = ap.parse_args()
     if a.cmd is None: a.fn = cmd_menu; a.cmd = "menu"   # no command: the menu
     if a.cmd == "fetch":
-        if a.board is None and not a.from_dir: die("say where from.", "fetch --from-board  or  fetch --from-dir DIR")
+        if (a.board is None and not a.from_dir and not getattr(a, "from_soc", None)
+                and getattr(a, "from_web", None) is None and not getattr(a, "from_archive", None)):
+            die("say where from.", "fetch --from-web  or  --from-soc FILE  or  --from-archive VER  or  --from-board  or  --from-dir DIR")
         a.host = a.board or None
     a.fn(a)
 
