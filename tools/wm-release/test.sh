@@ -313,6 +313,17 @@ check "flash --run does nothing unless you type FLASH" bash -c "WMR_TEST_TYPED=n
 check "flash --run + FLASH runs the board's own flash script" bash -c "WMR_TEST_TYPED=FLASH python3 $PY flash --run >/dev/null && test -f $T/flashed"
 check "flash refuses an unknown board name" bash -c "python3 $PY flash nosuch 2>&1 | grep -q 'unknown target'"
 
-check "the tool has a version: --version, the menu title, status and the history" bash -c "python3 $PY --version | grep -q 'wm_release.py [0-9]' && printf '0\n' | python3 $PY | grep -q 'WonderMaker release tool [0-9]' && python3 $PY status | grep -q 'Tool version: [0-9]' && grep -q '(version 1.2.0)' $HERE/README.md"
+# clean: delete everything the tool created, nothing else
+mkdir -p "$T/fw"; export WMR_FIRMWARE_DIR="$T/fw"; echo z > "$T/fw/tm_t1_soc(9.9.9).zip"
+R clean > "$T/clean.out"
+check "clean is a dry run: lists data + archive, deletes nothing" bash -c "grep -q 'Dry run - nothing deleted' $T/clean.out && test -d $WMR_HOME/baseline && test -f '$T/fw/tm_t1_soc(9.9.9).zip'"
+check "clean --run does nothing unless you type DELETE" bash -c "WMR_TEST_TYPED=nope python3 $PY clean --run >/dev/null 2>&1; test -d $WMR_HOME/baseline"
+check "clean --run + DELETE removes the data folder and the archive, not the live files" bash -c "WMR_TEST_TYPED=DELETE python3 $PY clean --run >/dev/null && ! test -e $WMR_HOME && ! test -e $T/fw && test -f $T/live7/printer_data/config/macros.cfg"
+check "clean again says already clean" bash -c "python3 $PY clean | grep -q 'already clean'"
+mkdir -p "$WMR_HOME/baseline/x" "$T/fw"; echo z > "$T/fw/a.zip"
+check "clean --keep-firmware keeps the archive" bash -c "WMR_TEST_TYPED=DELETE python3 $PY clean --run --keep-firmware >/dev/null && test -f $T/fw/a.zip && ! test -e $WMR_HOME"
+check "clean refuses a protected location" bash -c "WMR_HOME=$T/live WMR_LIVE_HOME=$T/live python3 $PY clean --run 2>&1 | grep -q refusing; test -d $T/live"
+
+check "the tool has a version: --version, the menu title, status and the history" bash -c "python3 $PY --version | grep -q 'wm_release.py [0-9]' && printf '0\n' | python3 $PY | grep -q 'WonderMaker release tool [0-9]' && python3 $PY status | grep -q 'Tool version: [0-9]' && grep -q '(version 1.3.0)' $HERE/README.md"
 
 echo; echo "passed: $pass  failed: $fail"; [ "$fail" = 0 ]

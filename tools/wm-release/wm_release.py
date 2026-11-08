@@ -31,7 +31,7 @@ Version: see --version.  Data folder: $WMR_HOME (default ~/wm-private-data).  Li
 """
 import argparse, atexit, getpass, hashlib, io, json, os, re, shutil, subprocess, sys, tarfile, tempfile, time, urllib.request, urllib.parse, zipfile
 
-TOOL_VERSION = "1.2.0"   # this tool's own version (not the installer's VERSION file); see README "Version history"
+TOOL_VERSION = "1.3.0"   # this tool's own version (not the installer's VERSION file); see README "Version history"
 HOME = os.path.expanduser("~")
 DATA = os.environ.get("WMR_HOME", os.path.join(HOME, "wm-private-data"))
 LIVE = os.environ.get("WMR_LIVE_HOME", HOME)
@@ -526,6 +526,54 @@ def cmd_settings(a):
     elif u: conf_set("wiki_url", u); _WIKI.clear(); say("  saved.")
     h = ask("Board address (Enter keeps it)", "")
     if h: conf_set("board_host", h); say("  saved.")
+
+
+def _du(path):
+    t = 0
+    for r, _, fs in os.walk(path):
+        for f in fs:
+            try: t += os.lstat(p(r, f)).st_size
+            except OSError: pass
+    return t
+
+def _clean_items():
+    """everything this tool itself creates: (label, path)"""
+    import glob
+    items = [("tool data (baseline, fetched releases, backups, reports, notes, settings, history)", DATA),
+             ("firmware archive (kept TM_T1_SOC zips)", ARCHIVE)]
+    items += [("temporary files", t) for t in sorted(glob.glob(p(tempfile.gettempdir(), "wmr-*")))]
+    return [(l, d) for l, d in items if os.path.lexists(d)]
+
+def cmd_clean(a):
+    """delete every file this tool created (never touches the printer's live files)"""
+    protected = {os.path.realpath(x) for x in ("/", HOME, LIVE, os.path.expanduser("~"))}
+    items = _clean_items()
+    keep = set()
+    if getattr(a, "keep_firmware", False): keep.add(os.path.realpath(ARCHIVE))
+    if getattr(a, "keep_backups", False): keep.add(os.path.realpath(p(DATA, "backups")))
+    for l, d in items:
+        if os.path.realpath(d) in protected: die("refusing to delete %s" % d, "its location is a protected folder; check WMR_HOME / WMR_FIRMWARE_DIR")
+    say("This tool created these (sizes):")
+    if not items: say("  nothing - already clean."); return
+    for l, d in items:
+        mark = "   (kept)" if os.path.realpath(d) in keep else ""
+        say("  %-8.1f MiB  %s%s\n               %s" % (_du(d) / 1048576 if os.path.isdir(d) else os.path.getsize(d) / 1048576, d, mark, l))
+    say("\nNOT touched: klipper, moonraker, printer_data/config, mcu_update and TM_T1/scripts as they are on this machine now")
+    say("(updates you already applied stay applied).  After cleaning there is NO baseline and NO backup to roll back to.")
+    if not a.run: say("\nDry run - nothing deleted.  Delete for real with:  python3 wm_release.py clean --run"); return
+    typed = os.environ.get("WMR_TEST_TYPED") or input("Type DELETE to permanently delete the folders above: ").strip()
+    if typed != "DELETE": die("nothing deleted.", "type DELETE exactly to confirm")
+    gone = 0
+    for l, d in items:
+        if os.path.realpath(d) in keep: continue
+        if os.path.realpath(d) == os.path.realpath(DATA) and any(k.startswith(os.path.realpath(DATA) + os.sep) for k in keep):
+            for n in os.listdir(d):
+                if os.path.realpath(p(d, n)) in keep: continue
+                (shutil.rmtree if os.path.isdir(p(d, n)) and not os.path.islink(p(d, n)) else os.remove)(p(d, n))
+        else:
+            (shutil.rmtree if os.path.isdir(d) and not os.path.islink(d) else os.remove)(d)
+        gone += 1; say("  deleted %s" % d)
+    say("Done: %d item(s) deleted." % gone)
 
 
 def cmd_flash(a):
@@ -1190,6 +1238,7 @@ def cmd_menu(a):
    8) Roll back the last apply
    9) Keep this version as the next baseline  (after it works)
    c) Check for a new WonderMaker version     (reads their firmware page)
+   x) Clean up                                (delete every file this tool created; you type DELETE)
    g) Settings                                (decrypt key, firmware page URL, board)
    h) History
    s) Board address and user name
@@ -1227,6 +1276,10 @@ def cmd_menu(a):
                 o = ask("Older version", rs[-2]); n = ask("Newer version", rs[-1])
                 if o and n: cmd_compare(argparse.Namespace(old=o, new=n))
             elif c == "g": cmd_settings(argparse.Namespace())
+            elif c == "x":
+                cmd_clean(argparse.Namespace(run=False, keep_firmware=False, keep_backups=False))
+                if ask("Delete them for real now? (y/n)", "n").lower().startswith("y"):
+                    cmd_clean(argparse.Namespace(run=True, keep_firmware=ask("Keep the firmware archive? (y/n)", "n").lower().startswith("y"), keep_backups=False))
             elif c == "m":
                 t = ask("Which board? (main/thr/ext/hub/cell)", "main")
                 cmd_flash(argparse.Namespace(target=t, run=False, force=False))
@@ -1278,6 +1331,7 @@ def main():
     add("compare", cmd_compare, (["old"], {}), (["new"], {}))
     add("firmware", cmd_firmware)
     add("settings", cmd_settings)
+    add("clean", cmd_clean, (["--run"], {"action": "store_true"}), (["--keep-firmware"], {"action": "store_true"}), (["--keep-backups"], {"action": "store_true"}))
     add("flash", cmd_flash, (["target"], {"nargs": "?"}), (["--run"], {"action": "store_true"}), (["--force"], {"action": "store_true"}))
     add("mcu", cmd_mcu, (["source"], {}))
     add("apply", cmd_apply, (["version"], {}), (["--apply"], {"action": "store_true"}), (["--force"], {"action": "store_true"}))

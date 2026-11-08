@@ -1,4 +1,4 @@
-# wm_release.py - WonderMaker release tool (version 1.2.0)
+# wm_release.py - WonderMaker release tool (version 1.3.0)
 
 For bringing a new WonderMaker System release (for example 1.1.14) to your Pi **without losing your own changes**.
 It is not part of any installer and no installer runs it. It lives in the `tools/wm-release/` folder of the repo, so `git pull` brings it to the Pi (the repo is public, so this folder is public too).
@@ -70,6 +70,7 @@ The same thing from the command line: `python3 wm_release.py all`.
 | 8 | Roll back the last apply | `rollback` |
 | m | Flash MCU firmware (guarded: dry run first, then you type `FLASH`) | `flash [main\|thr\|ext\|hub\|cell] --run` |
 | 9 | Keep this version as the next baseline | `promote` |
+| x | Clean up: delete every file this tool created (dry run first; you type `DELETE`) | `clean [--run] [--keep-firmware] [--keep-backups]` |
 | g | Settings: decrypt key, firmware page URL, board address | `settings` |
 | h | History | `log` |
 | s | Board address and user name (remembered in `config.json` in the data folder) | |
@@ -225,6 +226,7 @@ python3 wm_release.py promote 1.1.14      # when you are happy: it becomes the n
 | `init-baseline [--from-board [HOST]] [--from-dir DIR] [--from-soc FILE] [--src DIR] [--version V] [--force]` | records a baseline | only the data folder |
 | `fetch --from-board [HOST]` / `--from-dir DIR` / `--from-soc FILE` / `--from-web [VERSION]` | copies a release for comparing | only the data folder (plus the download for `--from-web`) |
 | `diff VERSION` | the comparison and the saved report | no |
+| `clean [--run] [--keep-firmware] [--keep-backups]` | lists, then deletes all files the tool created | only the tool's own folders, after `DELETE` |
 | `mcu ZIP_OR_FOLDER` | MCU firmware check and flashing steps | no |
 | `apply VERSION [--apply] [--force]` | plan; with `--apply`: backup, then change | yes, after `APPLY` |
 | `rollback [BACKUP] [--force]` | puts the backup back | yes, after `ROLLBACK` |
@@ -285,6 +287,7 @@ python3 tools/wm-release/wm_release.py --version
 `python3 wm_release.py --version` prints the tool's version; the menu title and `status` show it too, and every line in the history (`log`) records the version that wrote it. It is the tool's own number and has nothing to do with the installer's `VERSION` file, so changing the tool's version alone does not publish a GitHub release (the installer's `VERSION` does).
 
 Version history:
+- **1.3.0** - `clean` (menu `x`): lists and then deletes everything the tool created (`~/wm-private-data`, `~/wm-firmware`, temp files) after you type `DELETE`. It never touches the printer's live files, so updates you applied stay applied; it also removes the baseline and backups, so there is nothing left to roll back to. `--keep-firmware` and `--keep-backups` keep those.
 - **1.2.0** - takes WonderMaker releases without the factory screen board: `fetch --from-soc FILE` (decrypts a `TM_T1_SOC` on the Pi) and `fetch --from-web [VERSION]` (menu `w`; downloads it from WonderMaker's firmware page). Option 1 asks first: old screen board or website. Firmware archive (`~/wm-firmware`, `firmware`, `fetch --from-archive`, menu `a`), `compare OLD NEW` (menu `v`), `settings` (menu `g`), guarded `flash` (menu `m`). The tool now finds the repo root from any folder.
 - **1.1.0** - checks WonderMaker's firmware page for a newer System version: menu item `c`, command `check`, a line in the menu header and a note at the start of option 1. Read only; works offline too (it just says the page could not be read).
 - **1.0.1** - option 1 / `all` always asks for the board address first (the saved one is shown; press Enter to keep it).
@@ -292,7 +295,7 @@ Version history:
 
 ## Tests
 
-`bash tools/wm-release/test.sh` runs 99 checks on throwaway folders (it never touches your real files).
+`bash tools/wm-release/test.sh` runs 105 checks on throwaway folders (it never touches your real files).
 
 ## Checking for a new WonderMaker version
 
