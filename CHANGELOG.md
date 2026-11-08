@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.23.2
+
+- The "Free up disk space" code now lives in one shared file, `scripts/lib_free_space.sh`, loaded by both the Pi installer and the screen board script, so the two cannot drift apart.
+- Screen board clock fix: the fallback that reads the time from GitHub no longer skips certificate checks (`curl -k` is gone; it reads the `Date` header over plain http). The question about automatic time sync is asked once; after a yes it is not asked again for an hour.
+
 ## 1.23.1
 
 - `screen_board.sh --help` printed only the two-line title. It now prints the full list of options.
