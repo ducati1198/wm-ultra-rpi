@@ -34,6 +34,28 @@ Inside `~/wm-private-data/`:
 
 Nothing is ever changed unless you run `apply --apply` and type `APPLY` (or `rollback` and type `ROLLBACK`). It never flashes MCU firmware.
 
+## The menu (easiest way)
+
+```
+python3 wm_release.py
+```
+With no command it opens a numbered menu. The top shows where you are (baseline saved, new version fetched, board address, last action) and the next step is the first one that is still empty.
+
+| Key | Does | Same as |
+|---|---|---|
+| 1 | Save the baseline from the board (do it before the update) | `init-baseline --from-board` |
+| 2 | Fetch the new version from the board | `fetch --from-board` |
+| 3 | Show the differences | `diff` |
+| 4 | Check MCU firmware | `mcu` |
+| 5 | Apply: shows the plan, then asks again; you type `yes`, then `APPLY` | `apply` / `apply --apply` |
+| 6 | Test list and a note | `checklist`, `notes` |
+| 7 | Roll back the last apply | `rollback` |
+| 8 | Keep this version as the next baseline | `promote` |
+| 9 | History | `log` |
+| s | Set the board address (remembered in `config.json` in the data folder) | |
+
+The commands below still work on their own.
+
 ## How to use (step by step)
 
 Run everything from the folder that holds `wm_release.py`.
@@ -151,4 +173,4 @@ python3 wm_release.py promote 1.1.14      # when you are happy: it becomes the n
 
 ## Tests
 
-`bash tools/wm-release/test.sh` runs 47 checks on throwaway folders (it never touches your real files).
+`bash tools/wm-release/test.sh` runs 53 checks on throwaway folders (it never touches your real files).

@@ -4,6 +4,7 @@
 Not part of any installer (folder tools/wm-release of the repo).
 Everything is read-only unless you run `apply --apply` (and type APPLY) or `rollback`.
 
+  (no command) / menu          a numbered menu that runs the steps below
   status                       what is recorded: baseline, fetched releases, log
   init-baseline --from-board  record the board as it is NOW (the version before the new one); also --from-dir DIR or --src DIR (repo factory copy)
   promote VERSION              make a fetched release the baseline for the next one
@@ -121,8 +122,19 @@ def ssh_base(host):
     return cmd + ["%s@%s" % (BOARD_USER, host)]
 
 
+def conf_get(k, d=""):
+    try: return json.load(open(p(DATA, "config.json"))).get(k, d)
+    except (OSError, ValueError): return d
+
+
+def conf_set(k, v):
+    try: c = json.load(open(p(DATA, "config.json")))
+    except (OSError, ValueError): c = {}
+    c[k] = v; ensure(DATA); json.dump(c, open(p(DATA, "config.json"), "w"))
+
+
 def board_host(h):
-    h = h or os.environ.get("WMR_BOARD_HOST", "")
+    h = h or os.environ.get("WMR_BOARD_HOST", "") or conf_get("board_host")
     if not h: die("which board?", "give its address: --from-board 192.168.x.x  (or set WMR_BOARD_HOST)")
     return h
 
@@ -599,14 +611,97 @@ def cmd_notes(a):
     say(open(f).read()); say("File: " + f)
 
 
+def versions(kind):
+    d = p(DATA, kind)
+    return sorted((x for x in os.listdir(d) if os.path.isdir(p(d, x)) and re.match(r"^\d+(\.\d+)+$", x)), key=vkey) if os.path.isdir(d) else []
+
+
+def ask(q, default=""):
+    try: r = input("  %s%s: " % (q, " [%s]" % default if default else "")).strip()
+    except EOFError: raise SystemExit(0)
+    return r or default
+
+
+def pick_release(default_latest=True):
+    rs = versions("releases")
+    if not rs: say("  No release is fetched yet: use step 2 first."); return None
+    return ask("Which release", rs[-1]) if len(rs) > 1 else rs[0]
+
+
+def menu_status():
+    bl, rs = versions("baseline"), versions("releases")
+    lg = p(DATA, "release-log.jsonl")
+    last = ""
+    if os.path.isfile(lg):
+        try: d = json.loads(open(lg).read().strip().splitlines()[-1]); last = "%s %s %s" % (d["time"], d["action"], d["version"])
+        except (ValueError, IndexError): pass
+    host = os.environ.get("WMR_BOARD_HOST", "") or conf_get("board_host")
+    say("\nWonderMaker release tool")
+    say("  Baseline (version before):  " + (", ".join(bl) if bl else "none yet -> do step 1 BEFORE you update the board"))
+    say("  Fetched new version:        " + (", ".join(rs) if rs else "none yet -> do step 2 after the update"))
+    say("  Board address:              " + (host or "not set (press s)"))
+    say("  Last action:                " + (last or "none"))
+
+
+def cmd_menu(a):
+    while True:
+        menu_status()
+        say("""
+   1) Save the baseline from the board        (before you update the board)
+   2) Fetch the new version from the board    (after you updated it)
+   3) Show the differences                    (read only, saves a report)
+   4) Check MCU firmware                      (never flashes)
+   5) Apply the new version                   (plan first; backup; you type APPLY)
+   6) Test list and my notes
+   7) Roll back the last apply
+   8) Keep this version as the next baseline  (after it works)
+   9) History
+   s) Set the board address
+   0) Exit""")
+        c = ask("Choose")
+        try:
+            if c == "0": return
+            elif c == "s":
+                h = ask("Board address (the screen board's IP)")
+                if h: conf_set("board_host", h); say("  Saved.")
+            elif c == "1":
+                say("  Reads the board's files as they are NOW. Do this only while the board still has the old version.")
+                if ask("Continue? (y/n)", "y").lower().startswith("y"): cmd_init_baseline(argparse.Namespace(from_board="", from_dir=None, src=None, version=None, force=False))
+            elif c == "2":
+                cmd_fetch(argparse.Namespace(board="", host=None, from_dir=None, version=None))
+            elif c in ("3", "5", "6", "8"):
+                v = pick_release()
+                if not v: continue
+                if c == "3": cmd_diff(argparse.Namespace(version=v))
+                elif c == "5":
+                    cmd_apply(argparse.Namespace(version=v, apply=False, force=False))
+                    if ask("Apply it now? Type yes to go on", "no").lower() == "yes": cmd_apply(argparse.Namespace(version=v, apply=True, force=False))
+                elif c == "6":
+                    cmd_checklist(argparse.Namespace(version=v))
+                    n = ask("A note to save (Enter to skip)")
+                    if n: cmd_notes(argparse.Namespace(version=v, add=n))
+                elif c == "8": cmd_promote(argparse.Namespace(version=v))
+            elif c == "4":
+                rs = versions("releases"); dflt = p(DATA, "releases", rs[-1], "mcu_update") if rs else ""
+                src = ask("Folder or zip with mcu_info.ini", dflt)
+                if src: cmd_mcu(argparse.Namespace(source=os.path.expanduser(src)))
+            elif c == "7": cmd_rollback(argparse.Namespace(backup=None, force=False))
+            elif c == "9": cmd_log(argparse.Namespace())
+            else: say("  Choose a number from the list.")
+        except SystemExit as e:
+            if e.code not in (0, None): say("  (stopped; nothing else was done)")
+        ask("Press Enter to go on")
+
+
 def main():
     ap = argparse.ArgumentParser(description="Private WonderMaker release tool", formatter_class=argparse.RawDescriptionHelpFormatter, epilog=__doc__)
-    sp = ap.add_subparsers(dest="cmd", required=True)
+    sp = ap.add_subparsers(dest="cmd")
     def add(n, fn, *args):
         s = sp.add_parser(n); s.set_defaults(fn=fn)
         for x in args: s.add_argument(*x[0], **x[1])
         return s
     add("status", cmd_status)
+    add("menu", cmd_menu)
     add("init-baseline", cmd_init_baseline, (["--src"], {}), (["--version"], {}), (["--force"], {"action": "store_true"}),
         (["--from-board"], {"nargs": "?", "const": ""}), (["--from-dir"], {}))
     add("promote", cmd_promote, (["version"], {}))
@@ -619,6 +714,7 @@ def main():
     add("notes", cmd_notes, (["version"], {}), (["--add"], {}))
     add("log", cmd_log)
     a = ap.parse_args()
+    if a.cmd is None: a.fn = cmd_menu; a.cmd = "menu"   # no command: the menu
     if a.cmd == "fetch":
         if a.board is None and not a.from_dir: die("say where from.", "fetch --from-board  or  fetch --from-dir DIR")
         a.host = a.board or None

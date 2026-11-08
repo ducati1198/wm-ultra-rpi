@@ -127,4 +127,18 @@ check "promote: 1.1.14 becomes a baseline" grep -q "now a baseline" "$T/p4"
 check "diff 1.1.15 compares with 1.1.14 (the version before), not 1.1.13" bash -c "head -1 $T/p6 | grep -q 'baseline 1.1.14'"
 check "diff 1.1.14 still uses 1.1.13 as its baseline" bash -c "head -1 $T/p3 | grep -q 'baseline 1.1.13'"
 check "no baseline older than the release -> clear message" bash -c "python3 $PY diff 1.1.13 2>&1 | grep -q 'no baseline older than 1.1.13'"
+
+# ---- menu
+printf 's\nboardx\n\n0\n' | python3 "$PY" > "$T/m1" 2>&1
+check "menu opens with no command and shows the status" bash -c "grep -q 'Baseline (version before):  1.1.13, 1.1.14' $T/m1 && grep -q 'Fetched new version:        1.1.14, 1.1.15' $T/m1"
+check "menu remembers the board address" bash -c "grep -q boardx $WMR_HOME/config.json && printf '0\n' | python3 $PY | grep -q 'Board address:              boardx'"
+printf '3\n1.1.14\n\n0\n' | python3 "$PY" > "$T/m2" 2>&1
+check "menu: show the differences for a chosen release" grep -q "Python files changed or new" "$T/m2"
+printf '5\n1.1.14\nno\n\n0\n' | python3 "$PY" > "$T/m3" 2>&1
+check "menu: apply shows the plan and does not apply unless you type yes" bash -c "grep -q 'Plan for release 1.1.14' $T/m3 && grep -q 'Dry run' $T/m3"
+printf '2\n\n0\n' | WMR_HOME="$T/empty" python3 "$PY" > "$T/m4" 2>&1
+check "menu: a step that cannot run explains and returns to the menu (no address)" bash -c "grep -q 'which board' -i $T/m4 && grep -q 'Choose' $T/m4"
+printf '3\n\n0\n' | WMR_HOME="$T/empty" python3 "$PY" > "$T/m5" 2>&1
+check "menu: differences before any fetch says what to do first" grep -q "use step 2 first" "$T/m5"
+printf '' | python3 "$PY" > "$T/m6" 2>&1; check "menu: closing the input ends it cleanly" test $? -eq 0
 echo; echo "passed: $pass  failed: $fail"; [ "$fail" = 0 ]
