@@ -190,6 +190,20 @@ python3 wm_release.py promote 1.1.14      # when you are happy: it becomes the n
 | `WMR_BOARD_USER` | `t13dp` | user on the screen board (asked and remembered when not set) |
 | `WMR_BOARD_KEY` | (none) | SSH key for the board |
 
+## Updating the tool
+
+To get the newest version of the tool onto the Pi:
+
+```
+cd ~/wm-ultra-rpi
+./installer.sh --get-latest
+python3 tools/wm-release/wm_release.py --version
+```
+
+- The first command downloads the newest files from GitHub. It replaces the tool's files (`wm_release.py`, this README, the tests) along with the rest of the installer folder, and changes nothing else on the printer. It does **not** apply the printer update.
+- The last command prints the tool's version (`wm_release.py 1.0.0` or newer). Check the "Version history" below to see what changed.
+- Your saved data is safe: baselines, fetched releases, reports, backups, the board address and user name, and notes live in `~/wm-private-data`, outside the installer folder, so updating the tool does not touch them.
+
 ## Version
 
 `python3 wm_release.py --version` prints the tool's version; the menu title and `status` show it too, and every line in the history (`log`) records the version that wrote it. It is the tool's own number and has nothing to do with the installer's `VERSION` file, so changing it does not publish a GitHub release.
