@@ -176,8 +176,6 @@ chmod +x installer.sh
 > ./installer.sh --get-latest
 > ./installer.sh --update
 > ```
->
-> `--get-latest` works whether the folder is a git clone or was downloaded without git (a plain `git pull` stops with "not a git repository" on a downloaded folder). Or run `./installer.sh` and choose **2 Update > 2 Update now**.
 
 ### The installer menu
 
