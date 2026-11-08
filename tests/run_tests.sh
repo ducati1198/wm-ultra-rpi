@@ -948,30 +948,31 @@ check "single removal shows a bar that ends at 100 percent" "echo \"$OUT\" | gre
 check "board --remove installer files show a bar at 100 percent" "mkdir -p $T/wm-ultra-rpi-pb/scripts && cp $SB $ROOT/scripts/lib_free_space.sh $T/wm-ultra-rpi-pb/scripts/ && echo 1 > $T/wm-ultra-rpi-pb/VERSION && WM_ASSUME_YES=1 WM_HOME=$PW WM_INSTALLER_TEST=1 bash $T/wm-ultra-rpi-pb/scripts/screen_board.sh --remove installer </dev/null 2>&1 | grep -q '100%  Done'"
 
 
-echo "Live progress bar"
-live_check() {   # script-with-progress_bar : in a terminal the bar line is repainted every second, and given back at 100 percent
+echo "Progress bar never gets in the way of a question"
+bar_check() {   # script-with-progress_bar : the bar is printed once, never redrawn, and no background job is started
     local LB; LB="$(mktemp -d)"
     cat > "$LB/lt.sh" <<EOT
-GREEN=; NC=; TESTING=0; DRY=0; LIVE_BAR_EVERY=1
-eval "\$(sed -n '/^prog_repeat()/p;/^progress_bar()/,/^}/p;/^live_bar_stop()/,/^}/p;/^live_bar_start()/,/^}/p' $1)"
-progress_bar 1 5 "Step 2 of 5"; sleep 2.5; progress_bar 5 5 Done
+GREEN=; NC=; TESTING=0; DRY=0
+eval "\$(sed -n '/^prog_repeat()/p;/^progress_bar()/,/^}/p' $1)"
+progress_bar 1 5 "Step 2 of 5"; read -r -p "question? " a; echo "[\$a]"; sleep 2; jobs -p | wc -l
 EOT
     python3 - "$LB/lt.sh" <<'EOP'
 import pty,os,struct,fcntl,termios,time,sys
 pid,fd=pty.fork()
 if pid==0: os.execvp('bash',['bash',sys.argv[1]])
 fcntl.ioctl(fd,termios.TIOCSWINSZ,struct.pack('HHHH',24,80,0,0))
-out=b''; t=time.time()
+out=b''; t=time.time(); sent=False
 while time.time()-t<6:
     try: d=os.read(fd,4096)
     except OSError: break
     if not d: break
     out+=d
-sys.exit(0 if b'0m01s' in out and b'\x1b[' not in out.replace(b'\x1b[0m',b'') and out.count(b'Step 2 of 5')>=2 else 1)
+    if b'question?' in out and not sent: time.sleep(1.2); os.write(fd,b'hello\n'); sent=True
+sys.exit(0 if out.count(b'Step 2 of 5')==1 and b'\x1b[' not in out.replace(b'\x1b[0m',b'').replace(b'\x1b[0;32m',b'') and b'[hello]' in out and b'\n0' in out.replace(b'\r',b'') else 1)
 EOP
 }
-check "Pi installer: the bar is repeated with the time so far, on its own line, while a step runs (no cursor tricks)" "live_check $ROOT/installer.sh"
-check "screen board: the bar is repeated with the time so far, on its own line, while a step runs (no cursor tricks)" "live_check $ROOT/scripts/screen_board.sh"
+check "Pi installer: the bar is printed once and a question after it stays clean" "bar_check $ROOT/installer.sh"
+check "screen board: the bar is printed once and a question after it stays clean" "bar_check $ROOT/scripts/screen_board.sh"
 check "bars: Check, Doctor, support bundle and backup all end at 100 percent" "M '' $LG --check | grep -q '100%  Check finished' && M '' $LG --doctor | grep -q '100%  Doctor finished' && M '' $LG --support-bundle | grep -q '100%  Done' && M '' $LG --backup | grep -q '100%  Done'"
 check "pip is told not to check for a newer pip (no warning on slow links)" "grep -q '^export PIP_DISABLE_PIP_VERSION_CHECK=1' $ROOT/installer.sh && grep -q '^export PIP_DISABLE_PIP_VERSION_CHECK=1' $ROOT/scripts/screen_board.sh"
 check "board update: waits at most 60 s for Klipper on the Pi, says it is still waiting, and cleans /tmp on Ctrl-C" "grep -q 'still waiting: Klipper on the Pi' $ROOT/scripts/screen_board.sh && grep -q 'rm -rf \"\${LATEST_TMP:-}\"; exit 130' $ROOT/scripts/screen_board.sh && ! grep -q 'for i in \$(seq 1 30); do' <(sed -n '/^restart_pi_klipper/,/^}/p' $ROOT/scripts/screen_board.sh)"

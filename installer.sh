@@ -129,28 +129,12 @@ progress_bar() {   # steps-done total label : a bar like [██████░�
     [ "$n" -gt "$t" ] && n="$t"; [ "$n" -lt 0 ] && n=0
     pct=$((n*100/t)); f=$((n*w/t))
     printf '  %b[%s%s]%b %3d%%  %s\n' "$GREEN" "$(prog_repeat '█' "$f")" "$(prog_repeat '░' $((w-f)))" "$NC" "$pct" "$label"
-    local txt; txt="$(printf '%b[%s%s]%b %3d%%  %s' "$GREEN" "$(prog_repeat '█' "$f")" "$(prog_repeat '░' $((w-f)))" "$NC" "$pct" "$label")"
-    if [ "$n" -ge "$t" ]; then live_bar_stop; else live_bar_start "$txt"; fi
 }
-live_bar_stop() {   # stop the "still running" bar lines
-    [ -n "${LIVE_PID:-}" ] || return 0
-    kill "$LIVE_PID" 2>/dev/null; wait "$LIVE_PID" 2>/dev/null; LIVE_PID=""
-}
-live_bar_start() {   # text : while a slow step runs, print the same bar again on its own line every 15 s with the time so far (works in every terminal)
-    live_bar_stop
-    [ -t 1 ] && [ "${TESTING:-0}" != 1 ] && [ "${DRY:-0}" != 1 ] || return 0
-    local main=$$ text="$1" every="${LIVE_BAR_EVERY:-15}"
-    ( local t0 s; t0="$(date +%s)"
-      while sleep "$every" && kill -0 "$main" 2>/dev/null; do
-          s=$(( $(date +%s) - t0 ))
-          printf '  %s  | %dm%02ds\n' "$text" $((s/60)) $((s%60))
-      done ) &
-    LIVE_PID=$!
-}
-heartbeat_start() {   # slow command ahead: say "still working" every 30 s so it does not look frozen
+live_bar_stop() { return 0; }   # (the bar is printed once per step; it never redraws, so it cannot get in the way of a question)
+heartbeat_start() {   # slow command ahead: say "still working" every 15 s so it does not look frozen
     [ "$TESTING" = 1 ] || [ "$DRY" = 1 ] && return 0
     local t0 label="$1"; t0="$(date +%s)"
-    ( while sleep 30 && kill -0 $$ 2>/dev/null; do echo -e "  ${DIM}... still working: $label ($(( ($(date +%s)-t0)/60 )) min $(( ($(date +%s)-t0)%60 )) s)${NC}"; done ) &
+    ( while sleep 15 && kill -0 $$ 2>/dev/null; do echo -e "  ${DIM}... still working: $label ($(( ($(date +%s)-t0)/60 )) min $(( ($(date +%s)-t0)%60 )) s)${NC}"; done ) &
     HB_PID=$!
 }
 heartbeat_stop() { [ -n "${HB_PID:-}" ] && { kill "$HB_PID" 2>/dev/null; wait "$HB_PID" 2>/dev/null; HB_PID=""; }; return 0; }
@@ -1613,11 +1597,10 @@ do_zr_tools() {   # ZR Tools macros on this Pi (for the WonderMaker screen board
     if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would check zr_tools.cfg, the include line and [save_variables], and add what is missing${NC}"; return 0; fi
     progress_bar 1 3 "ZR Tools 2 of 3: checking and installing what is missing"
     local out rc; out="$(HOME="$HOME_DIR" ZR_SRC="$REPO_DIR/zr_tools" ZR_NO_RESTART=1 ZR_PRINT_STATE="$( [ "$TESTING" = 1 ] && echo "${WM_TEST_PRINT_STATE:-standby}" )" bash "$REPO_DIR/zr_tools/ensure_zr_tools_pi.sh" 2>&1)"; rc=$?
-    progress_bar 3 3 "Done"
     echo "$out" | grep -v '^ZR_RESULT='
     case "$out" in
-        *ZR_RESULT=already*) print_success "ZR Tools macros are already installed on this Pi." ;;
-        *ZR_RESULT=installed*) print_success "ZR Tools macros installed and configured."; restart_klipper_after ;;
+        *ZR_RESULT=already*) progress_bar 3 3 "Done"; print_success "ZR Tools macros are already installed on this Pi." ;;
+        *ZR_RESULT=installed*) progress_bar 3 3 "Done"; print_success "ZR Tools macros installed and configured."; restart_klipper_after ;;
         *ZR_RESULT=printing*) print_warning "A print is running or paused. Try again when it is done."; return 1 ;;
         *) print_error "The ZR Tools macros could not be installed (see above)."; return 1 ;;
     esac

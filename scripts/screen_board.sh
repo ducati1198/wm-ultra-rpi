@@ -77,28 +77,12 @@ progress_bar() {   # steps-done total label : a bar like [██████░�
     [ "$n" -gt "$t" ] && n="$t"; [ "$n" -lt 0 ] && n=0
     pct=$((n*100/t)); f=$((n*w/t))
     printf '  %b[%s%s]%b %3d%%  %s\n' "$GREEN" "$(prog_repeat '█' "$f")" "$(prog_repeat '░' $((w-f)))" "$NC" "$pct" "$label"
-    local txt; txt="$(printf '%b[%s%s]%b %3d%%  %s' "$GREEN" "$(prog_repeat '█' "$f")" "$(prog_repeat '░' $((w-f)))" "$NC" "$pct" "$label")"
-    if [ "$n" -ge "$t" ]; then live_bar_stop; else live_bar_start "$txt"; fi
 }
-live_bar_stop() {   # stop the "still running" bar lines
-    [ -n "${LIVE_PID:-}" ] || return 0
-    kill "$LIVE_PID" 2>/dev/null; wait "$LIVE_PID" 2>/dev/null; LIVE_PID=""
-}
-live_bar_start() {   # text : while a slow step runs, print the same bar again on its own line every 15 s with the time so far (works in every terminal)
-    live_bar_stop
-    [ -t 1 ] && [ "${TESTING:-0}" != 1 ] && [ "${DRY:-0}" != 1 ] || return 0
-    local main=$$ text="$1" every="${LIVE_BAR_EVERY:-15}"
-    ( local t0 s; t0="$(date +%s)"
-      while sleep "$every" && kill -0 "$main" 2>/dev/null; do
-          s=$(( $(date +%s) - t0 ))
-          printf '  %s  | %dm%02ds\n' "$text" $((s/60)) $((s%60))
-      done ) &
-    LIVE_PID=$!
-}
+live_bar_stop() { return 0; }   # (the bar is printed once per step; it never redraws, so it cannot get in the way of a question)
 heartbeat_start() {   # slow command ahead: say "still working" every 30 s so it does not look frozen
     [ "$TESTING" = 1 ] || [ "$DRY" = 1 ] && return 0
     local t0 label="$1"; t0="$(date +%s)"
-    ( while sleep 30 && kill -0 $$ 2>/dev/null; do echo -e "  ${DIM}... still working: $label ($(( ($(date +%s)-t0)/60 )) min $(( ($(date +%s)-t0)%60 )) s)${NC}"; done ) &
+    ( while sleep 15 && kill -0 $$ 2>/dev/null; do echo -e "  ${DIM}... still working: $label ($(( ($(date +%s)-t0)/60 )) min $(( ($(date +%s)-t0)%60 )) s)${NC}"; done ) &
     HB_PID=$!
 }
 heartbeat_stop() { [ -n "${HB_PID:-}" ] && { kill "$HB_PID" 2>/dev/null; wait "$HB_PID" 2>/dev/null; HB_PID=""; }; return 0; }
@@ -285,8 +269,10 @@ do_zr_pi() {   # --zr-pi: only this
     progress_bar 0 3 "ZR Tools on the Pi 1 of 3: Pi login"
     ask_pi; zr_pi_ask || die_with_fix "no Pi login." "run it again and type the user name and password."
     progress_bar 1 3 "ZR Tools on the Pi 2 of 3: checking and installing on the Pi"
-    zr_on_pi && [ "$ZR_PI_CHANGED" = 1 ] && { progress_bar 2 3 "ZR Tools on the Pi 3 of 3: restarting Klipper"; restart_pi_klipper; }
-    progress_bar 3 3 "Done"
+    if zr_on_pi; then
+        [ "$ZR_PI_CHANGED" = 1 ] && { progress_bar 2 3 "ZR Tools on the Pi 3 of 3: restarting Klipper"; restart_pi_klipper; }
+        progress_bar 3 3 "Done"
+    else echo -e "  ${DIM}(stopped: the step above did not work)${NC}"; fi
     ZR_PI_PASS=""
     [ ${#WARNINGS[@]} -gt 0 ] && { local w; for w in "${WARNINGS[@]}"; do print_warning "$w"; done; return 1; }
     return 0

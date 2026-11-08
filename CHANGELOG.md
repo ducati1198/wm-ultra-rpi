@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.23.7
+
+- The progress bar no longer repeats itself on a timer. The repeated bar lines landed on top of questions (user name, password, IP address, yes/no) and made them hard to read. The bar is printed once at the start of each step again. A slow command still prints "still working: ... (N min N s)" every 15 seconds.
+- A step that fails no longer ends with a 100% "Done" bar (ZR Tools on the Pi, ZR Tools macros).
+
 ## 1.23.6
 
 - Screen board, Update now: waiting for Klipper on the Pi is now limited to 60 seconds and prints a line every 15 seconds ("still waiting: Klipper on the Pi is 'startup' (30 s)"). Before, it could wait up to 3 minutes without a word, which looked like a hang.
