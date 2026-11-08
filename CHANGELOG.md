@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.23.3
+
+- The progress bar is now live. In a terminal the current bar stays on the last screen line with a spinner and the time the step has taken (`[████░░░░]  20%  Step 3 of 8  / 1m05s`), so a slow step (apt, pip, a download) visibly keeps running. Before, the bar was printed once per step and stayed still. The normal log lines are unchanged, and nothing is drawn when the output is not a terminal.
+
 ## 1.23.2
 
 - The "Free up disk space" code now lives in one shared file, `scripts/lib_free_space.sh`, loaded by both the Pi installer and the screen board script, so the two cannot drift apart.

@@ -128,6 +128,26 @@ progress_bar() {   # steps-done total label : a bar like [██████░�
     [ "$n" -gt "$t" ] && n="$t"; [ "$n" -lt 0 ] && n=0
     pct=$((n*100/t)); f=$((n*w/t))
     printf '  %b[%s%s]%b %3d%%  %s\n' "$GREEN" "$(prog_repeat '█' "$f")" "$(prog_repeat '░' $((w-f)))" "$NC" "$pct" "$label"
+    local txt; txt="$(printf '%b[%s%s]%b %3d%%  %s' "$GREEN" "$(prog_repeat '█' "$f")" "$(prog_repeat '░' $((w-f)))" "$NC" "$pct" "$label")"
+    if [ "$n" -ge "$t" ]; then live_bar_stop; else live_bar_start "$txt"; fi
+}
+live_bar_stop() {   # stop the live bottom line and give the whole screen back
+    [ -n "${LIVE_PID:-}" ] || return 0
+    kill "$LIVE_PID" 2>/dev/null; wait "$LIVE_PID" 2>/dev/null; LIVE_PID=""
+    printf '\0337\033[r\033[999;1H\033[2K\0338'
+}
+live_bar_start() {   # text : keeps the bar on the last screen line with a spinner and the time this step has taken
+    live_bar_stop
+    [ -t 1 ] && [ "${TESTING:-0}" != 1 ] && [ "${DRY:-0}" != 1 ] || return 0
+    local rows main=$$ text="$1"; rows="$(stty size 2>/dev/null | awk '{print $1}')"; [ "${rows:-0}" -ge 10 ] 2>/dev/null || return 0
+    printf '\n\0337\033[1;%dr\0338\033[A' $((rows-1))
+    ( local t0 i=0 sp='|/-\' s; t0="$(date +%s)"
+      while kill -0 "$main" 2>/dev/null; do
+          s=$(( $(date +%s) - t0 ))
+          printf '\0337\033[%d;1H\033[2K%s  %s %dm%02ds\0338' "$rows" "$text" "${sp:$((i%4)):1}" $((s/60)) $((s%60)); i=$((i+1)); sleep 1
+      done
+      printf '\0337\033[r\033[%d;1H\033[2K\0338' "$rows" ) &
+    LIVE_PID=$!
 }
 heartbeat_start() {   # slow command ahead: say "still working" every 30 s so it does not look frozen
     [ "$TESTING" = 1 ] || [ "$DRY" = 1 ] && return 0

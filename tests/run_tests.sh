@@ -947,4 +947,29 @@ OUT="$(printf 'y\nn\n' | WM_HOME=$UB WM_INSTALLER_TEST=1 bash $ROOT/installer.sh
 check "single removal shows a bar that ends at 100 percent" "echo \"$OUT\" | grep -q '100%  spoolman removed' && echo \"$OUT\" | grep -q 'Removing the files'"
 check "board --remove installer files show a bar at 100 percent" "mkdir -p $T/wm-ultra-rpi-pb/scripts && cp $SB $ROOT/scripts/lib_free_space.sh $T/wm-ultra-rpi-pb/scripts/ && echo 1 > $T/wm-ultra-rpi-pb/VERSION && WM_ASSUME_YES=1 WM_HOME=$PW WM_INSTALLER_TEST=1 bash $T/wm-ultra-rpi-pb/scripts/screen_board.sh --remove installer </dev/null 2>&1 | grep -q '100%  Done'"
 
+
+echo "Live progress bar"
+live_check() {   # script-with-progress_bar : in a terminal the bar line is repainted every second, and given back at 100 percent
+    local LB; LB="$(mktemp -d)"
+    cat > "$LB/lt.sh" <<EOT
+GREEN=; NC=; TESTING=0; DRY=0
+eval "\$(sed -n '/^prog_repeat()/p;/^progress_bar()/,/^}/p;/^live_bar_stop()/,/^}/p;/^live_bar_start()/,/^}/p' $1)"
+progress_bar 1 5 "Step 2 of 5"; sleep 2.5; progress_bar 5 5 Done
+EOT
+    python3 - "$LB/lt.sh" <<'EOP'
+import pty,os,struct,fcntl,termios,time,sys
+pid,fd=pty.fork()
+if pid==0: os.execvp('bash',['bash',sys.argv[1]])
+fcntl.ioctl(fd,termios.TIOCSWINSZ,struct.pack('HHHH',24,80,0,0))
+out=b''; t=time.time()
+while time.time()-t<6:
+    try: d=os.read(fd,4096)
+    except OSError: break
+    if not d: break
+    out+=d
+sys.exit(0 if out.count(b'\x1b[24;1H')>=2 and b'0m01s' in out and b'\x1b[r' in out else 1)
+EOP
+}
+check "Pi installer: the bar line is repainted every second and released at 100 percent" "live_check $ROOT/installer.sh"
+check "screen board: the bar line is repainted every second and released at 100 percent" "live_check $ROOT/scripts/screen_board.sh"
 echo; echo "passed: $PASS  failed: $FAIL"; [ "$FAIL" = 0 ]
