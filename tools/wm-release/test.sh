@@ -194,19 +194,21 @@ check "the password goes to ssh only through the one-shot helper (SSH_ASKPASS, e
 check "the user name is remembered, the connection is closed and its temp folder removed" bash -c "grep -q pi_user $WMR_HOME/config.json && grep -q '^closed' $T/fake.log && [ -z \"\$(ls $T/tmp)\" ]"
 check "one login serves every step (only one master connection was opened)" bash -c "[ \$(grep -c ' -M ' $T/fake.log) -ge 1 ] && [ \$(grep -c 'BatchMode=no' $T/fake.log) -eq 2 ]"
 # B: board still on 1.1.13 = same as the baseline
-printf '1\n\n0\n' | FAKE_PASSWORDLESS=1 FAKE_BOARD="$T/b1" run > "$T/a2" 2>&1
+printf '1\n\n\n0\n' | FAKE_PASSWORDLESS=1 FAKE_BOARD="$T/b1" run > "$T/a2" 2>&1
 check "option 1: same version as the baseline -> nothing new, no password asked" bash -c "grep -q 'nothing new to bring over' $T/a2 && ! grep -q 'wants a login' $T/a2"
 # C: the board was updated to 1.1.14: fetch, diff, MCU, plan, then answer no
-printf '1\nno\n\n0\n' | FAKE_PASSWORDLESS=1 FAKE_BOARD="$T/b2" run > "$T/a3" 2>&1
+printf '1\n\nno\n\n0\n' | FAKE_PASSWORDLESS=1 FAKE_BOARD="$T/b2" run > "$T/a3" 2>&1
 check "option 1: new version -> fetch, compare, MCU check, plan" bash -c "grep -q '\[3/6\] Fetching System 1.1.14' $T/a3 && grep -q 'Python files changed or new' $T/a3 && grep -q 'MCU firmware' $T/a3 && grep -q 'Plan for release 1.1.14' $T/a3 && test -d $WMR_HOME/releases/1.1.14"
 check "...and answering no applies nothing" bash -c "grep -q 'Nothing applied' $T/a3 && ! test -f $T/live4/klipper/klippy/extras/newmod.py"
 # D: answer yes
-printf '1\nyes\nn\n\n0\n' | WMR_TEST_TYPED=APPLY FAKE_PASSWORDLESS=1 FAKE_BOARD="$T/b2" run > "$T/a4" 2>&1
+printf '1\n\nyes\nn\n\n0\n' | WMR_TEST_TYPED=APPLY FAKE_PASSWORDLESS=1 FAKE_BOARD="$T/b2" run > "$T/a4" 2>&1
 check "option 1: yes -> backup, apply, test list, and the baseline is kept until you say so" bash -c "test -f $T/live4/klipper/klippy/extras/newmod.py && ls $WMR_HOME/backups/1.1.14-*.tgz && grep -q 'Test list after WonderMaker 1.1.14' $T/a4 && ! test -d $WMR_HOME/baseline/1.1.14"
 printf 'all\n' >/dev/null
-printf '' | FAKE_PASSWORDLESS=1 FAKE_BOARD="$T/b1" run all > "$T/a5" 2>&1
+check "option 1 always asks for the board address (shows the saved one; Enter keeps it)" bash -c "grep -q 'Board address (the WonderMaker screen board' $T/a2 && grep -q '10.9.9.9' $T/a2"
+check "...and a different address typed there is used and remembered" bash -c "printf '10.8.8.8\n' | FAKE_PASSWORDLESS=1 FAKE_BOARD=$T/b1 PATH=$T/bin:\$PATH setsid -w python3 $PY all > $T/a6 2>&1; grep -q 'Logging in to the board 10.8.8.8' $T/a6 && grep -q 10.8.8.8 $WMR_HOME/config.json"
+printf '\n' | FAKE_PASSWORDLESS=1 FAKE_BOARD="$T/b1" run all > "$T/a5" 2>&1
 check "the command line has it too: wm_release.py all" grep -q "Board runs System" "$T/a5"
 
-check "the tool has a version: --version, the menu title, status and the history" bash -c "python3 $PY --version | grep -q 'wm_release.py [0-9]' && printf '0\n' | python3 $PY | grep -q 'WonderMaker release tool [0-9]' && python3 $PY status | grep -q 'Tool version: [0-9]' && grep -q '(version 1.0.0)' $HERE/README.md"
+check "the tool has a version: --version, the menu title, status and the history" bash -c "python3 $PY --version | grep -q 'wm_release.py [0-9]' && printf '0\n' | python3 $PY | grep -q 'WonderMaker release tool [0-9]' && python3 $PY status | grep -q 'Tool version: [0-9]' && grep -q '(version 1.0.1)' $HERE/README.md"
 
 echo; echo "passed: $pass  failed: $fail"; [ "$fail" = 0 ]

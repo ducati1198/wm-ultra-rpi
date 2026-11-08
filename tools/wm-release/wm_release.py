@@ -22,7 +22,7 @@ Version: see --version.  Data folder: $WMR_HOME (default ~/wm-private-data).  Li
 """
 import argparse, atexit, getpass, hashlib, io, json, os, re, shutil, subprocess, sys, tarfile, tempfile, time, urllib.request, zipfile
 
-TOOL_VERSION = "1.0.0"   # this tool's own version (not the installer's VERSION file); see README "Version history"
+TOOL_VERSION = "1.0.1"   # this tool's own version (not the installer's VERSION file); see README "Version history"
 HOME = os.path.expanduser("~")
 DATA = os.environ.get("WMR_HOME", os.path.join(HOME, "wm-private-data"))
 LIVE = os.environ.get("WMR_LIVE_HOME", HOME)
@@ -691,7 +691,10 @@ def step(n, total, text): say("\n[%d/%d] %s" % (n, total, text))
 
 def cmd_all(a):
     """every needed step, in order, by looking at where you are: nothing is changed on the board; your files change only after you type APPLY"""
-    host = board_host(None, may_ask=True)
+    saved = os.environ.get("WMR_BOARD_HOST", "") or conf_get("board_host")
+    host = ask("Board address (the WonderMaker screen board's IP; Enter keeps the one shown)", saved)
+    if not host: die("which board?", "type the screen board's IP address")
+    if host != conf_get("board_host"): conf_set("board_host", host)
     step(1, 6, "Logging in to the board %s" % host)
     ssh_base(host)                                   # asks for user name and password if a login is needed
     say("  Logged in. The board is only read, never changed.")

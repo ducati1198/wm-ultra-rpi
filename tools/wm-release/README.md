@@ -1,4 +1,4 @@
-# wm_release.py - WonderMaker release tool (version 1.0.0)
+# wm_release.py - WonderMaker release tool (version 1.0.1)
 
 For bringing a new WonderMaker System release (for example 1.1.14) to your Pi **without losing your own changes**.
 It is not part of any installer and no installer runs it. It lives in the `tools/wm-release/` folder of the repo, so `git pull` brings it to the Pi (the repo is public, so this folder is public too).
@@ -45,6 +45,7 @@ With no command it opens a numbered menu. The top shows where you are (baselines
 
 | Where you are | What option 1 does |
 |---|---|
+| (always first) | Asks for the board address: the saved one is shown, press Enter to keep it or type another. |
 | No baseline saved yet | Logs in to the board, saves its files as the baseline (the version before the update), and tells you to update the board next. |
 | The board still has the baseline version | Says there is nothing new yet. |
 | The board has a newer System version | Fetches it, compares it with the baseline and your live files, checks the MCU firmware, shows the plan, then asks if you want to apply it (backup first, you type `yes` and then `APPLY`), prints the test list, and asks if this version becomes the next baseline. |
@@ -215,8 +216,9 @@ python3 tools/wm-release/wm_release.py --version
 `python3 wm_release.py --version` prints the tool's version; the menu title and `status` show it too, and every line in the history (`log`) records the version that wrote it. It is the tool's own number and has nothing to do with the installer's `VERSION` file, so changing the tool's version alone does not publish a GitHub release (the installer's `VERSION` does).
 
 Version history:
+- **1.0.1** - option 1 / `all` always asks for the board address first (the saved one is shown; press Enter to keep it).
 - **1.0.0** - option 1 / `all` does every needed step; asks the board's user name and password (hidden, one login, never saved); line-ending and trailing-space differences are not conflicts; board-wide checksums, pip freeze, baseline chosen as the version before the release, `promote`; numbered menu.
 
 ## Tests
 
-`bash tools/wm-release/test.sh` runs 68 checks on throwaway folders (it never touches your real files).
+`bash tools/wm-release/test.sh` runs 70 checks on throwaway folders (it never touches your real files).

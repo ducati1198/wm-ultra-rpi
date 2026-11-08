@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.23.11
+
+- Release tool 1.0.1 (`tools/wm-release/`): option 1 (all steps) now always asks for the board address first. The saved address is shown; press Enter to keep it or type another.
+
 ## 1.23.10
 
 - New folder `tools/wm-release/`: a separate tool (not used by the installer) that brings a new WonderMaker System release to the Pi: it saves the board's files as a baseline, compares the new version with the baseline and your live files, checks MCU firmware (never flashes), applies the safe changes after a backup, and can roll back. Option 1 does all the steps. Run it with `python3 tools/wm-release/wm_release.py`; see its README. Before this release `--get-latest` said "already up to date" because only the tool had changed.
