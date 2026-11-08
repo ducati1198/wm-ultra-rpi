@@ -16,10 +16,16 @@ say() { echo "  $*"; }
 
 has_include()  { grep -qE '^[[:space:]]*\[include[[:space:]]+zr_tools\.cfg\]' "$CFG/printer.cfg"; }
 has_save_vars(){ grep -rqE '^[[:space:]]*\[save_variables\]' "$CFG" --include='*.cfg' 2>/dev/null; }
-macros_current(){ [ -f "$CFG/zr_tools.cfg" ] && cmp -s "$SRC/zr_tools.cfg" "$CFG/zr_tools.cfg"; }
+same_as_bundled(){ [ -f "$CFG/zr_tools.cfg" ] && cmp -s "$SRC/zr_tools.cfg" "$CFG/zr_tools.cfg"; }
+# An edited zr_tools.cfg is yours: it counts as installed as long as every macro the screen needs is still in it.
+has_all_macros(){ local m; [ -f "$CFG/zr_tools.cfg" ] || return 1; for m in $(grep -oE '^\[gcode_macro +[A-Za-z0-9_]+' "$SRC/zr_tools.cfg" | awk '{print $2}'); do grep -qE "^\[gcode_macro +$m\]" "$CFG/zr_tools.cfg" || return 1; done; }
+macros_current(){ if [ "${ZR_REPLACE:-0}" = 1 ]; then same_as_bundled; else has_all_macros; fi; }
 
 echo "Checking the ZR Tools macros on this machine"
-[ -f "$CFG/zr_tools.cfg" ] && say "zr_tools.cfg: present$(macros_current && echo ', up to date' || echo ', older or edited')" || say "zr_tools.cfg: missing"
+if [ ! -f "$CFG/zr_tools.cfg" ]; then say "zr_tools.cfg: missing"
+elif same_as_bundled; then say "zr_tools.cfg: present, up to date"
+elif has_all_macros && [ "${ZR_REPLACE:-0}" != 1 ]; then say "zr_tools.cfg: present, differs from the bundled copy (edited or older) but has every macro: kept as it is (replace it with ZR_REPLACE=1)"
+else say "zr_tools.cfg: present, but macros are missing or you asked to replace it"; fi
 has_include   && say "printer.cfg includes zr_tools.cfg: yes" || say "printer.cfg includes zr_tools.cfg: no"
 has_save_vars && say "[save_variables] (stores the toolhead info): yes" || say "[save_variables]: missing"
 

@@ -8,7 +8,7 @@
 #
 # bash scripts/screen_board.sh --pi HOST [--screen-driver modesetting|fbdev] [--dry-run] [--yes]   install
 # bash scripts/screen_board.sh                               at a terminal with no options: opens the menu (--install goes straight to the install)
-# bash scripts/screen_board.sh --menu                        numbered menu: install, status, change Pi address or screen driver, factory restore, checks, dry run
+# bash scripts/screen_board.sh --menu                        numbered menu: install, update, check and fix, backup, settings, support bundle, factory restore, uninstall
 # Also: --update  --doctor [--fix-all]  --backup  --restore-backup [N]  --support-bundle  --log  --restart-screen  --system [tz:Zone|host:name]  --remove installer|backups|rescue|restoredata  --set-driver modesetting|fbdev
 # bash scripts/screen_board.sh --zr-pi --pi HOST            check the ZR Tools macros on the Pi (asks its user name and password), install them when missing
 # bash scripts/screen_board.sh --fix-clock                   turn on automatic time sync (NTP), fix apt's date check
@@ -131,7 +131,7 @@ while [ $# -gt 0 ]; do
         --detach) DETACH=1 ;;
         --dry-run) DRY=1 ;;
         --yes) WM_ASSUME_YES=1 ;;
-        -h|--help) sed -n '2,/^# =====.*$/p' "$0" | sed -n '2,22p' | sed 's/^# \{0,1\}//'; exit 0 ;;
+        -h|--help) sed -n '3,/^# What it never does/p' "$0" | sed '1,2d' | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) print_error "Unknown option: $1"; exit 1 ;;
     esac
     shift
@@ -1146,11 +1146,11 @@ menu_main() {
         menu_item 2 "Update" "see what is new, then update the ZR Tools screen files (backup first)"
         menu_item 3 "Check and fix" "doctor, status, logs, restart the screen, board report"
         menu_item 4 "Backup and restore" "screen settings"
-        menu_item 5 "Settings" "Pi address, network and system"
+        menu_item 5 "Settings" "Pi address, network and system, ZR Tools on the Pi, clock"
         menu_item 6 "Support bundle" "scrubbed .tgz of logs and config to share when asking for help"
         menu_item 7 "Dry run of the install" "shows what would happen, changes nothing"
         menu_item 8 "Back to factory mode" "removes KlipperScreen, factory services return, reboot"
-        menu_item 9 "Uninstall installer files" "rescue tool, backups, saved restore data, the installer folder"
+        menu_item 9 "Uninstall installer files" "rescue tool, backups, saved restore data, the installer folder, free up disk space"
         menu_item 0 "Exit" ""
         menu_read "Choose:" || return 0
         case "$REPLY_MENU" in

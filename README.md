@@ -447,6 +447,8 @@ Your gcode files, settings, KlipperScreen and the factory software are never in 
   2. if all three are fine it says **already installed** and changes nothing;
   3. if something is missing it installs it (your old files are kept as `.zrbak_<date>`), then restarts Klipper on the Pi (never during a print).
 
+  A `zr_tools.cfg` you edited counts as installed as long as it still has every macro the screen needs; it is never replaced behind your back. To replace it with the bundled copy on the Pi: `ZR_REPLACE=1 ./installer.sh --zr-tools`.
+
   Later, run it alone with `bash scripts/screen_board.sh --zr-pi --pi <Pi address>` or Settings > Set up ZR Tools on the Pi. On the Pi itself: `./installer.sh --zr-tools`, or menu 3 Add-ons > ZR Tools macros (screen board).
 
 > The board's kernel has no virtual console (`/dev/tty0`), so the installer runs X on its own seat (display, framebuffer and touch assigned to `seat1`) with a custom service.
@@ -507,11 +509,11 @@ KlipperScreen on the WonderMaker screen board
    2) Update                             see what is new, then update the ZR Tools screen files (backup first)
    3) Check and fix                      doctor, status, logs, restart the screen, board report
    4) Backup and restore                 screen settings
-   5) Settings                           Pi address, network and system
+   5) Settings                           Pi address, network and system, ZR Tools on the Pi, clock
    6) Support bundle                     scrubbed .tgz of logs and config to share when asking for help
    7) Dry run of the install             shows what would happen, changes nothing
    8) Back to factory mode               removes KlipperScreen, factory services return, reboot
-   9) Uninstall installer files          rescue tool, backups, saved restore data, the installer folder
+   9) Uninstall installer files          rescue tool, backups, saved restore data, the installer folder, free up disk space
    0) Exit
 ```
 
@@ -520,9 +522,9 @@ KlipperScreen on the WonderMaker screen board
 | **Update** | **See what is new** reads only two small files from GitHub (`VERSION` and `CHANGELOG.md`) and lists the changes since your version; nothing is downloaded. **Update now** downloads the newest version, makes a backup of your screen settings, copies the new ZR Tools panels, refreshes the installer folder and restarts the menu on the new version. KlipperScreen itself (the pinned commit) is not changed | `--check-updates`, `--update` |
 | **Check and fix** | **Doctor** (asks before each fix: KlipperScreen enabled and running, ZR Tools files, factory services still enabled, the Pi answers at its address, disk space), **Fix everything** (the Doctor applies every safe fix after one question), Status, the last log lines, Restart the screen, a read-only board report (`/tmp/screen_board_report.txt`) and the Pre-check (READY / NOT READY) | `--doctor [--fix-all]`, `--status`, `--log`, `--restart-screen` |
 | **Backup and restore** | Saves `KlipperScreen.conf`, the ZR Tools settings and the list of factory services to `~/wm-screen-backups/`; a restore lists them, newest first, and makes a safety copy first | `--backup`, `--restore-backup [N]` |
-| **Settings** | Change the Pi address; Network and system (host name, time zone, clock, addresses, Wi-Fi) | `--set-pi ADDR`, `--system [tz:Zone\|host:name]` |
+| **Settings** | Change the Pi address; Network and system (host name, time zone, clock, addresses, Wi-Fi); **Set up ZR Tools on the Pi** (checks the Pi, installs the macros if missing); **Fix the clock** (automatic time sync) | `--set-pi ADDR`, `--system [tz:Zone\|host:name]`, `--zr-pi --pi ADDR`, `--fix-clock` |
 | **Support bundle** | A scrubbed `~/wm-screen-support-<date>.tgz` (passwords, tokens, Wi-Fi names, private IP and MAC addresses removed; look inside before you send it) | `--support-bundle` |
-| **Uninstall installer files** | Each one asks first: the rescue tool and the on-screen Factory mode button; backups, support bundles and the board report; the saved restore data `~/wm-screen-backup` (refused while KlipperScreen is installed, because a factory restore needs it, unless `--force`); the downloaded installer folder. KlipperScreen itself is only removed by **Back to factory mode** | `--remove rescue\|backups\|restoredata\|installer` |
+| **Uninstall installer files** | Each one asks first: the rescue tool and the on-screen Factory mode button; backups, support bundles and the board report; the saved restore data `~/wm-screen-backup` (refused while KlipperScreen is installed, because a factory restore needs it, unless `--force`); the downloaded installer folder; **Free up disk space** (see below). KlipperScreen itself is only removed by **Back to factory mode** | `--remove rescue\|backups\|restoredata\|installer`, `--free-space` |
 
 - **Progress bars:** the install shows "Install step N of 7" with a percent bar, Back to factory mode shows "Factory restore step N of 3", and slow steps (apt packages, the KlipperScreen Python build) print "still working" with the elapsed time every 30 seconds.
 - **Klipper restart:** after an install or update the board restarts KlipperScreen and asks the Pi's Moonraker to restart Klipper on the Pi (never during a print; skipped with a note if the Pi does not answer or does not trust the board's address).

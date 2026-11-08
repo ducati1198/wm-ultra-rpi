@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.23.1
+
+- `screen_board.sh --help` printed only the two-line title. It now prints the full list of options.
+- `installer.sh --help` now lists `--zr-tools`.
+- ZR Tools on the Pi: a `zr_tools.cfg` you edited now counts as installed as long as it still has every macro the screen needs. Before, any difference made the installer replace it (old copy kept) and restart Klipper each time. To replace it on purpose: `ZR_REPLACE=1 ./installer.sh --zr-tools`.
+- README: the screen board tables and menu text now list Set up ZR Tools on the Pi, Fix the clock and Free up disk space.
+- Tests always run on a throwaway copy of the repository, never on the real folder.
+
 ## 1.23.0
 
 - Pi installer: **Free up disk space**, same as on the screen board. New last entry in the Uninstall page and the option `--free-space`: lists what is safe to erase (leftover installer downloads in /tmp, pip cache, apt package cache, old system log history, old rotated printer logs, the installer's git history) with sizes and a warning for each, you pick, it shows "This will ERASE" and asks first. Your printer data, gcode files and backups are never listed; `--yes` alone never erases.

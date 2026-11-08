@@ -2,6 +2,10 @@
 # Tests for the installer and scripts. Uses fake homes. No sudo, no network, no services.
 #   bash tests/run_tests.sh
 set -u
+if [ -z "${WM_TESTS_IN_COPY:-}" ]; then   # always test a throwaway copy of the repository, never the real folder
+    CP="$(mktemp -d)"; cp -a "$(cd "$(dirname "$0")/.." && pwd)/." "$CP/"
+    WM_TESTS_IN_COPY=1 bash "$CP/tests/run_tests.sh" "$@"; rc=$?; rm -rf "$CP"; exit $rc
+fi
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
 PASS=0; FAIL=0
@@ -608,7 +612,9 @@ PZ="$T/pz"; mkpi "$PZ"
 zr() { WM_TEST_NO_FETCH=1 WM_HOME="$PZ" WM_INSTALLER_TEST=1 "$@" bash "$ROOT/installer.sh" --zr-tools 2>&1; }
 check "Pi --zr-tools: installs the macros when they are missing" "env | true; zr env | grep -q 'installed and configured' && [ -f $PZ/printer_data/config/zr_tools.cfg ] && grep -q '^\[include zr_tools.cfg\]' $PZ/printer_data/config/printer.cfg"
 check "Pi --zr-tools: second run says already installed and changes nothing" "zr env | grep -q 'already installed' && [ \$(grep -c 'include zr_tools.cfg' $PZ/printer_data/config/printer.cfg) = 1 ]"
-check "Pi --zr-tools: an edited zr_tools.cfg is detected and replaced (old copy kept)" "echo '# mine' >> $PZ/printer_data/config/zr_tools.cfg; zr env | grep -q 'installed and configured' && ls $PZ/printer_data/config/ | grep -q 'zr_tools.cfg.zrbak_'"
+check "Pi --zr-tools: an edited zr_tools.cfg with every macro counts as installed and is kept" "echo '# mine' >> $PZ/printer_data/config/zr_tools.cfg; zr env | grep -q 'already installed' && grep -q '^# mine' $PZ/printer_data/config/zr_tools.cfg"
+check "Pi --zr-tools: a zr_tools.cfg that lost a macro is replaced (old copy kept)" "sed -i '0,/^\\[gcode_macro ZR_/s//[gcode_macro NOT_ZR_/' $PZ/printer_data/config/zr_tools.cfg; zr env | grep -q 'installed and configured' && ls $PZ/printer_data/config/ | grep -q 'zr_tools.cfg.zrbak_'"
+check "Pi --zr-tools: ZR_REPLACE=1 replaces an edited file with the bundled copy" "echo '# mine2' >> $PZ/printer_data/config/zr_tools.cfg; zr env ZR_REPLACE=1 | grep -q 'installed and configured' && ! grep -q '^# mine2' $PZ/printer_data/config/zr_tools.cfg"
 PZ2="$T/pz2"; mkpi "$PZ2"; sed -i '/save_variables/,/^$/d' "$PZ2/printer_data/config/printer.cfg"
 check "Pi --zr-tools: adds [save_variables] when no config file has one" "WM_TEST_NO_FETCH=1 WM_HOME=$PZ2 WM_INSTALLER_TEST=1 bash $ROOT/installer.sh --zr-tools >/dev/null 2>&1; grep -q '^\[save_variables\]' $PZ2/printer_data/config/printer.cfg"
 PZ3="$T/pz3"; mkpi "$PZ3"

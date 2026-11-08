@@ -13,6 +13,7 @@
 # ./installer.sh --modules DIR         optional: your own copies of the 5 compiled modules (replace the bundled ones)
 # ./installer.sh --check               report problems, change nothing
 # ./installer.sh --free-space          list what is safe to erase (sizes, warnings), erase what you pick and confirm
+# ./installer.sh --zr-tools            check the ZR Tools macros (for the screen board), install them when missing
 # ./installer.sh --first-start         checks with the main board connected; fixes canbus_uuid; then starts Klipper and the other services
 # ./installer.sh --hw-test             read-only live test: USB bridge, can0, CAN devices, camera, services
 # ./installer.sh --doctor              find problems, explain them, offer a fix for each (asks first)
