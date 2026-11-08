@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.23.14
+
+- Release tool 1.3.0 (`tools/wm-release/`): new `clean` command (menu `x`) that lists and then deletes every file the tool created (`~/wm-private-data`, `~/wm-firmware`, temporary files) after you type `DELETE`. Dry run unless you add `--run`; `--keep-firmware` and `--keep-backups` keep those. It never touches the printer's live files. 105 tests.
+
 ## 1.23.13
 
 - Release tool 1.2.0 (`tools/wm-release/`): takes a new WonderMaker System release **without the factory screen board**. `fetch --from-soc FILE` decrypts a `TM_T1_SOC` file on the Pi, and `fetch --from-web [VERSION]` (menu `w`) downloads it from WonderMaker's firmware page first. Option 1 now asks where the update comes from: the old screen board or the website; the website path downloads, compares with your baseline and live files, checks MCU firmware and always asks before applying.
