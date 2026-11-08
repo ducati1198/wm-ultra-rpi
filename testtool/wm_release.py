@@ -1,0 +1,1092 @@
+#!/usr/bin/env python3
+"""wm_release.py - PRIVATE tool: bring a new WonderMaker System release (for example 1.1.14) to this Pi.
+
+Not part of any installer (folder tools/wm-release of the repo).
+Everything is read-only unless you run `apply --apply` (and type APPLY) or `rollback`.
+
+  (no command) / menu          a numbered menu that runs the steps below; option 1 does all the steps
+  all                          every needed step, in order (log in to the board, baseline or fetch, diff, MCU check, plan, apply)
+  check                        ask WonderMaker's firmware page for the newest published version (downloads nothing)
+  status                       what is recorded: baseline, fetched releases, log
+  init-baseline --from-board  record the board as it is NOW (the version before the new one); also --from-dir DIR or --src DIR (repo factory copy)
+  promote VERSION              make a fetched release the baseline for the next one
+  fetch --from-board [HOST]    copy the updated files from the WonderMaker screen board over SSH (read only)
+  fetch --from-dir DIR         same, from a folder that has klipper/, moonraker/, printer_data/config/, mcu_update/, TM_T1/scripts/
+  fetch --from-soc FILE        decrypt a WonderMaker TM_T1_SOC file on the Pi and use it as the new version (no board needed)
+  fetch --from-web [VERSION]   download the SOC straight from WonderMaker's firmware page (newest, or a given version), then decrypt it here
+  init-baseline --from-soc FILE  record a TM_T1_SOC file as the baseline (the version before the new one)
+  diff VERSION                 baseline <-> release <-> your live files; saves a report
+  mcu ZIP_OR_DIR               check MCU firmware (versions, md5), print the flashing steps; never flashes
+  apply VERSION [--apply]      plan only; with --apply: backup, then apply after you type APPLY
+  rollback [BACKUP]            put back the files from the backup made by apply
+  checklist VERSION            test list for after the update
+  notes VERSION [--add TEXT]   your own notes for this release
+  log                          history of what was done
+Version: see --version.  Data folder: $WMR_HOME (default ~/wm-private-data).  Live files: $WMR_LIVE_HOME (default ~).
+"""
+import argparse, atexit, getpass, hashlib, io, json, os, re, shutil, subprocess, sys, tarfile, tempfile, time, urllib.request, urllib.parse, zipfile
+
+TOOL_VERSION = "1.1.0"   # this tool's own version (not the installer's VERSION file); see README "Version history"
+HOME = os.path.expanduser("~")
+DATA = os.environ.get("WMR_HOME", os.path.join(HOME, "wm-private-data"))
+LIVE = os.environ.get("WMR_LIVE_HOME", HOME)
+MOONRAKER = os.environ.get("WMR_MOONRAKER", "http://127.0.0.1:7125")
+BOARD_KEY = os.environ.get("WMR_BOARD_KEY", "")
+# WonderMaker's firmware page; the newest tm_t1_soc(x.y.z).zip link on it is the newest published System version
+WIKI_URL = os.environ.get("WMR_WIKI_URL", "https://wiki.wondermaker3d.com/en/ZR-Ultra-S/Standard-Operating-Procedures/Fireware-Download")
+# live-relative roots that belong to the WonderMaker release, and the folder names in this repo's factory/ultra-s
+ROOTS = ["klipper", "moonraker", "printer_data/config", "mcu_update", "TM_T1/scripts"]
+REPO_MAP = {"klipper": "klipper", "moonraker": "moonraker", "printer_data/config": "config", "mcu_update": "mcu", "TM_T1/scripts": "scripts"}
+# never changed by apply: your own data or files that hold your includes / SAVE_CONFIG block
+PROTECTED = {"printer_data/config/printer.cfg", "printer_data/config/saved_variables.cfg", "printer_data/config/tmt1.ini"}
+SKIP_DIRS = {".git", "__pycache__", ".pytest_cache"}
+SKIP_SUFFIX = (".pyc", ".log")
+SKIP_GLOBS = ("plr*.ini*", "client_log.txt", "*.zrbak_*", "*.bkp", "*.wm-*.new")   # runtime data and leftovers, never compared
+# Compared by checksum only (nothing is copied, nothing is ever applied): (folder, find filter)
+# Folders under the home folder, then absolute system folders written without the leading slash.
+REPORT_ROOTS = [("TM_T1/bin", ""), ("TM_T1/other", ""), ("TM_T1/access", ""), ("moonraker-timelapse", ""), ("fluidd-config", ""), ("crowsnest", ""),
+                ("fluidd", ""), ("access", ""), ("etc/systemd/system", "-maxdepth 1 -name '*.service'"), ("etc/nginx/conf.d", ""),
+                ("etc/nginx/sites-enabled", ""), ("etc/udev/rules.d", "-maxdepth 1 -name '*wm*.rules'")]
+ENVS = ("klippy-env", "moonraker-env")   # their pip freeze is compared too
+TEXT_SUFFIX = (".cfg", ".conf", ".py", ".sh", ".txt", ".ini", ".json", ".md", ".service", ".gcode", ".yml", ".yaml")
+MCU_BIN = {"MCU": "klipper.bin", "THR": "klipper_THR.bin", "EXT": "klipper_EXT.bin", "HUB": "klipper_HUB.bin", "CELL": "klipper_CELL.bin"}
+MCU_SCRIPT = {"MCU": "mcu_update.sh", "THR": "mcu_update_THRs.sh", "EXT": "mcu_update_EXT.sh", "HUB": "mcu_update_HUB.sh", "CELL": "mcu_update_CELL.sh"}
+
+
+import fnmatch
+def now(): return time.strftime("%Y%m%d-%H%M%S")
+def vkey(v): return tuple(int(x) for x in re.findall(r"\d+", v))
+def skipped(name): return name.endswith(SKIP_SUFFIX) or any(fnmatch.fnmatch(name, g) for g in SKIP_GLOBS)
+def say(*a): print(*a, flush=True)
+def die(msg, fix=""):
+    say("ERROR: " + msg + ("\n  What to do: " + fix if fix else "")); sys.exit(1)
+def p(*a): return os.path.join(*a)
+def ensure(d): os.makedirs(d, exist_ok=True); return d
+def _repo_factory_dir():
+    """find factory/ultra-s in the repo, however deep this script sits (tools/wm-release/ or testtool/)"""
+    d = os.path.dirname(os.path.abspath(__file__))
+    for _ in range(6):
+        if os.path.isdir(p(d, "factory", "ultra-s")): return p(d, "factory", "ultra-s")
+        d = os.path.dirname(d)
+    return p(os.path.dirname(os.path.abspath(__file__)), "..", "..", "factory", "ultra-s")
+
+
+def sha(path):
+    if os.path.islink(path): return "link:" + os.readlink(path)
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for b in iter(lambda: f.read(1 << 20), b""): h.update(b)
+    return h.hexdigest()
+
+
+def listing(root):
+    """relative path -> absolute path, without .git, caches and logs"""
+    out = {}
+    if not os.path.isdir(root): return out
+    for d, dirs, files in os.walk(root):
+        dirs[:] = [x for x in dirs if x not in SKIP_DIRS]
+        for f in files:
+            if skipped(f): continue
+            a = p(d, f); out[os.path.relpath(a, root)] = a
+    return out
+
+
+def is_text(path):
+    if path.endswith(TEXT_SUFFIX): return True
+    try:
+        with open(path, "rb") as f: return b"\0" not in f.read(8192)
+    except OSError: return False
+
+
+def read(path):
+    with open(path, "rb") as f: return f.read()
+
+
+def copy_file(src, dst):
+    ensure(os.path.dirname(dst))
+    if os.path.lexists(dst) and not os.path.isdir(dst): os.remove(dst)
+    if os.path.islink(src): os.symlink(os.readlink(src), dst)
+    else: shutil.copy2(src, dst)
+
+
+def copy_tree(src, dst):
+    n = 0
+    for rel, a in listing(src).items(): copy_file(a, p(dst, rel)); n += 1
+    return n
+
+
+# ---------------------------------------------------------------- baseline and releases
+def baseline_dir(for_ver=None):
+    """the newest baseline that is OLDER than the release being compared (the version before it)"""
+    d = p(DATA, "baseline")
+    if not os.path.isdir(d): return None, None
+    vs = sorted((x for x in os.listdir(d) if os.path.isdir(p(d, x)) and re.match(r"^\d+(\.\d+)+$", x)), key=vkey)
+    if for_ver: vs = [x for x in vs if vkey(x) < vkey(for_ver)]
+    return (vs[-1], p(d, vs[-1])) if vs else (None, None)
+
+
+def board_version(text):
+    v = re.findall(r"System_(\d+\.\d+\.\d+)", text)
+    return v[-1] if v else None
+
+
+BOARD = {"host": None, "user": None, "dir": None, "sock": None}   # one SSH connection to the board, reused by every step
+
+
+def board_close():
+    if BOARD["sock"]:
+        subprocess.run(["ssh", "-S", BOARD["sock"], "-O", "exit", "x"], capture_output=True, stdin=subprocess.DEVNULL)
+    if BOARD["dir"]: shutil.rmtree(BOARD["dir"], ignore_errors=True)
+    BOARD.update(host=None, user=None, dir=None, sock=None)
+
+
+def _master(sock, user, host, env=None, batch=True):
+    cmd = ["ssh", "-fN", "-M", "-S", sock, "-o", "ConnectTimeout=8", "-o", "StrictHostKeyChecking=accept-new",
+           "-o", "BatchMode=yes" if batch else "BatchMode=no"]
+    if batch and BOARD_KEY: cmd += ["-i", BOARD_KEY]
+    if not batch: cmd += ["-o", "NumberOfPasswordPrompts=1", "-o", "PubkeyAuthentication=no", "-o", "PreferredAuthentications=password,keyboard-interactive"]
+    return subprocess.run(cmd + ["%s@%s" % (user, host)], capture_output=True, text=True, stdin=subprocess.DEVNULL, env=env)
+
+
+def board_open(host):
+    """Connect once. First without a password (a key or an ssh agent); if that fails, ask for the board's user and password.
+    The password is typed hidden, lives only in this process, is handed to ssh through a one-shot helper (never on a command line), and is never saved."""
+    if BOARD["host"] == host and BOARD["sock"]: return
+    board_close()
+    d = tempfile.mkdtemp(prefix="wmr-"); sock = p(d, "cm"); atexit.register(board_close)
+    user = os.environ.get("WMR_BOARD_USER") or conf_get("board_user") or "t13dp"
+    r = _master(sock, user, host)
+    tries = 0
+    while r.returncode != 0 and tries < 3:
+        if tries == 0:
+            say("  The board %s wants a login." % host)
+            if not os.environ.get("WMR_BOARD_USER"): user = ask("Board user name", user)
+        pw = getpass.getpass("  Password for %s@%s (typed hidden, not saved): " % (user, host))
+        helper = p(d, "askpass.sh")
+        with open(helper, "w") as f: f.write('#!/bin/sh\nprintf "%s\\n" "$WMR_ASKPASS_PW"\n')
+        os.chmod(helper, 0o700)
+        env = dict(os.environ, SSH_ASKPASS=helper, SSH_ASKPASS_REQUIRE="force", WMR_ASKPASS_PW=pw)
+        env.setdefault("DISPLAY", "wmr-none")
+        r = _master(sock, user, host, env=env, batch=False)
+        os.remove(helper); del pw, env
+        tries += 1
+        if r.returncode != 0: say("  Login failed (%s)." % (r.stderr.strip().splitlines()[-1] if r.stderr.strip() else "wrong user or password"))
+    if r.returncode != 0:
+        shutil.rmtree(d, ignore_errors=True)
+        die("could not log in to the board %s." % host, "check the address, user name and password; the board must allow SSH password login")
+    BOARD.update(host=host, user=user, dir=d, sock=sock)
+    if conf_get("board_user") != user: conf_set("board_user", user)
+
+
+def ssh_base(host):
+    board_open(host)
+    return ["ssh", "-S", BOARD["sock"], "-o", "BatchMode=yes", "%s@%s" % (BOARD["user"], host)]
+
+
+def conf_get(k, d=""):
+    try: return json.load(open(p(DATA, "config.json"))).get(k, d)
+    except (OSError, ValueError): return d
+
+
+def conf_set(k, v):
+    try: c = json.load(open(p(DATA, "config.json")))
+    except (OSError, ValueError): c = {}
+    c[k] = v; ensure(DATA); json.dump(c, open(p(DATA, "config.json"), "w"))
+
+
+def board_host(h, may_ask=False):
+    h = h or os.environ.get("WMR_BOARD_HOST", "") or conf_get("board_host")
+    if not h and may_ask:
+        h = ask("Board address (the WonderMaker screen board's IP)")
+        if h: conf_set("board_host", h)
+    if not h: die("which board?", "give its address: --from-board 192.168.x.x  (or set WMR_BOARD_HOST, or press s in the menu)")
+    return h
+
+
+def local_manifest(base):
+    """checksums of the report-only roots in a folder laid out like the home folder (etc/... for system files)"""
+    m = {}
+    for rel, flt in REPORT_ROOTS:
+        for r, a in listing(p(base, rel)).items():
+            if "-maxdepth 1" in flt and os.sep in r: continue
+            pat = re.findall(r"-name '([^']+)'", flt)
+            if pat and not fnmatch.fnmatch(os.path.basename(r), pat[0]): continue
+            m[p(rel, r)] = sha(a)
+    return m
+
+
+def remote_manifest(host):
+    m = {}
+    for rel, flt in REPORT_ROOTS:
+        where = "/" + rel if rel.startswith("etc/") else rel
+        pre = "cd ~ && " if not rel.startswith("etc/") else ""
+        ex = " ".join("! -name '%s'" % g for g in SKIP_GLOBS) + " ! -name '*.pyc' ! -name '*.log'"
+        r = subprocess.run(ssh_base(host) + ["%sfind %s %s -type f %s -exec sha256sum {} + 2>/dev/null" % (pre, where, flt, ex)], capture_output=True, text=True)
+        for line in r.stdout.splitlines():
+            h, _, path = line.partition("  ")
+            if h and path: m[path.lstrip("/")] = h
+    return m
+
+
+def env_freeze_local(base):
+    out = {}
+    for e in ENVS:
+        f = p(base, "_meta", e + ".txt")
+        if os.path.isfile(f): out[e] = open(f).read()
+    return out
+
+
+def snapshot(dst, host=None, src_dir=None, version=None):
+    """copy the printer's own files and note checksums of everything else; read-only on the source"""
+    n = 0
+    if src_dir:
+        base = os.path.abspath(src_dir)
+        if not os.path.isdir(base): die("no such folder: " + base)
+        vtxt = p(base, "iso_version.txt")
+        ver = version or (board_version(open(vtxt).read()) if os.path.isfile(vtxt) else None)
+        if not ver: die("cannot tell the version.", "add --version 1.1.14")
+        dst = p(os.path.dirname(dst), ver)
+        for rel in ROOTS:
+            if os.path.isdir(p(base, rel)): n += copy_tree(p(base, rel), p(dst, rel))
+        if os.path.isfile(vtxt): shutil.copy2(vtxt, ensure(dst) + "/iso_version.txt")
+        man = local_manifest(base)
+        for e in ENVS:
+            f = p(base, "_meta", e + ".txt")
+            if os.path.isfile(f): shutil.copy2(f, ensure(p(dst, "_meta")) + "/" + e + ".txt")
+    else:
+        r = subprocess.run(ssh_base(host) + ["cat ~/iso_version.txt"], capture_output=True, text=True)
+        if r.returncode: die("cannot read the board %s: %s" % (host, r.stderr.strip()), "check the address and that the board is on")
+        ver = version or board_version(r.stdout)
+        if not ver: die("the board has no System version in iso_version.txt.", "add --version 1.1.14")
+        dst = p(os.path.dirname(dst), ver); ensure(dst)
+        open(p(dst, "iso_version.txt"), "w").write(r.stdout)
+        ex = sum((["--exclude", x] for x in list(SKIP_DIRS) + ["*.pyc", "*.log"] + list(SKIP_GLOBS)), [])
+        e = " ".join(ssh_base(host)[:-1])   # reuses the one logged-in connection
+        for rel in ROOTS:
+            ensure(p(dst, rel))
+            r = subprocess.run(["rsync", "-a", "-e", e] + ex + ["%s@%s:~/%s/" % (BOARD["user"], host, rel), p(dst, rel) + "/"], capture_output=True, text=True)
+            if r.returncode: say("  warning: could not read ~/%s on the board (%s)" % (rel, r.stderr.strip().splitlines()[-1] if r.stderr.strip() else r.returncode))
+            n += len(listing(p(dst, rel)))
+        man = remote_manifest(host)
+        for en in ENVS:
+            r = subprocess.run(ssh_base(host) + ["~/%s/bin/pip freeze 2>/dev/null" % en], capture_output=True, text=True)
+            if r.stdout.strip(): open(ensure(p(dst, "_meta")) + "/" + en + ".txt", "w").write(r.stdout)
+    json.dump(man, open(p(dst, "_manifest.json"), "w"), indent=0, sort_keys=True)
+    return ver, dst, n, len(man)
+
+
+# ---------------------------------------------------------------- TM_T1_SOC (encrypted factory update) opened on the Pi
+# A TM_T1_SOC file is WonderMaker's encrypted System package: a Debian package
+# wrapped in two layers - a repeating-key XOR, then OpenSSL AES-256-CBC
+# ("Salted__" + salt, key via EVP_BytesToKey/SHA-256). The key below is
+# WonderMaker's own, read out of the stock `client` binary. Override with
+# WMR_SOC_KEY if a future firmware changes it. This lets you take a new version
+# straight from the TM_T1_SOC file on the Pi, with no factory screen board.
+SOC_KEY = os.environ.get("WMR_SOC_KEY", "tmt1-mks")
+SOC_ONLY = ("home/t13dp/boot.img", "lib/modules/", "usr/lib/modules/exfat.ko")  # SoC kernel bits; never in a Pi release
+
+
+def _soc_xor(data, key):
+    kb = key.encode()
+    return bytes(b ^ kb[i % len(kb)] for i, b in enumerate(data))
+
+
+def soc_to_deb(path, key=SOC_KEY):
+    """decrypt a TM_T1_SOC file to the raw .deb bytes (XOR, then openssl AES-256-CBC)"""
+    raw = open(path, "rb").read()
+    blob = _soc_xor(raw, key)
+    if blob[:8] != b"Salted__":
+        if raw[:8] == b"Salted__": blob = raw            # file already past the XOR layer
+        else: die("this does not look like a TM_T1_SOC (no 'Salted__' after XOR).",
+                  "check the file, or set WMR_SOC_KEY if WonderMaker changed the key")
+    if not shutil.which("openssl"): die("openssl is needed to decrypt the SOC.", "sudo apt-get install -y openssl")
+    with tempfile.NamedTemporaryFile(delete=False) as f: f.write(blob); tmp = f.name
+    try:
+        r = subprocess.run(["openssl", "enc", "-d", "-aes-256-cbc", "-md", "sha256", "-k", key, "-in", tmp],
+                           capture_output=True)
+    finally:
+        os.unlink(tmp)
+    if r.returncode: die("openssl could not decrypt the SOC (wrong key?): " + r.stderr.decode(errors="replace").strip())
+    if r.stdout[:8] != b"!<arch>\n": die("the decrypted SOC is not a Debian package (wrong key?).")
+    return r.stdout
+
+
+def _ar_member(deb, prefix):
+    off = 8
+    while off + 60 <= len(deb):
+        name = deb[off:off + 16].decode(errors="replace").strip()
+        try: size = int(deb[off + 48:off + 58].decode().strip())
+        except ValueError: break
+        start = off + 60
+        if name.startswith(prefix): return deb[start:start + size]
+        off = start + size + (size & 1)
+    return None
+
+
+def _deb_version(deb):
+    blob = _ar_member(deb, "control.tar")
+    if not blob: return None
+    try: tf = tarfile.open(fileobj=io.BytesIO(blob), mode="r:*")
+    except Exception: return None
+    for m in tf.getmembers():
+        if m.name.lstrip("./") == "control":
+            for line in tf.extractfile(m).read().decode(errors="replace").splitlines():
+                if line.startswith("Version:"): return line.split(":", 1)[1].strip()
+    return None
+
+
+def stage_soc(path):
+    """decrypt a TM_T1_SOC and lay it out like a --from-dir source; returns (dir, version)"""
+    say("Decrypting %s ..." % os.path.basename(path))
+    deb = soc_to_deb(os.path.expanduser(path))
+    ver = _deb_version(deb) or die("could not read the version from the SOC package.")
+    data = _ar_member(deb, "data.tar") or die("no data.tar inside the SOC package.")
+    tf = tarfile.open(fileobj=io.BytesIO(data), mode="r:*")
+    base = tempfile.mkdtemp(prefix="soc-%s-" % ver, dir=ensure(p(DATA, "soc")))
+    atexit.register(lambda: shutil.rmtree(base, ignore_errors=True))
+    n = 0
+    for m in tf.getmembers():
+        name = m.name.lstrip("./")
+        if any(name == s or name.startswith(s) for s in SOC_ONLY): continue
+        if name.startswith("home/t13dp/"): rel = name[len("home/t13dp/"):]
+        elif name.startswith("etc/"): rel = name                 # system files go under <base>/etc/...
+        else: continue
+        if not rel: continue
+        dst = p(base, rel)
+        if m.isdir(): ensure(dst); continue
+        ensure(os.path.dirname(dst))
+        if m.issym() or m.islnk():
+            try:
+                if os.path.lexists(dst): os.remove(dst)
+                os.symlink(m.linkname, dst)
+            except OSError: pass
+        else:
+            src = tf.extractfile(m)
+            if src is None: continue
+            with open(dst, "wb") as out: shutil.copyfileobj(src, out)
+            n += 1
+    open(p(base, "iso_version.txt"), "w").write("System_%s\n" % ver)
+    say("Decrypted System %s (%d files) into a private staging folder." % (ver, n))
+    return base, ver
+
+
+def soc_download_links(timeout=20):
+    """{version: absolute url} for every tm_t1_soc(x.y.z).zip link on WonderMaker's firmware page"""
+    req = urllib.request.Request(WIKI_URL, headers={"User-Agent": "wm_release/" + TOOL_VERSION})
+    with urllib.request.urlopen(req, timeout=timeout) as f:
+        page_url = f.geturl()
+        html = f.read().decode("utf-8", "replace")
+    links = {}
+    # every href whose target (or its text) names a tm_t1_soc(ver).zip
+    for href in re.findall(r'''href\s*=\s*["']([^"']+)["']''', html, re.I):
+        m = re.search(r"tm_t1_soc\(?(\d+(?:\.\d+)+)\)?\.zip", href, re.I)
+        if m: links[m.group(1)] = urllib.parse.urljoin(page_url, href)
+    return links
+
+
+def download_soc(version=None, timeout=20):
+    """download the chosen (or newest) tm_t1_soc zip and return (path to the TM_T1_SOC file, version)"""
+    try:
+        links = soc_download_links(timeout)
+    except Exception as e:
+        die("could not read WonderMaker's firmware page: %s" % e,
+            "check the Pi's internet, or download the zip yourself and use --from-soc FILE")
+    if not links:
+        die("found no tm_t1_soc(...).zip download link on the firmware page.",
+            "WonderMaker may have changed the page; download the zip yourself and use --from-soc FILE (or set WMR_WIKI_URL)")
+    ver = version or sorted(links, key=vkey)[-1]
+    if ver not in links:
+        die("version %s is not on the page." % ver, "available: " + ", ".join(sorted(links, key=vkey)))
+    url = links[ver]
+    out = ensure(p(DATA, "soc"))
+    zpath = p(out, "tm_t1_soc_%s.zip" % ver)
+    say("Downloading System %s from %s ..." % (ver, url))
+    req = urllib.request.Request(url, headers={"User-Agent": "wm_release/" + TOOL_VERSION})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r, open(zpath, "wb") as w:
+            shutil.copyfileobj(r, w)
+    except Exception as e:
+        die("download failed: %s" % e, "try again, or download the zip yourself and use --from-soc FILE")
+    atexit.register(lambda: os.path.exists(zpath) and os.remove(zpath))
+    # the zip holds the raw TM_T1_SOC file (and usually boot.img / MCU blobs); pull the SOC out
+    try:
+        z = zipfile.ZipFile(zpath)
+    except zipfile.BadZipFile:
+        die("the downloaded file is not a zip.", "open %s and check what WonderMaker served" % zpath)
+    names = [n for n in z.namelist() if not n.endswith("/")]
+    soc = (next((n for n in names if os.path.basename(n) == "TM_T1_SOC"), None)
+           or next((n for n in names if os.path.basename(n).upper().endswith("_SOC")), None)
+           or next((n for n in names if "SOC" in os.path.basename(n).upper()), None))
+    if not soc:
+        die("no TM_T1_SOC file inside the downloaded zip.", "zip contains: " + ", ".join(names))
+    dest = p(out, "TM_T1_SOC_%s" % ver)
+    with z.open(soc) as src, open(dest, "wb") as w:
+        shutil.copyfileobj(src, w)
+    atexit.register(lambda: os.path.exists(dest) and os.remove(dest))
+    say("Got %s from the zip (%s)." % (os.path.basename(soc), ver))
+    return dest, ver
+
+
+def cmd_init_baseline(a):
+    """record the files of the version BEFORE the one you will update to: from the board (best), a folder, or this repo's factory copy"""
+    if getattr(a, "from_web", None) is not None:
+        a.from_soc, _ = download_soc(a.from_web or None)
+    if getattr(a, "from_soc", None):
+        a.from_dir, _ = stage_soc(a.from_soc)
+    if a.from_board is not None or a.from_dir:
+        bdir = p(DATA, "baseline", "_x")
+        ver, dst, n, nm = snapshot(bdir, host=board_host(a.from_board, may_ask=True) if a.from_dir is None else None, src_dir=a.from_dir, version=a.version)
+        log("init-baseline", ver, files=n, checksums=nm, source=a.from_dir or "board")
+        say("Baseline %s recorded from %s: %d files copied, %d other files by checksum, in %s" % (ver, a.from_dir or "the board", n, nm, dst))
+        say("Do this BEFORE the board is updated, so the baseline is the version before the new one.")
+        return
+    src = a.src or _repo_factory_dir()
+    src = os.path.abspath(src)
+    if not os.path.isdir(src): die("no source folder: " + src, "give --src DIR (a folder like factory/ultra-s)")
+    ver = a.version or "1.1.13"
+    dst = p(DATA, "baseline", ver)
+    if os.path.isdir(dst) and not a.force: die("baseline %s already recorded." % ver, "use --force to record it again")
+    if os.path.isdir(dst): shutil.rmtree(dst)
+    tot = 0
+    for live_rel, repo_name in REPO_MAP.items():
+        s_ = p(src, repo_name)
+        if os.path.isdir(s_): tot += copy_tree(s_, p(dst, live_rel))
+    if tot == 0: die("nothing found in " + src, "it must contain klipper/, moonraker/, config/, mcu/, scripts/")
+    log("init-baseline", ver, files=tot, source=src)
+    say("Baseline %s recorded: %d files in %s (repo copy: only the printer's own folders, no board-wide checksums)" % (ver, tot, dst))
+
+
+def cmd_fetch(a):
+    if getattr(a, "from_web", None) is not None:
+        a.from_soc, _ = download_soc(a.from_web or None)
+    if getattr(a, "from_soc", None):
+        a.from_dir, _ = stage_soc(a.from_soc)
+    if not a.from_dir and a.host is None and a.board is None: die("say where from.", "fetch --from-web  or  fetch --from-soc FILE  or  fetch --from-board  or  fetch --from-dir DIR")
+    rdir = p(DATA, "releases", "_x")
+    ver, dst, n, nm = snapshot(rdir, host=board_host(a.host, may_ask=sys.stdin.isatty()) if not a.from_dir else None, src_dir=a.from_dir, version=a.version)
+    log("fetch", ver, files=n, checksums=nm)
+    say("Release %s copied to %s (%d files, plus %d other files by checksum). Nothing was changed on the board or here." % (ver, dst, n, nm))
+    bv, _ = baseline_dir(ver)
+    say("Next: python3 wm_release.py diff %s%s" % (ver, "" if bv else "   (first run init-baseline, ideally --from-board while the board is still on the old version)"))
+
+
+def cmd_promote(a):
+    src = p(DATA, "releases", a.version); dst = p(DATA, "baseline", a.version)
+    if not os.path.isdir(src): die("release %s was not fetched." % a.version)
+    if os.path.isdir(dst): die("baseline %s already exists." % a.version)
+    shutil.copytree(src, dst)
+    log("promote", a.version)
+    say("%s is now a baseline. The next release will be compared with it." % a.version)
+
+
+# ---------------------------------------------------------------- compare
+def norm(path):
+    """text with LF line endings, no trailing spaces, one final newline: so only real changes count"""
+    t = read(path).decode("utf-8", "replace").replace("\r\n", "\n").replace("\r", "\n")
+    return "\n".join(x.rstrip() for x in t.split("\n")).rstrip("\n") + "\n"
+
+
+def same_text(a, b):
+    """identical, or identical apart from line endings / trailing spaces (text files only)"""
+    if sha(a) == sha(b): return True
+    return is_text(a) and is_text(b) and norm(a) == norm(b)
+
+
+def merge3(live, base, new):
+    """git merge-file on normalised copies: returns (clean, text)"""
+    if not shutil.which("git"): return False, None
+    with tempfile.TemporaryDirectory() as t:
+        for n, src in (("live", live), ("base", base), ("new", new)): open(p(t, n), "w").write(norm(src))
+        r = subprocess.run(["git", "merge-file", "-p", p(t, "live"), p(t, "base"), p(t, "new")], capture_output=True)
+        return r.returncode == 0, r.stdout
+
+
+def classify(rel, B, N, L):
+    """rel is relative to the live home (e.g. printer_data/config/macros.cfg)"""
+    b, n, l = B.get(rel), N.get(rel), L.get(rel)
+    if rel in PROTECTED:
+        return ("PROTECTED", None) if (n and (not b or sha(n) != sha(b))) else ("UNCHANGED", None)
+    if n is None:
+        return ("REMOVED", None) if b else ("UNCHANGED", None)
+    if b and sha(b) == sha(n):
+        if not l or sha(l) == sha(b): return ("UNCHANGED", None)
+        return ("WHITESPACE", None) if same_text(l, b) else ("KEEP_MINE", None)
+    if l is None: return ("ADD", None)
+    if b and same_text(l, b): return ("TAKE", None)
+    if same_text(l, n): return ("UNCHANGED", None)
+    if b and is_text(l) and is_text(n) and is_text(b):
+        ok, text = merge3(l, b, n)
+        if ok: return ("MERGE", text)
+    return ("CONFLICT", None)
+
+
+def trees(ver):
+    bv, bd = baseline_dir(ver)
+    if not bd: die("no baseline older than %s is recorded." % ver, "python3 wm_release.py init-baseline --from-board  (while the board still has the old version)")
+    rd = p(DATA, "releases", ver)
+    if not os.path.isdir(rd): die("release %s was not fetched." % ver, "python3 wm_release.py fetch --from-board")
+    B, N, L = {}, {}, {}
+    for root in ROOTS:
+        for rel, a in listing(p(bd, root)).items(): B[p(root, rel)] = a
+        for rel, a in listing(p(rd, root)).items(): N[p(root, rel)] = a
+        for rel in set(listing(p(bd, root))) | set(listing(p(rd, root))):
+            lp = p(LIVE, root, rel)
+            if os.path.lexists(lp): L[p(root, rel)] = lp
+    return bv, B, N, L
+
+
+def plan_for(ver):
+    bv, B, N, L = trees(ver)
+    plan = {}
+    for rel in sorted(set(B) | set(N)):
+        c, extra = classify(rel, B, N, L)
+        plan[rel] = (c, extra)
+    return bv, B, N, L, plan
+
+
+BACKUP_CFG = re.compile(r"^printer-\d{8}_\d{6}\.cfg$|\.bak$|\.bkp$")
+
+
+def macros_of(files):
+    """macro name -> {file: body} for every [gcode_macro X] in the given config files"""
+    out = {}
+    for f, path in files.items():
+        if not f.endswith(".cfg") or BACKUP_CFG.search(f): continue
+        cur = None
+        for line in read(path).decode("utf-8", "replace").splitlines():
+            m = re.match(r"^\[gcode_macro\s+([^\]]+)\]", line)
+            if m: cur = m.group(1).strip(); out.setdefault(cur, {})[os.path.basename(f)] = []; continue
+            if line.startswith("["): cur = None
+            if cur: out[cur][os.path.basename(f)].append(line.rstrip())
+    return out
+
+
+def dup_report(files):
+    out = []
+    for name, d in sorted(macros_of(files).items()):
+        if len(d) > 1:
+            bodies = {k: "\n".join(v).strip() for k, v in d.items()}
+            out.append("  %-28s in %s: %s" % (name, ", ".join(sorted(d)), "identical" if len(set(bodies.values())) == 1 else "DIFFERENT"))
+    return out
+
+
+def load_manifest(d):
+    f = p(d, "_manifest.json")
+    return json.load(open(f)) if os.path.isfile(f) else None
+
+
+def report_roots_diff(bd, rd):
+    """checksum comparison of everything outside the printer's own folders; returns lines"""
+    bm, nm = load_manifest(bd), load_manifest(rd)
+    if bm is None or nm is None:
+        return ["  (no board-wide checksums in the baseline or the release: record both with --from-board to compare these folders)"], [], 0
+    out, py, total = [], [], 0
+    for rel, _ in REPORT_ROOTS:
+        pre = rel + "/"
+        ch = sorted(f for f in nm if f.startswith(pre) and f in bm and nm[f] != bm[f])
+        ad = sorted(f for f in nm if f.startswith(pre) and f not in bm)
+        rm = sorted(f for f in bm if f.startswith(pre) and f not in nm)
+        if not (ch or ad or rm): continue
+        total += len(ch) + len(ad) + len(rm)
+        out.append("  %-24s changed %d, new %d, removed %d" % (rel, len(ch), len(ad), len(rm)))
+        for tag, lst in (("changed", ch), ("new", ad), ("removed", rm)):
+            for f in lst[:25]: out.append("      %-8s %s" % (tag, f))
+            if len(lst) > 25: out.append("      ... %d more %s" % (len(lst) - 25, tag))
+        py += [f for f in ch + ad if f.endswith(".py")]
+    return out, py, total
+
+
+def env_diff(bd, rd):
+    out = []
+    for e in ENVS:
+        fb, fr = p(bd, "_meta", e + ".txt"), p(rd, "_meta", e + ".txt")
+        if not (os.path.isfile(fb) and os.path.isfile(fr)): continue
+        pk = lambda f: dict(x.split("==", 1) for x in open(f).read().splitlines() if "==" in x)
+        b, r = pk(fb), pk(fr)
+        for k in sorted(set(b) | set(r)):
+            if b.get(k) != r.get(k): out.append("  %-14s %-24s %s -> %s" % (e, k, b.get(k, "(not there)"), r.get(k, "(removed)")))
+    return out
+
+
+def cmd_diff(a):
+    bv, B, N, L, plan = plan_for(a.version)
+    bd, rd = p(DATA, "baseline", bv), p(DATA, "releases", a.version)
+    groups = {}
+    for rel, (c, _) in plan.items(): groups.setdefault(c, []).append(rel)
+    lines = ["WonderMaker release %s compared with baseline %s and your live files" % (a.version, bv), "Made " + time.strftime("%Y-%m-%d %H:%M:%S"), ""]
+    expl = [("TAKE", "WonderMaker changed it, you did not: safe to take the new file"),
+            ("ADD", "new in this release and not on your Pi: safe to add"),
+            ("MERGE", "both changed it, in different places: merges cleanly"),
+            ("CONFLICT", "both changed the same place (or a binary): decide by hand"),
+            ("KEEP_MINE", "only you changed it: stays as it is"),
+            ("WHITESPACE", "your file differs from WonderMaker's only in line endings or trailing spaces: harmless, stays"),
+            ("PROTECTED", "WonderMaker changed it, but it holds your includes or data: never applied, look yourself"),
+            ("REMOVED", "removed in the release: nothing is deleted on your Pi")]
+    lines.append("Summary: " + ", ".join("%s %d" % (k, len(groups.get(k, []))) for k, _ in expl if k != "WHITESPACE") + ", WHITESPACE %d, UNCHANGED %d" % (len(groups.get("WHITESPACE", [])), len(groups.get("UNCHANGED", []))))
+    for k, text in expl:
+        if groups.get(k):
+            lines += ["", "== %s (%d): %s" % (k, len(groups[k]), text)] + ["  " + x for x in groups[k]]
+    changed = [r for r, (c, _) in plan.items() if c in ("TAKE", "ADD", "MERGE", "CONFLICT", "PROTECTED")]
+    so = [r for r in changed if r.endswith(".so") or ".cpython-" in r or r.endswith(".bin")]
+    req = [r for r in changed if re.search(r"requirements.*\.txt$", r)]
+    notes = []
+    if so: notes.append("Compiled modules / binaries changed (%d): %s. Restart Klipper after applying." % (len(so), ", ".join(so[:6])))
+    if req: notes.append("Python requirements changed: %s. The Python environments need rebuilding (the installer's --update does this)." % ", ".join(req))
+    if any(r.startswith("mcu_update/") for r in changed): notes.append("mcu_update/ changed: run the mcu command; MCU firmware is never flashed by this tool.")
+    if any(r.startswith("printer_data/config/") and r.endswith("macros.cfg") for r in changed): notes.append("Macros changed: re-test tool change, start print, pause/resume, end print.")
+    rep_lines, rep_py, rep_total = report_roots_diff(bd, rd)
+    lines += ["", "== Everything else on the board (checksums only; shown for you, never applied; %d files differ)" % rep_total] + rep_lines
+    ed = env_diff(bd, rd)
+    if ed: lines += ["", "== Python package versions that differ (pip freeze of the board)"] + ed; notes.append("Python packages differ between the two versions: check the Pi's environments (the installer's --update rebuilds them).")
+    pys = sorted(r for r in changed if r.endswith(".py")) + sorted(rep_py)
+    lines += ["", "== Python files changed or new (%d)" % len(pys)] + ["  " + x for x in pys[:200]] + (["  ... %d more" % (len(pys) - 200)] if len(pys) > 200 else [])
+    if notes: lines += ["", "== Things to do"] + ["  - " + x for x in notes]
+    newcfg = {os.path.basename(r): N[r] for r in N if r.startswith("printer_data/config/") and r.endswith(".cfg")}
+    d = dup_report({os.path.basename(r): N[r] for r in N if r.startswith("printer_data/config/") and r.endswith(".cfg")})
+    # macros defined twice in the NEW release (the second include wins in Klipper)
+    if d: lines += ["", "== Macros defined in more than one file in this release (the later include wins)"] + d
+    ensure(p(DATA, "reports")); rp = p(DATA, "reports", "%s-%s.txt" % (a.version, now()))
+    open(rp, "w").write("\n".join(lines) + "\n")
+    say("\n".join(lines)); say("\nReport saved: " + rp)
+    log("diff", a.version, report=rp)
+
+
+# ---------------------------------------------------------------- printing guard
+def printing_now():
+    try:
+        with urllib.request.urlopen(MOONRAKER + "/printer/objects/query?print_stats", timeout=4) as r:
+            st = json.load(r)["result"]["status"]["print_stats"]["state"]
+        return st in ("printing", "paused"), st
+    except Exception:
+        return False, None
+
+
+# ---------------------------------------------------------------- apply / rollback
+def cmd_apply(a):
+    bv, B, N, L, plan = plan_for(a.version)
+    todo = {r: (c, x) for r, (c, x) in plan.items() if c in ("TAKE", "ADD", "MERGE")}
+    conf = [r for r, (c, _) in plan.items() if c == "CONFLICT"]
+    say("Plan for release %s (baseline %s):" % (a.version, bv))
+    for c in ("TAKE", "ADD", "MERGE"):
+        for r in sorted(x for x, (k, _) in todo.items() if k == c): say("  %-6s %s" % (c, r))
+    for r in conf: say("  HAND   %s   (conflict: saved for you in %s)" % (r, p(DATA, "conflicts", a.version)))
+    if not todo and not conf: say("  nothing to do."); return
+    if not a.apply:
+        say("\nDry run: nothing was changed. To apply: python3 wm_release.py apply %s --apply" % a.version); return
+    pr, st = printing_now()
+    if pr and not a.force: die("a print is running (%s)." % st, "wait for it to finish")
+    if st is None: say("Note: Moonraker did not answer, so I cannot tell whether a print is running.")
+    typed = os.environ.get("WMR_TEST_TYPED") or input("Type APPLY to change %d files (a backup is made first): " % len(todo)).strip()
+    if typed != "APPLY": say("Nothing changed."); return
+    ensure(p(DATA, "backups")); bk = p(DATA, "backups", "%s-%s.tgz" % (a.version, now()))
+    added, existing = [], []
+    with tarfile.open(bk, "w:gz") as t:
+        for r in todo:
+            lp = p(LIVE, r)
+            if os.path.lexists(lp): t.add(lp, arcname=r); existing.append(r)
+            else: added.append(r)
+        info = json.dumps({"version": a.version, "added": added, "existing": existing}).encode()
+        ti = tarfile.TarInfo("wm-release-manifest.json"); ti.size = len(info); t.addfile(ti, io.BytesIO(info))
+    os.chmod(bk, 0o600)
+    for r, (c, text) in sorted(todo.items()):
+        lp = p(LIVE, r)
+        if c == "MERGE":
+            mode = os.stat(lp).st_mode; open(lp, "wb").write(text); os.chmod(lp, mode)
+        else:
+            copy_file(N[r], lp)
+    for r in conf:
+        d = ensure(p(DATA, "conflicts", a.version, os.path.dirname(r)))
+        if is_text(N[r]):
+            ok, text = merge3(L[r], B[r], N[r]) if r in B and r in L else (False, None)
+            if text is not None: open(p(d, os.path.basename(r) + ".merge"), "wb").write(text)
+        shutil.copy2(N[r], p(d, os.path.basename(r) + ".theirs"))
+    log("apply", a.version, files=len(todo), conflicts=len(conf), backup=bk)
+    say("Applied %d files. Backup: %s" % (len(todo), bk))
+    if conf: say("%d conflict(s) left for you: %s" % (len(conf), p(DATA, "conflicts", a.version)))
+    say("Next: restart Klipper (sudo systemctl restart klipper), then run the checklist: python3 wm_release.py checklist %s" % a.version)
+    say("When the new version works for you: python3 wm_release.py promote %s   (so the next release is compared with it)" % a.version)
+    say("Undo: python3 wm_release.py rollback")
+
+
+def cmd_rollback(a):
+    bk = a.backup
+    if not bk:
+        c = sorted(x for x in os.listdir(p(DATA, "backups"))) if os.path.isdir(p(DATA, "backups")) else []
+        c = [x for x in c if x.endswith(".tgz")]
+        if not c: die("no backups in " + p(DATA, "backups"))
+        bk = p(DATA, "backups", c[-1])
+    if not os.path.isfile(bk): die("no such backup: " + bk)
+    pr, st = printing_now()
+    if pr and not a.force: die("a print is running (%s)." % st, "wait for it to finish")
+    with tarfile.open(bk) as t:
+        man = json.load(t.extractfile("wm-release-manifest.json"))
+        say("Backup %s: puts back %d files and removes %d files that apply added." % (os.path.basename(bk), len(man["existing"]), len(man["added"])))
+        typed = os.environ.get("WMR_TEST_TYPED") or input("Type ROLLBACK to continue: ").strip()
+        if typed != "ROLLBACK": say("Nothing changed."); return
+        for m in t.getmembers():
+            if m.name == "wm-release-manifest.json": continue
+            dst = p(LIVE, m.name); ensure(os.path.dirname(dst))
+            if os.path.lexists(dst): os.remove(dst)
+            t.extract(m, p(DATA, "tmp-rollback"), filter="data") if sys.version_info >= (3, 12) else t.extract(m, p(DATA, "tmp-rollback"))
+            shutil.move(p(DATA, "tmp-rollback", m.name), dst)
+    shutil.rmtree(p(DATA, "tmp-rollback"), ignore_errors=True)
+    for r in man["added"]:
+        if os.path.lexists(p(LIVE, r)): os.remove(p(LIVE, r))
+    log("rollback", man["version"], backup=bk)
+    say("Rolled back. Restart Klipper: sudo systemctl restart klipper")
+
+
+# ---------------------------------------------------------------- MCU
+def parse_ini(text):
+    ver, md5 = {}, {}
+    for line in text.splitlines():
+        line = line.strip()
+        m = re.match(r"^(version|md5)_([A-Z]+)\s*=\s*(\S+)", line)
+        if m: (ver if m.group(1) == "version" else md5)[m.group(2)] = m.group(3)
+    return ver, md5
+
+
+def installed_mcu():
+    try:
+        with urllib.request.urlopen(MOONRAKER + "/printer/objects/list", timeout=4) as r:
+            names = [x for x in json.load(r)["result"]["objects"] if x == "mcu" or x.startswith("mcu ")]
+        q = "&".join(urllib.request.quote(n) for n in names)
+        with urllib.request.urlopen(MOONRAKER + "/printer/objects/query?" + q, timeout=4) as r:
+            st = json.load(r)["result"]["status"]
+        v = {n: st[n].get("mcu_version") for n in names if st.get(n, {}).get("mcu_version")}
+        return v or None
+    except Exception:
+        return None
+
+
+def cmd_mcu(a):
+    src = a.source; files = {}
+    if os.path.isfile(src) and zipfile.is_zipfile(src):
+        with zipfile.ZipFile(src) as z:
+            for n in z.namelist():
+                if "__MACOSX" in n or n.endswith("/"): continue
+                files[os.path.basename(n)] = z.read(n)
+    elif os.path.isdir(src):
+        for rel, ab in listing(src).items(): files[os.path.basename(rel)] = read(ab)
+    else: die("not a zip or a folder: " + src)
+    if "mcu_info.ini" not in files: die("no mcu_info.ini in " + src, "give the zip from WonderMaker or its mcu_update folder")
+    nv, nm = parse_ini(files["mcu_info.ini"].decode("utf-8", "replace"))
+    bv, bd = baseline_dir(); ov = {}
+    if bd and os.path.isfile(p(bd, "mcu_update", "mcu_info.ini")): ov, _ = parse_ini(open(p(bd, "mcu_update", "mcu_info.ini")).read())
+    live = installed_mcu()
+    say("MCU firmware in %s" % src)
+    say("%-5s %-34s %-9s %-8s %s" % ("Part", "Version in package", "md5", "Baseline", "File"))
+    flash = []
+    for part in ("MCU", "THR", "EXT", "HUB", "CELL"):
+        if part not in nv: say("%-5s (not in this package)" % part); continue
+        b = files.get(MCU_BIN[part]); got = hashlib.md5(b).hexdigest() if b else None
+        md = "missing" if not b else ("ok" if got == nm.get(part) else "BAD")
+        st = "same" if ov.get(part) == nv[part] else ("new" if part in ov else "new part")
+        say("%-5s %-34s %-9s %-8s %s" % (part, nv[part], md, st, MCU_BIN[part]))
+        if md == "BAD": say("      md5 differs from mcu_info.ini: do NOT flash this file.")
+        if st != "same" and md == "ok": flash.append(part)
+    if live: say("\nInstalled now (from Klipper):"); [say("  %-12s %s" % (k, v)) for k, v in sorted(live.items())]
+    else: say("\nInstalled now: not readable (Klipper is not ready or Moonraker did not answer), so no comparison with the running boards.")
+    if not flash: say("\nNothing new to flash compared with the baseline."); return
+    say("\nNew firmware for: " + ", ".join(flash))
+    can = os.path.isdir("/sys/class/net/can0")
+    if not can: say("WARNING: can0 is not up on this Pi. THR/EXT/HUB/CELL boards are flashed over CAN, so fix the CAN link first.")
+    say("This tool never flashes. WonderMaker's own commands (read their scripts first):")
+    for part in flash: say("  %-4s bash ~/mcu_update/%s      # file: ~/mcu_update/%s" % (part, MCU_SCRIPT[part], MCU_BIN[part]))
+    say("Steps: 1) copy the package's mcu_update folder to ~/mcu_update  2) make sure Klipper is idle  3) run the command above, one part at a time  4) restart Klipper and check the version shown by this command.")
+    log("mcu", "-", source=src, new=flash)
+
+
+# ---------------------------------------------------------------- log, notes, checklist
+def log(action, ver, **kw):
+    ensure(DATA)
+    with open(p(DATA, "release-log.jsonl"), "a") as f:
+        f.write(json.dumps({"time": time.strftime("%Y-%m-%d %H:%M:%S"), "action": action, "version": ver, "tool": TOOL_VERSION, **kw}) + "\n")
+
+
+def cmd_log(a):
+    f = p(DATA, "release-log.jsonl")
+    if not os.path.isfile(f): say("No history yet."); return
+    for line in open(f):
+        d = json.loads(line); t = d.pop("time"); ac = d.pop("action"); v = d.pop("version"); d.pop("tool", None)
+        say("%s  %-14s %-8s %s" % (t, ac, v, " ".join("%s=%s" % kv for kv in d.items())))
+
+
+def cmd_status(a):
+    bd_ = p(DATA, "baseline")
+    bl = sorted((x for x in os.listdir(bd_) if os.path.isdir(p(bd_, x)) and re.match(r"^\d+(\.\d+)+$", x)), key=vkey) if os.path.isdir(bd_) else []
+    say("Tool version: " + TOOL_VERSION); say("Data folder:  " + DATA); say("Live files:   " + LIVE)
+    say("Baselines:    " + (", ".join(bl) if bl else "none (run init-baseline --from-board while the board has the old version)"))
+    rd = p(DATA, "releases")
+    say("Releases:     " + (", ".join(sorted(os.listdir(rd))) if os.path.isdir(rd) and os.listdir(rd) else "none fetched"))
+    iv = p(LIVE, "iso_version.txt")
+    if os.path.isfile(iv): say("This machine's iso_version.txt says: " + (board_version(open(iv).read()) or "?"))
+    if os.path.isdir(p(DATA, "backups")): say("Backups:       %d in %s" % (len(os.listdir(p(DATA, "backups"))), p(DATA, "backups")))
+
+
+BASE_CHECKS = ["Klipper reaches 'ready' with no error in Fluidd", "All toolheads, hub, load cell and extruder boards show up (no 'Unable to open CAN port')",
+               "Homing X Y Z", "Bed heats; every nozzle heats and the temperatures read sensible", "Fans and chamber heater respond",
+               "Tool change T0 -> T1 -> T2 -> T3 and back, no crash, wipe works", "Probe / bed mesh runs; the saved mesh loads",
+               "Nozzle offsets still right (a short two-colour test print)", "Pause, resume and cancel", "Power-loss recovery marker (plr) still works",
+               "Screen (KlipperScreen / ZR Tools) opens and shows temperatures", "Run: ./installer.sh --doctor and --check"]
+KEY_CHECKS = [("macros", "Macros changed: dry-run START_PRINT / PRINT_END with a real file; check the purge line"), ("offset", "Offset files changed: redo or at least verify XY/Z offsets for every tool"),
+              ("change_", "Tool-change files changed: watch the first 3 tool changes closely, hand on the stop"), ("load_cell", "Load cell config changed: test the probe 5 times in one spot"),
+              ("hub", "Hub config changed: filament load/unload on each path"), ("extruder", "Extruder config changed: check rotation distance with a 100 mm extrusion"),
+              ("moonraker", "Moonraker changed: Fluidd opens, history and timelapse still work"), ("klippy", "Klipper core changed: re-run input shaper and PID before real prints")]
+
+
+def cmd_checklist(a):
+    items = list(BASE_CHECKS)
+    try:
+        _, B, N, L, plan = plan_for(a.version)
+        names = " ".join(r for r, (c, _) in plan.items() if c in ("TAKE", "ADD", "MERGE", "CONFLICT", "PROTECTED")).lower()
+        items += [t for k, t in KEY_CHECKS if k in names]
+    except SystemExit: pass
+    ensure(p(DATA, "notes")); f = p(DATA, "notes", "%s-checklist.md" % a.version)
+    open(f, "w").write("# Test list after WonderMaker %s\n\n" % a.version + "\n".join("- [ ] " + x for x in items) + "\n")
+    say(open(f).read()); say("Saved: " + f)
+
+
+def cmd_notes(a):
+    ensure(p(DATA, "notes")); f = p(DATA, "notes", "%s-notes.md" % a.version)
+    if not os.path.isfile(f): open(f, "w").write("# My notes for WonderMaker %s\n\n" % a.version)
+    if a.add: open(f, "a").write("- %s  %s\n" % (time.strftime("%Y-%m-%d"), a.add))
+    say(open(f).read()); say("File: " + f)
+
+
+def board_system_version(host):
+    r = subprocess.run(ssh_base(host) + ["cat ~/iso_version.txt"], capture_output=True, text=True, stdin=subprocess.DEVNULL)
+    return board_version(r.stdout) if r.returncode == 0 else None
+
+
+def step(n, total, text): say("\n[%d/%d] %s" % (n, total, text))
+
+
+_WIKI = {}
+def wiki_latest(timeout=6):
+    """(newest published System version, all versions listed) from WonderMaker's page; (None, []) if the page cannot be read"""
+    if "r" in _WIKI: return _WIKI["r"]
+    r = (None, [])
+    try:
+        req = urllib.request.Request(WIKI_URL, headers={"User-Agent": "wm_release/" + TOOL_VERSION})
+        with urllib.request.urlopen(req, timeout=timeout) as f: html = f.read().decode("utf-8", "replace")
+        vs = sorted(set(re.findall(r"tm_t1_soc\(?(\d+(?:\.\d+)+)\)?\.zip", html, re.I)), key=vkey)
+        if vs: r = (vs[-1], vs)
+    except Exception: pass
+    _WIKI["r"] = r
+    return r
+
+
+def known_versions():
+    return sorted(set(versions("baseline") + versions("releases")), key=vkey)
+
+
+def wiki_line(board_ver=None):
+    """one line saying whether WonderMaker has published something newer than what you have; None when the page cannot be read"""
+    lat, _ = wiki_latest()
+    if not lat: return None
+    have = board_ver or (known_versions() or [None])[-1]
+    if not have: return "WonderMaker's newest published version is %s." % lat
+    if vkey(lat) > vkey(have): return "NEW: WonderMaker published %s (you have %s). Get it with:  python3 wm_release.py fetch --from-web   (or menu option w), then diff and apply." % (lat, have)
+    return "WonderMaker's newest published version is %s - you have %s, up to date." % (lat, have)
+
+
+def cmd_check(a):
+    """ask WonderMaker's firmware page for the newest published System version and compare (nothing is downloaded or changed)"""
+    lat, vs = wiki_latest(10)
+    if not lat: die("could not read " + WIKI_URL, "check the internet connection; the page layout may also have changed")
+    say("WonderMaker published: " + ", ".join(vs))
+    say("Newest published:      " + lat)
+    kv = known_versions()
+    say("Your baselines/fetched releases: " + (", ".join(kv) if kv else "none"))
+    say(wiki_line())
+
+
+def cmd_all(a):
+    """every needed step, in order, by looking at where you are: nothing is changed on the board; your files change only after you type APPLY"""
+    saved = os.environ.get("WMR_BOARD_HOST", "") or conf_get("board_host")
+    host = ask("Board address (the WonderMaker screen board's IP; Enter keeps the one shown)", saved)
+    if not host: die("which board?", "type the screen board's IP address")
+    if host != conf_get("board_host"): conf_set("board_host", host)
+    wl = wiki_line()
+    if wl: say("\n  " + wl)
+    else: say("\n  (WonderMaker's firmware page could not be read; skipping the new-version check.)")
+    step(1, 6, "Logging in to the board %s" % host)
+    ssh_base(host)                                   # asks for user name and password if a login is needed
+    say("  Logged in. The board is only read, never changed.")
+    step(2, 6, "Which WonderMaker System version does the board run?")
+    bv = board_system_version(host)
+    if not bv: die("the board's iso_version.txt has no System version.", "use the single steps and give --version")
+    bl = versions("baseline"); newest = bl[-1] if bl else None
+    lat, _ = wiki_latest()
+    if lat and vkey(lat) > vkey(bv): say("  Note: WonderMaker has published %s; the board is behind." % lat)
+    say("  Board runs System %s.  Baselines saved: %s" % (bv, ", ".join(bl) if bl else "none"))
+    if newest is None:
+        step(3, 6, "Saving the board as it is now (%s) as the baseline" % bv)
+        say("  Do this only while the board still has the OLD version. Then update the board with WonderMaker's own updater.")
+        if ask("Save it? (y/n)", "y").lower().startswith("y"):
+            cmd_init_baseline(argparse.Namespace(from_board=host, from_dir=None, from_soc=None, from_web=None, src=None, version=None, force=False))
+        say("\nNext: update the board with WonderMaker's updater, then choose this option again.")
+        return
+    if bv in bl and vkey(bv) == vkey(newest):
+        say("\nThe board still runs %s, the same as your newest baseline. There is nothing new to bring over." % bv)
+        say("Update the board with WonderMaker's updater first, then choose this option again.")
+        return
+    if vkey(bv) < vkey(newest):
+        say("\nThe board (%s) is OLDER than your baseline %s. Nothing to do." % (bv, newest)); return
+    step(3, 6, "Fetching System %s from the board (read only)" % bv)
+    if bv in versions("releases"): say("  Already fetched; using it.")
+    else: cmd_fetch(argparse.Namespace(board=host, host=host, from_dir=None, from_soc=None, from_web=None, version=None))
+    step(4, 6, "Comparing %s with %s and with your live files" % (bv, newest))
+    cmd_diff(argparse.Namespace(version=bv))
+    mcu = p(DATA, "releases", bv, "mcu_update")
+    if os.path.isfile(p(mcu, "mcu_info.ini")):
+        step(5, 6, "MCU firmware check (never flashes)")
+        cmd_mcu(argparse.Namespace(source=mcu))
+    else: step(5, 6, "MCU firmware: no mcu_info.ini in this release, skipped")
+    step(6, 6, "What would be applied")
+    cmd_apply(argparse.Namespace(version=bv, apply=False, force=False))
+    if ask("Apply it now? Type yes to go on (a backup is made first)", "no").lower() == "yes":
+        cmd_apply(argparse.Namespace(version=bv, apply=True, force=False))
+        cmd_checklist(argparse.Namespace(version=bv))
+        if ask("When it works for you, keep %s as the next baseline? (y/n)" % bv, "n").lower().startswith("y"):
+            cmd_promote(argparse.Namespace(version=bv))
+        else: say("  Later: menu 9, or: python3 wm_release.py promote %s" % bv)
+    else: say("  Nothing applied. Run this option again, or menu 6, when you are ready.")
+
+
+def versions(kind):
+    d = p(DATA, kind)
+    return sorted((x for x in os.listdir(d) if os.path.isdir(p(d, x)) and re.match(r"^\d+(\.\d+)+$", x)), key=vkey) if os.path.isdir(d) else []
+
+
+def ask(q, default=""):
+    try: r = input("  %s%s: " % (q, " [%s]" % default if default else "")).strip()
+    except EOFError: raise SystemExit(0)
+    return r or default
+
+
+def pick_release(default_latest=True):
+    rs = versions("releases")
+    if not rs: say("  No release is fetched yet: use step 2 first."); return None
+    return ask("Which release", rs[-1]) if len(rs) > 1 else rs[0]
+
+
+def menu_status():
+    bl, rs = versions("baseline"), versions("releases")
+    lg = p(DATA, "release-log.jsonl")
+    last = ""
+    if os.path.isfile(lg):
+        try: d = json.loads(open(lg).read().strip().splitlines()[-1]); last = "%s %s %s" % (d["time"], d["action"], d["version"])
+        except (ValueError, IndexError): pass
+    host = os.environ.get("WMR_BOARD_HOST", "") or conf_get("board_host")
+    say("\nWonderMaker release tool %s" % TOOL_VERSION)
+    say("  Baseline (version before):  " + (", ".join(bl) if bl else "none yet -> choose 1 now, BEFORE you update the board"))
+    say("  Fetched new version:        " + (", ".join(rs) if rs else "none yet -> choose 1 again after you updated the board"))
+    say("  Board address:              " + (host or "not set (choose 1 or s)"))
+    say("  Last action:                " + (last or "none"))
+    wl = wiki_line()
+    say("  WonderMaker page:           " + (wl or "could not be read (offline?)"))
+
+
+def cmd_menu(a):
+    while True:
+        menu_status()
+        say("""
+   1) ALL STEPS  - does what is needed next, in order (asks the board's user name and password)
+   ---- or one step at a time ----
+   2) Save the baseline from the board        (before you update the board)
+   3) Fetch the new version from the board    (after you updated it)
+   f) Open a TM_T1_SOC file on the Pi         (decrypt it here; no factory board needed)
+   w) Download the newest from WonderMaker    (gets the SOC from their website, then decrypts it here)
+   4) Show the differences                    (read only, saves a report)
+   5) Check MCU firmware                      (never flashes)
+   6) Apply the new version                   (plan first; backup; you type APPLY)
+   7) Test list and my notes
+   8) Roll back the last apply
+   9) Keep this version as the next baseline  (after it works)
+   c) Check for a new WonderMaker version    (reads their firmware page)
+   h) History
+   s) Board address and user name
+   0) Exit""")
+        c = ask("Choose")
+        try:
+            if c == "0": return
+            elif c == "1": cmd_all(argparse.Namespace())
+            elif c == "c": cmd_check(argparse.Namespace())
+            elif c == "s":
+                h = ask("Board address (the screen board's IP)", conf_get("board_host"))
+                if h: conf_set("board_host", h)
+                u = ask("Board user name", conf_get("board_user") or "t13dp")
+                if u: conf_set("board_user", u); say("  Saved. The password is never saved: it is asked each time you log in.")
+            elif c == "2":
+                say("  Reads the board's files as they are NOW. Do this only while the board still has the old version.")
+                if ask("Continue? (y/n)", "y").lower().startswith("y"): cmd_init_baseline(argparse.Namespace(from_board="", from_dir=None, from_soc=None, from_web=None, src=None, version=None, force=False))
+            elif c == "3":
+                cmd_fetch(argparse.Namespace(board="", host=None, from_dir=None, from_soc=None, from_web=None, version=None))
+            elif c == "f":
+                soc = ask("Path to the TM_T1_SOC file on the Pi")
+                if soc: cmd_fetch(argparse.Namespace(board=None, host=None, from_dir=None, from_soc=os.path.expanduser(soc), from_web=None, version=None))
+            elif c == "w":
+                v = ask("Version to download (Enter for the newest on WonderMaker's page)")
+                cmd_fetch(argparse.Namespace(board=None, host=None, from_dir=None, from_soc=None, from_web=v or "", version=None))
+            elif c in ("4", "6", "7", "9"):
+                v = pick_release()
+                if not v: continue
+                if c == "4": cmd_diff(argparse.Namespace(version=v))
+                elif c == "6":
+                    cmd_apply(argparse.Namespace(version=v, apply=False, force=False))
+                    if ask("Apply it now? Type yes to go on", "no").lower() == "yes": cmd_apply(argparse.Namespace(version=v, apply=True, force=False))
+                elif c == "7":
+                    cmd_checklist(argparse.Namespace(version=v))
+                    n = ask("A note to save (Enter to skip)")
+                    if n: cmd_notes(argparse.Namespace(version=v, add=n))
+                elif c == "9": cmd_promote(argparse.Namespace(version=v))
+            elif c == "5":
+                rs = versions("releases"); dflt = p(DATA, "releases", rs[-1], "mcu_update") if rs else ""
+                src = ask("Folder or zip with mcu_info.ini", dflt)
+                if src: cmd_mcu(argparse.Namespace(source=os.path.expanduser(src)))
+            elif c == "8": cmd_rollback(argparse.Namespace(backup=None, force=False))
+            elif c == "h": cmd_log(argparse.Namespace())
+            else: say("  Choose a number from the list.")
+        except SystemExit as e:
+            if e.code not in (0, None): say("  (stopped; nothing else was done)")
+        ask("Press Enter to go on")
+
+
+def main():
+    ap = argparse.ArgumentParser(description="Private WonderMaker release tool", formatter_class=argparse.RawDescriptionHelpFormatter, epilog=__doc__)
+    ap.add_argument("--version", action="version", version="wm_release.py %s" % TOOL_VERSION)
+    sp = ap.add_subparsers(dest="cmd")
+    def add(n, fn, *args):
+        s = sp.add_parser(n); s.set_defaults(fn=fn)
+        for x in args: s.add_argument(*x[0], **x[1])
+        return s
+    add("status", cmd_status)
+    add("menu", cmd_menu)
+    add("check", cmd_check)
+    add("all", cmd_all)
+    add("init-baseline", cmd_init_baseline, (["--src"], {}), (["--version"], {}), (["--force"], {"action": "store_true"}),
+        (["--from-board"], {"nargs": "?", "const": ""}), (["--from-dir"], {}), (["--from-soc"], {}),
+        (["--from-web"], {"nargs": "?", "const": ""}))
+    add("promote", cmd_promote, (["version"], {}))
+    add("fetch", cmd_fetch, (["--from-board"], {"nargs": "?", "const": "", "dest": "board"}), (["--from-dir"], {}),
+        (["--from-soc"], {}), (["--from-web"], {"nargs": "?", "const": ""}), (["--version"], {}))
+    add("diff", cmd_diff, (["version"], {}))
+    add("mcu", cmd_mcu, (["source"], {}))
+    add("apply", cmd_apply, (["version"], {}), (["--apply"], {"action": "store_true"}), (["--force"], {"action": "store_true"}))
+    add("rollback", cmd_rollback, (["backup"], {"nargs": "?"}), (["--force"], {"action": "store_true"}))
+    add("checklist", cmd_checklist, (["version"], {}))
+    add("notes", cmd_notes, (["version"], {}), (["--add"], {}))
+    add("log", cmd_log)
+    a = ap.parse_args()
+    if a.cmd is None: a.fn = cmd_menu; a.cmd = "menu"   # no command: the menu
+    if a.cmd == "fetch":
+        if a.board is None and not a.from_dir and not getattr(a, "from_soc", None) and getattr(a, "from_web", None) is None:
+            die("say where from.", "fetch --from-web  or  fetch --from-soc FILE  or  fetch --from-board  or  fetch --from-dir DIR")
+        a.host = a.board or None
+    a.fn(a)
+
+
+if __name__ == "__main__":
+    main()
