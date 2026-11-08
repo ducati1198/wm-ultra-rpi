@@ -1,4 +1,4 @@
-# wm_release.py - private WonderMaker release tool
+# wm_release.py - WonderMaker release tool (version 1.0.0)
 
 For bringing a new WonderMaker System release (for example 1.1.14) to your Pi **without losing your own changes**.
 It is not part of any installer and no installer runs it. It lives in the `tools/wm-release/` folder of the repo, so `git pull` brings it to the Pi (the repo is public, so this folder is public too).
@@ -190,6 +190,13 @@ python3 wm_release.py promote 1.1.14      # when you are happy: it becomes the n
 | `WMR_BOARD_USER` | `t13dp` | user on the screen board (asked and remembered when not set) |
 | `WMR_BOARD_KEY` | (none) | SSH key for the board |
 
+## Version
+
+`python3 wm_release.py --version` prints the tool's version; the menu title and `status` show it too, and every line in the history (`log`) records the version that wrote it. It is the tool's own number and has nothing to do with the installer's `VERSION` file, so changing it does not publish a GitHub release.
+
+Version history:
+- **1.0.0** - option 1 / `all` does every needed step; asks the board's user name and password (hidden, one login, never saved); line-ending and trailing-space differences are not conflicts; board-wide checksums, pip freeze, baseline chosen as the version before the release, `promote`; numbered menu.
+
 ## Tests
 
-`bash tools/wm-release/test.sh` runs 67 checks on throwaway folders (it never touches your real files).
+`bash tools/wm-release/test.sh` runs 68 checks on throwaway folders (it never touches your real files).

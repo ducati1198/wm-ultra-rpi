@@ -18,10 +18,11 @@ Everything is read-only unless you run `apply --apply` (and type APPLY) or `roll
   checklist VERSION            test list for after the update
   notes VERSION [--add TEXT]   your own notes for this release
   log                          history of what was done
-Data folder: $WMR_HOME (default ~/wm-private-data).  Live files: $WMR_LIVE_HOME (default ~).
+Version: see --version.  Data folder: $WMR_HOME (default ~/wm-private-data).  Live files: $WMR_LIVE_HOME (default ~).
 """
 import argparse, atexit, getpass, hashlib, io, json, os, re, shutil, subprocess, sys, tarfile, tempfile, time, urllib.request, zipfile
 
+TOOL_VERSION = "1.0.0"   # this tool's own version (not the installer's VERSION file); see README "Version history"
 HOME = os.path.expanduser("~")
 DATA = os.environ.get("WMR_HOME", os.path.join(HOME, "wm-private-data"))
 LIVE = os.environ.get("WMR_LIVE_HOME", HOME)
@@ -627,21 +628,21 @@ def cmd_mcu(a):
 def log(action, ver, **kw):
     ensure(DATA)
     with open(p(DATA, "release-log.jsonl"), "a") as f:
-        f.write(json.dumps({"time": time.strftime("%Y-%m-%d %H:%M:%S"), "action": action, "version": ver, **kw}) + "\n")
+        f.write(json.dumps({"time": time.strftime("%Y-%m-%d %H:%M:%S"), "action": action, "version": ver, "tool": TOOL_VERSION, **kw}) + "\n")
 
 
 def cmd_log(a):
     f = p(DATA, "release-log.jsonl")
     if not os.path.isfile(f): say("No history yet."); return
     for line in open(f):
-        d = json.loads(line); t = d.pop("time"); ac = d.pop("action"); v = d.pop("version")
+        d = json.loads(line); t = d.pop("time"); ac = d.pop("action"); v = d.pop("version"); d.pop("tool", None)
         say("%s  %-14s %-8s %s" % (t, ac, v, " ".join("%s=%s" % kv for kv in d.items())))
 
 
 def cmd_status(a):
     bd_ = p(DATA, "baseline")
     bl = sorted((x for x in os.listdir(bd_) if os.path.isdir(p(bd_, x)) and re.match(r"^\d+(\.\d+)+$", x)), key=vkey) if os.path.isdir(bd_) else []
-    say("Data folder:  " + DATA); say("Live files:   " + LIVE)
+    say("Tool version: " + TOOL_VERSION); say("Data folder:  " + DATA); say("Live files:   " + LIVE)
     say("Baselines:    " + (", ".join(bl) if bl else "none (run init-baseline --from-board while the board has the old version)"))
     rd = p(DATA, "releases")
     say("Releases:     " + (", ".join(sorted(os.listdir(rd))) if os.path.isdir(rd) and os.listdir(rd) else "none fetched"))
@@ -758,7 +759,7 @@ def menu_status():
         try: d = json.loads(open(lg).read().strip().splitlines()[-1]); last = "%s %s %s" % (d["time"], d["action"], d["version"])
         except (ValueError, IndexError): pass
     host = os.environ.get("WMR_BOARD_HOST", "") or conf_get("board_host")
-    say("\nWonderMaker release tool")
+    say("\nWonderMaker release tool %s" % TOOL_VERSION)
     say("  Baseline (version before):  " + (", ".join(bl) if bl else "none yet -> choose 1 now, BEFORE you update the board"))
     say("  Fetched new version:        " + (", ".join(rs) if rs else "none yet -> choose 1 again after you updated the board"))
     say("  Board address:              " + (host or "not set (choose 1 or s)"))
@@ -822,6 +823,7 @@ def cmd_menu(a):
 
 def main():
     ap = argparse.ArgumentParser(description="Private WonderMaker release tool", formatter_class=argparse.RawDescriptionHelpFormatter, epilog=__doc__)
+    ap.add_argument("--version", action="version", version="wm_release.py %s" % TOOL_VERSION)
     sp = ap.add_subparsers(dest="cmd")
     def add(n, fn, *args):
         s = sp.add_parser(n); s.set_defaults(fn=fn)

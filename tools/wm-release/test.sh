@@ -207,4 +207,6 @@ printf 'all\n' >/dev/null
 printf '' | FAKE_PASSWORDLESS=1 FAKE_BOARD="$T/b1" run all > "$T/a5" 2>&1
 check "the command line has it too: wm_release.py all" grep -q "Board runs System" "$T/a5"
 
+check "the tool has a version: --version, the menu title, status and the history" bash -c "python3 $PY --version | grep -q 'wm_release.py [0-9]' && printf '0\n' | python3 $PY | grep -q 'WonderMaker release tool [0-9]' && python3 $PY status | grep -q 'Tool version: [0-9]' && grep -q '(version 1.0.0)' $HERE/README.md"
+
 echo; echo "passed: $pass  failed: $fail"; [ "$fail" = 0 ]
