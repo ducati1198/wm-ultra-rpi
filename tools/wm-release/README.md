@@ -92,6 +92,7 @@ The baseline used is the newest one **older** than 1.1.14. The report shows:
 | MERGE | both changed it, in different places: merges cleanly |
 | CONFLICT | both changed the same place, or a binary: you decide |
 | KEEP_MINE | only you changed it: stays |
+| WHITESPACE | your file differs only in line endings or trailing spaces: harmless, stays (and never causes a conflict) |
 | PROTECTED | `printer.cfg`, `saved_variables.cfg`, `tmt1.ini`: never applied, look yourself |
 | REMOVED | removed in the release: nothing is deleted on your Pi |
 | Everything else on the board | screen app, Fluidd, crowsnest, services, nginx, udev: checksums only, never applied |
@@ -173,4 +174,4 @@ python3 wm_release.py promote 1.1.14      # when you are happy: it becomes the n
 
 ## Tests
 
-`bash tools/wm-release/test.sh` runs 53 checks on throwaway folders (it never touches your real files).
+`bash tools/wm-release/test.sh` runs 57 checks on throwaway folders (it never touches your real files).

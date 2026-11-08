@@ -141,4 +141,20 @@ check "menu: a step that cannot run explains and returns to the menu (no address
 printf '3\n\n0\n' | WMR_HOME="$T/empty" python3 "$PY" > "$T/m5" 2>&1
 check "menu: differences before any fetch says what to do first" grep -q "use step 2 first" "$T/m5"
 printf '' | python3 "$PY" > "$T/m6" 2>&1; check "menu: closing the input ends it cleanly" test $? -eq 0
+# ---- line endings: a CRLF copy of an unchanged file is harmless; a real WonderMaker change still merges
+export WMR_HOME="$T/data3" WMR_LIVE_HOME="$T/live3"; mkdir -p "$T/live3"
+mk "$T/c1" 1.1.13; mk "$T/c2" 1.1.14
+printf 'a = 1\nb = 2\nc = 3\n' > "$T/c1/klipper/klippy/extras/a.py"; printf 'a = 1\nb = 2\nc = 3\n' > "$T/c2/klipper/klippy/extras/a.py"
+printf 'one\ntwo\n' > "$T/c1/printer_data/config/c.cfg"; printf 'one\ntwo\n' > "$T/c2/printer_data/config/c.cfg"
+printf '[mcu]\nx: 1\n' > "$T/c1/printer_data/config/d.cfg"; printf '[mcu]\nx: 1\ny: 2\n' > "$T/c2/printer_data/config/d.cfg"
+R init-baseline --from-dir "$T/c1" >/dev/null; R fetch --from-dir "$T/c2" >/dev/null
+cp -a "$T/c1/klipper" "$T/c1/printer_data" "$T/live3/"
+printf 'a = 1\r\nb = 2\r\nc = 3\r\n' > "$T/live3/klipper/klippy/extras/a.py"; printf 'one  \ntwo' > "$T/live3/printer_data/config/c.cfg"; printf '[mcu]\r\nx: 1\r\n' > "$T/live3/printer_data/config/d.cfg"
+R diff 1.1.14 > "$T/w1"
+check "CRLF / trailing-space copies are WHITESPACE, not a change of yours" bash -c "sed -n '/^== WHITESPACE/,/^==/p' $T/w1 | grep -q 'klippy/extras/a.py' && sed -n '/^== WHITESPACE/,/^==/p' $T/w1 | grep -q 'c.cfg'"
+check "a WonderMaker change on top of a CRLF copy is TAKE, not a conflict" bash -c "sed -n '/^== TAKE/,/^==/p' $T/w1 | grep -q 'd.cfg' && ! grep -q '^== CONFLICT' $T/w1"
+WMR_TEST_TYPED=APPLY R apply 1.1.14 --apply >/dev/null
+check "...and it is applied" grep -q "y: 2" "$T/live3/printer_data/config/d.cfg"
+check "dup-macro list skips printer-<date>.cfg backups" bash -c "! grep -q 'printer-2026' $T/w1"
+
 echo; echo "passed: $pass  failed: $fail"; [ "$fail" = 0 ]

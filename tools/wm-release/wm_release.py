@@ -256,11 +256,23 @@ def cmd_promote(a):
 
 
 # ---------------------------------------------------------------- compare
+def norm(path):
+    """text with LF line endings, no trailing spaces, one final newline: so only real changes count"""
+    t = read(path).decode("utf-8", "replace").replace("\r\n", "\n").replace("\r", "\n")
+    return "\n".join(x.rstrip() for x in t.split("\n")).rstrip("\n") + "\n"
+
+
+def same_text(a, b):
+    """identical, or identical apart from line endings / trailing spaces (text files only)"""
+    if sha(a) == sha(b): return True
+    return is_text(a) and is_text(b) and norm(a) == norm(b)
+
+
 def merge3(live, base, new):
-    """git merge-file: returns (clean, text)"""
+    """git merge-file on normalised copies: returns (clean, text)"""
     if not shutil.which("git"): return False, None
     with tempfile.TemporaryDirectory() as t:
-        for n, src in (("live", live), ("base", base), ("new", new)): shutil.copy(src, p(t, n))
+        for n, src in (("live", live), ("base", base), ("new", new)): open(p(t, n), "w").write(norm(src))
         r = subprocess.run(["git", "merge-file", "-p", p(t, "live"), p(t, "base"), p(t, "new")], capture_output=True)
         return r.returncode == 0, r.stdout
 
@@ -272,10 +284,12 @@ def classify(rel, B, N, L):
         return ("PROTECTED", None) if (n and (not b or sha(n) != sha(b))) else ("UNCHANGED", None)
     if n is None:
         return ("REMOVED", None) if b else ("UNCHANGED", None)
-    if b and sha(b) == sha(n): return ("KEEP_MINE", None) if (l and sha(l) != sha(b)) else ("UNCHANGED", None)
+    if b and sha(b) == sha(n):
+        if not l or sha(l) == sha(b): return ("UNCHANGED", None)
+        return ("WHITESPACE", None) if same_text(l, b) else ("KEEP_MINE", None)
     if l is None: return ("ADD", None)
-    if b and sha(l) == sha(b): return ("TAKE", None)
-    if sha(l) == sha(n): return ("UNCHANGED", None)
+    if b and same_text(l, b): return ("TAKE", None)
+    if same_text(l, n): return ("UNCHANGED", None)
     if b and is_text(l) and is_text(n) and is_text(b):
         ok, text = merge3(l, b, n)
         if ok: return ("MERGE", text)
@@ -306,11 +320,14 @@ def plan_for(ver):
     return bv, B, N, L, plan
 
 
+BACKUP_CFG = re.compile(r"^printer-\d{8}_\d{6}\.cfg$|\.bak$|\.bkp$")
+
+
 def macros_of(files):
     """macro name -> {file: body} for every [gcode_macro X] in the given config files"""
     out = {}
     for f, path in files.items():
-        if not f.endswith(".cfg"): continue
+        if not f.endswith(".cfg") or BACKUP_CFG.search(f): continue
         cur = None
         for line in read(path).decode("utf-8", "replace").splitlines():
             m = re.match(r"^\[gcode_macro\s+([^\]]+)\]", line)
@@ -378,9 +395,10 @@ def cmd_diff(a):
             ("MERGE", "both changed it, in different places: merges cleanly"),
             ("CONFLICT", "both changed the same place (or a binary): decide by hand"),
             ("KEEP_MINE", "only you changed it: stays as it is"),
+            ("WHITESPACE", "your file differs from WonderMaker's only in line endings or trailing spaces: harmless, stays"),
             ("PROTECTED", "WonderMaker changed it, but it holds your includes or data: never applied, look yourself"),
             ("REMOVED", "removed in the release: nothing is deleted on your Pi")]
-    lines.append("Summary: " + ", ".join("%s %d" % (k, len(groups.get(k, []))) for k, _ in expl) + ", UNCHANGED %d" % len(groups.get("UNCHANGED", [])))
+    lines.append("Summary: " + ", ".join("%s %d" % (k, len(groups.get(k, []))) for k, _ in expl if k != "WHITESPACE") + ", WHITESPACE %d, UNCHANGED %d" % (len(groups.get("WHITESPACE", [])), len(groups.get("UNCHANGED", []))))
     for k, text in expl:
         if groups.get(k):
             lines += ["", "== %s (%d): %s" % (k, len(groups[k]), text)] + ["  " + x for x in groups[k]]
@@ -511,7 +529,8 @@ def installed_mcu():
         q = "&".join(urllib.request.quote(n) for n in names)
         with urllib.request.urlopen(MOONRAKER + "/printer/objects/query?" + q, timeout=4) as r:
             st = json.load(r)["result"]["status"]
-        return {n: st[n].get("mcu_version", "?") for n in names}
+        v = {n: st[n].get("mcu_version") for n in names if st.get(n, {}).get("mcu_version")}
+        return v or None
     except Exception:
         return None
 
@@ -543,7 +562,7 @@ def cmd_mcu(a):
         if md == "BAD": say("      md5 differs from mcu_info.ini: do NOT flash this file.")
         if st != "same" and md == "ok": flash.append(part)
     if live: say("\nInstalled now (from Klipper):"); [say("  %-12s %s" % (k, v)) for k, v in sorted(live.items())]
-    else: say("\nInstalled now: Klipper/Moonraker did not answer (no version comparison).")
+    else: say("\nInstalled now: not readable (Klipper is not ready or Moonraker did not answer), so no comparison with the running boards.")
     if not flash: say("\nNothing new to flash compared with the baseline."); return
     say("\nNew firmware for: " + ", ".join(flash))
     can = os.path.isdir("/sys/class/net/can0")
