@@ -4,7 +4,8 @@
 Not part of any installer (folder tools/wm-release of the repo).
 Everything is read-only unless you run `apply --apply` (and type APPLY) or `rollback`.
 
-  (no command) / menu          a numbered menu that runs the steps below
+  (no command) / menu          a numbered menu that runs the steps below; option 1 does all the steps
+  all                          every needed step, in order (log in to the board, baseline or fetch, diff, MCU check, plan, apply)
   status                       what is recorded: baseline, fetched releases, log
   init-baseline --from-board  record the board as it is NOW (the version before the new one); also --from-dir DIR or --src DIR (repo factory copy)
   promote VERSION              make a fetched release the baseline for the next one
@@ -19,13 +20,12 @@ Everything is read-only unless you run `apply --apply` (and type APPLY) or `roll
   log                          history of what was done
 Data folder: $WMR_HOME (default ~/wm-private-data).  Live files: $WMR_LIVE_HOME (default ~).
 """
-import argparse, hashlib, io, json, os, re, shutil, subprocess, sys, tarfile, tempfile, time, urllib.request, zipfile
+import argparse, atexit, getpass, hashlib, io, json, os, re, shutil, subprocess, sys, tarfile, tempfile, time, urllib.request, zipfile
 
 HOME = os.path.expanduser("~")
 DATA = os.environ.get("WMR_HOME", os.path.join(HOME, "wm-private-data"))
 LIVE = os.environ.get("WMR_LIVE_HOME", HOME)
 MOONRAKER = os.environ.get("WMR_MOONRAKER", "http://127.0.0.1:7125")
-BOARD_USER = os.environ.get("WMR_BOARD_USER", "t13dp")
 BOARD_KEY = os.environ.get("WMR_BOARD_KEY", "")
 # live-relative roots that belong to the WonderMaker release, and the folder names in this repo's factory/ultra-s
 ROOTS = ["klipper", "moonraker", "printer_data/config", "mcu_update", "TM_T1/scripts"]
@@ -116,10 +116,57 @@ def board_version(text):
     return v[-1] if v else None
 
 
+BOARD = {"host": None, "user": None, "dir": None, "sock": None}   # one SSH connection to the board, reused by every step
+
+
+def board_close():
+    if BOARD["sock"]:
+        subprocess.run(["ssh", "-S", BOARD["sock"], "-O", "exit", "x"], capture_output=True, stdin=subprocess.DEVNULL)
+    if BOARD["dir"]: shutil.rmtree(BOARD["dir"], ignore_errors=True)
+    BOARD.update(host=None, user=None, dir=None, sock=None)
+
+
+def _master(sock, user, host, env=None, batch=True):
+    cmd = ["ssh", "-fN", "-M", "-S", sock, "-o", "ConnectTimeout=8", "-o", "StrictHostKeyChecking=accept-new",
+           "-o", "BatchMode=yes" if batch else "BatchMode=no"]
+    if batch and BOARD_KEY: cmd += ["-i", BOARD_KEY]
+    if not batch: cmd += ["-o", "NumberOfPasswordPrompts=1", "-o", "PubkeyAuthentication=no", "-o", "PreferredAuthentications=password,keyboard-interactive"]
+    return subprocess.run(cmd + ["%s@%s" % (user, host)], capture_output=True, text=True, stdin=subprocess.DEVNULL, env=env)
+
+
+def board_open(host):
+    """Connect once. First without a password (a key or an ssh agent); if that fails, ask for the board's user and password.
+    The password is typed hidden, lives only in this process, is handed to ssh through a one-shot helper (never on a command line), and is never saved."""
+    if BOARD["host"] == host and BOARD["sock"]: return
+    board_close()
+    d = tempfile.mkdtemp(prefix="wmr-"); sock = p(d, "cm"); atexit.register(board_close)
+    user = os.environ.get("WMR_BOARD_USER") or conf_get("board_user") or "t13dp"
+    r = _master(sock, user, host)
+    tries = 0
+    while r.returncode != 0 and tries < 3:
+        if tries == 0:
+            say("  The board %s wants a login." % host)
+            if not os.environ.get("WMR_BOARD_USER"): user = ask("Board user name", user)
+        pw = getpass.getpass("  Password for %s@%s (typed hidden, not saved): " % (user, host))
+        helper = p(d, "askpass.sh")
+        with open(helper, "w") as f: f.write('#!/bin/sh\nprintf "%s\\n" "$WMR_ASKPASS_PW"\n')
+        os.chmod(helper, 0o700)
+        env = dict(os.environ, SSH_ASKPASS=helper, SSH_ASKPASS_REQUIRE="force", WMR_ASKPASS_PW=pw)
+        env.setdefault("DISPLAY", "wmr-none")
+        r = _master(sock, user, host, env=env, batch=False)
+        os.remove(helper); del pw, env
+        tries += 1
+        if r.returncode != 0: say("  Login failed (%s)." % (r.stderr.strip().splitlines()[-1] if r.stderr.strip() else "wrong user or password"))
+    if r.returncode != 0:
+        shutil.rmtree(d, ignore_errors=True)
+        die("could not log in to the board %s." % host, "check the address, user name and password; the board must allow SSH password login")
+    BOARD.update(host=host, user=user, dir=d, sock=sock)
+    if conf_get("board_user") != user: conf_set("board_user", user)
+
+
 def ssh_base(host):
-    cmd = ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8", "-o", "StrictHostKeyChecking=accept-new"]
-    if BOARD_KEY: cmd += ["-i", BOARD_KEY]
-    return cmd + ["%s@%s" % (BOARD_USER, host)]
+    board_open(host)
+    return ["ssh", "-S", BOARD["sock"], "-o", "BatchMode=yes", "%s@%s" % (BOARD["user"], host)]
 
 
 def conf_get(k, d=""):
@@ -133,9 +180,12 @@ def conf_set(k, v):
     c[k] = v; ensure(DATA); json.dump(c, open(p(DATA, "config.json"), "w"))
 
 
-def board_host(h):
+def board_host(h, may_ask=False):
     h = h or os.environ.get("WMR_BOARD_HOST", "") or conf_get("board_host")
-    if not h: die("which board?", "give its address: --from-board 192.168.x.x  (or set WMR_BOARD_HOST)")
+    if not h and may_ask:
+        h = ask("Board address (the WonderMaker screen board's IP)")
+        if h: conf_set("board_host", h)
+    if not h: die("which board?", "give its address: --from-board 192.168.x.x  (or set WMR_BOARD_HOST, or press s in the menu)")
     return h
 
 
@@ -191,16 +241,16 @@ def snapshot(dst, host=None, src_dir=None, version=None):
             if os.path.isfile(f): shutil.copy2(f, ensure(p(dst, "_meta")) + "/" + e + ".txt")
     else:
         r = subprocess.run(ssh_base(host) + ["cat ~/iso_version.txt"], capture_output=True, text=True)
-        if r.returncode: die("cannot read the board %s: %s" % (host, r.stderr.strip()), "check the address and the SSH key (WMR_BOARD_KEY=/path/key)")
+        if r.returncode: die("cannot read the board %s: %s" % (host, r.stderr.strip()), "check the address and that the board is on")
         ver = version or board_version(r.stdout)
         if not ver: die("the board has no System version in iso_version.txt.", "add --version 1.1.14")
         dst = p(os.path.dirname(dst), ver); ensure(dst)
         open(p(dst, "iso_version.txt"), "w").write(r.stdout)
         ex = sum((["--exclude", x] for x in list(SKIP_DIRS) + ["*.pyc", "*.log"] + list(SKIP_GLOBS)), [])
-        e = " ".join(ssh_base(host)[:-1])
+        e = " ".join(ssh_base(host)[:-1])   # reuses the one logged-in connection
         for rel in ROOTS:
             ensure(p(dst, rel))
-            r = subprocess.run(["rsync", "-a", "-e", e] + ex + ["%s@%s:~/%s/" % (BOARD_USER, host, rel), p(dst, rel) + "/"], capture_output=True, text=True)
+            r = subprocess.run(["rsync", "-a", "-e", e] + ex + ["%s@%s:~/%s/" % (BOARD["user"], host, rel), p(dst, rel) + "/"], capture_output=True, text=True)
             if r.returncode: say("  warning: could not read ~/%s on the board (%s)" % (rel, r.stderr.strip().splitlines()[-1] if r.stderr.strip() else r.returncode))
             n += len(listing(p(dst, rel)))
         man = remote_manifest(host)
@@ -215,7 +265,7 @@ def cmd_init_baseline(a):
     """record the files of the version BEFORE the one you will update to: from the board (best), a folder, or this repo's factory copy"""
     if a.from_board is not None or a.from_dir:
         bdir = p(DATA, "baseline", "_x")
-        ver, dst, n, nm = snapshot(bdir, host=board_host(a.from_board) if a.from_dir is None else None, src_dir=a.from_dir, version=a.version)
+        ver, dst, n, nm = snapshot(bdir, host=board_host(a.from_board, may_ask=True) if a.from_dir is None else None, src_dir=a.from_dir, version=a.version)
         log("init-baseline", ver, files=n, checksums=nm, source=a.from_dir or "board")
         say("Baseline %s recorded from %s: %d files copied, %d other files by checksum, in %s" % (ver, a.from_dir or "the board", n, nm, dst))
         say("Do this BEFORE the board is updated, so the baseline is the version before the new one.")
@@ -239,7 +289,7 @@ def cmd_init_baseline(a):
 def cmd_fetch(a):
     if not a.from_dir and a.host is None and a.board is None: die("say where from.", "fetch --from-board  or  fetch --from-dir DIR")
     rdir = p(DATA, "releases", "_x")
-    ver, dst, n, nm = snapshot(rdir, host=board_host(a.host) if not a.from_dir else None, src_dir=a.from_dir, version=a.version)
+    ver, dst, n, nm = snapshot(rdir, host=board_host(a.host, may_ask=sys.stdin.isatty()) if not a.from_dir else None, src_dir=a.from_dir, version=a.version)
     log("fetch", ver, files=n, checksums=nm)
     say("Release %s copied to %s (%d files, plus %d other files by checksum). Nothing was changed on the board or here." % (ver, dst, n, nm))
     bv, _ = baseline_dir(ver)
@@ -630,6 +680,59 @@ def cmd_notes(a):
     say(open(f).read()); say("File: " + f)
 
 
+def board_system_version(host):
+    r = subprocess.run(ssh_base(host) + ["cat ~/iso_version.txt"], capture_output=True, text=True, stdin=subprocess.DEVNULL)
+    return board_version(r.stdout) if r.returncode == 0 else None
+
+
+def step(n, total, text): say("\n[%d/%d] %s" % (n, total, text))
+
+
+def cmd_all(a):
+    """every needed step, in order, by looking at where you are: nothing is changed on the board; your files change only after you type APPLY"""
+    host = board_host(None, may_ask=True)
+    step(1, 6, "Logging in to the board %s" % host)
+    ssh_base(host)                                   # asks for user name and password if a login is needed
+    say("  Logged in. The board is only read, never changed.")
+    step(2, 6, "Which WonderMaker System version does the board run?")
+    bv = board_system_version(host)
+    if not bv: die("the board's iso_version.txt has no System version.", "use the single steps and give --version")
+    bl = versions("baseline"); newest = bl[-1] if bl else None
+    say("  Board runs System %s.  Baselines saved: %s" % (bv, ", ".join(bl) if bl else "none"))
+    if newest is None:
+        step(3, 6, "Saving the board as it is now (%s) as the baseline" % bv)
+        say("  Do this only while the board still has the OLD version. Then update the board with WonderMaker's own updater.")
+        if ask("Save it? (y/n)", "y").lower().startswith("y"):
+            cmd_init_baseline(argparse.Namespace(from_board=host, from_dir=None, src=None, version=None, force=False))
+        say("\nNext: update the board with WonderMaker's updater, then choose this option again.")
+        return
+    if bv in bl and vkey(bv) == vkey(newest):
+        say("\nThe board still runs %s, the same as your newest baseline. There is nothing new to bring over." % bv)
+        say("Update the board with WonderMaker's updater first, then choose this option again.")
+        return
+    if vkey(bv) < vkey(newest):
+        say("\nThe board (%s) is OLDER than your baseline %s. Nothing to do." % (bv, newest)); return
+    step(3, 6, "Fetching System %s from the board (read only)" % bv)
+    if bv in versions("releases"): say("  Already fetched; using it.")
+    else: cmd_fetch(argparse.Namespace(board=host, host=host, from_dir=None, version=None))
+    step(4, 6, "Comparing %s with %s and with your live files" % (bv, newest))
+    cmd_diff(argparse.Namespace(version=bv))
+    mcu = p(DATA, "releases", bv, "mcu_update")
+    if os.path.isfile(p(mcu, "mcu_info.ini")):
+        step(5, 6, "MCU firmware check (never flashes)")
+        cmd_mcu(argparse.Namespace(source=mcu))
+    else: step(5, 6, "MCU firmware: no mcu_info.ini in this release, skipped")
+    step(6, 6, "What would be applied")
+    cmd_apply(argparse.Namespace(version=bv, apply=False, force=False))
+    if ask("Apply it now? Type yes to go on (a backup is made first)", "no").lower() == "yes":
+        cmd_apply(argparse.Namespace(version=bv, apply=True, force=False))
+        cmd_checklist(argparse.Namespace(version=bv))
+        if ask("When it works for you, keep %s as the next baseline? (y/n)" % bv, "n").lower().startswith("y"):
+            cmd_promote(argparse.Namespace(version=bv))
+        else: say("  Later: menu 9, or: python3 wm_release.py promote %s" % bv)
+    else: say("  Nothing applied. Run this option again, or menu 6, when you are ready.")
+
+
 def versions(kind):
     d = p(DATA, kind)
     return sorted((x for x in os.listdir(d) if os.path.isdir(p(d, x)) and re.match(r"^\d+(\.\d+)+$", x)), key=vkey) if os.path.isdir(d) else []
@@ -656,9 +759,9 @@ def menu_status():
         except (ValueError, IndexError): pass
     host = os.environ.get("WMR_BOARD_HOST", "") or conf_get("board_host")
     say("\nWonderMaker release tool")
-    say("  Baseline (version before):  " + (", ".join(bl) if bl else "none yet -> do step 1 BEFORE you update the board"))
-    say("  Fetched new version:        " + (", ".join(rs) if rs else "none yet -> do step 2 after the update"))
-    say("  Board address:              " + (host or "not set (press s)"))
+    say("  Baseline (version before):  " + (", ".join(bl) if bl else "none yet -> choose 1 now, BEFORE you update the board"))
+    say("  Fetched new version:        " + (", ".join(rs) if rs else "none yet -> choose 1 again after you updated the board"))
+    say("  Board address:              " + (host or "not set (choose 1 or s)"))
     say("  Last action:                " + (last or "none"))
 
 
@@ -666,46 +769,51 @@ def cmd_menu(a):
     while True:
         menu_status()
         say("""
-   1) Save the baseline from the board        (before you update the board)
-   2) Fetch the new version from the board    (after you updated it)
-   3) Show the differences                    (read only, saves a report)
-   4) Check MCU firmware                      (never flashes)
-   5) Apply the new version                   (plan first; backup; you type APPLY)
-   6) Test list and my notes
-   7) Roll back the last apply
-   8) Keep this version as the next baseline  (after it works)
-   9) History
-   s) Set the board address
+   1) ALL STEPS  - does what is needed next, in order (asks the board's user name and password)
+   ---- or one step at a time ----
+   2) Save the baseline from the board        (before you update the board)
+   3) Fetch the new version from the board    (after you updated it)
+   4) Show the differences                    (read only, saves a report)
+   5) Check MCU firmware                      (never flashes)
+   6) Apply the new version                   (plan first; backup; you type APPLY)
+   7) Test list and my notes
+   8) Roll back the last apply
+   9) Keep this version as the next baseline  (after it works)
+   h) History
+   s) Board address and user name
    0) Exit""")
         c = ask("Choose")
         try:
             if c == "0": return
+            elif c == "1": cmd_all(argparse.Namespace())
             elif c == "s":
-                h = ask("Board address (the screen board's IP)")
-                if h: conf_set("board_host", h); say("  Saved.")
-            elif c == "1":
+                h = ask("Board address (the screen board's IP)", conf_get("board_host"))
+                if h: conf_set("board_host", h)
+                u = ask("Board user name", conf_get("board_user") or "t13dp")
+                if u: conf_set("board_user", u); say("  Saved. The password is never saved: it is asked each time you log in.")
+            elif c == "2":
                 say("  Reads the board's files as they are NOW. Do this only while the board still has the old version.")
                 if ask("Continue? (y/n)", "y").lower().startswith("y"): cmd_init_baseline(argparse.Namespace(from_board="", from_dir=None, src=None, version=None, force=False))
-            elif c == "2":
+            elif c == "3":
                 cmd_fetch(argparse.Namespace(board="", host=None, from_dir=None, version=None))
-            elif c in ("3", "5", "6", "8"):
+            elif c in ("4", "6", "7", "9"):
                 v = pick_release()
                 if not v: continue
-                if c == "3": cmd_diff(argparse.Namespace(version=v))
-                elif c == "5":
+                if c == "4": cmd_diff(argparse.Namespace(version=v))
+                elif c == "6":
                     cmd_apply(argparse.Namespace(version=v, apply=False, force=False))
                     if ask("Apply it now? Type yes to go on", "no").lower() == "yes": cmd_apply(argparse.Namespace(version=v, apply=True, force=False))
-                elif c == "6":
+                elif c == "7":
                     cmd_checklist(argparse.Namespace(version=v))
                     n = ask("A note to save (Enter to skip)")
                     if n: cmd_notes(argparse.Namespace(version=v, add=n))
-                elif c == "8": cmd_promote(argparse.Namespace(version=v))
-            elif c == "4":
+                elif c == "9": cmd_promote(argparse.Namespace(version=v))
+            elif c == "5":
                 rs = versions("releases"); dflt = p(DATA, "releases", rs[-1], "mcu_update") if rs else ""
                 src = ask("Folder or zip with mcu_info.ini", dflt)
                 if src: cmd_mcu(argparse.Namespace(source=os.path.expanduser(src)))
-            elif c == "7": cmd_rollback(argparse.Namespace(backup=None, force=False))
-            elif c == "9": cmd_log(argparse.Namespace())
+            elif c == "8": cmd_rollback(argparse.Namespace(backup=None, force=False))
+            elif c == "h": cmd_log(argparse.Namespace())
             else: say("  Choose a number from the list.")
         except SystemExit as e:
             if e.code not in (0, None): say("  (stopped; nothing else was done)")
@@ -721,6 +829,7 @@ def main():
         return s
     add("status", cmd_status)
     add("menu", cmd_menu)
+    add("all", cmd_all)
     add("init-baseline", cmd_init_baseline, (["--src"], {}), (["--version"], {}), (["--force"], {"action": "store_true"}),
         (["--from-board"], {"nargs": "?", "const": ""}), (["--from-dir"], {}))
     add("promote", cmd_promote, (["version"], {}))

@@ -132,13 +132,13 @@ check "no baseline older than the release -> clear message" bash -c "python3 $PY
 printf 's\nboardx\n\n0\n' | python3 "$PY" > "$T/m1" 2>&1
 check "menu opens with no command and shows the status" bash -c "grep -q 'Baseline (version before):  1.1.13, 1.1.14' $T/m1 && grep -q 'Fetched new version:        1.1.14, 1.1.15' $T/m1"
 check "menu remembers the board address" bash -c "grep -q boardx $WMR_HOME/config.json && printf '0\n' | python3 $PY | grep -q 'Board address:              boardx'"
-printf '3\n1.1.14\n\n0\n' | python3 "$PY" > "$T/m2" 2>&1
+printf '4\n1.1.14\n\n0\n' | python3 "$PY" > "$T/m2" 2>&1
 check "menu: show the differences for a chosen release" grep -q "Python files changed or new" "$T/m2"
-printf '5\n1.1.14\nno\n\n0\n' | python3 "$PY" > "$T/m3" 2>&1
+printf '6\n1.1.14\nno\n\n0\n' | python3 "$PY" > "$T/m3" 2>&1
 check "menu: apply shows the plan and does not apply unless you type yes" bash -c "grep -q 'Plan for release 1.1.14' $T/m3 && grep -q 'Dry run' $T/m3"
-printf '2\n\n0\n' | WMR_HOME="$T/empty" python3 "$PY" > "$T/m4" 2>&1
+printf '3\n\n0\n' | WMR_HOME="$T/empty" python3 "$PY" > "$T/m4" 2>&1
 check "menu: a step that cannot run explains and returns to the menu (no address)" bash -c "grep -q 'which board' -i $T/m4 && grep -q 'Choose' $T/m4"
-printf '3\n\n0\n' | WMR_HOME="$T/empty" python3 "$PY" > "$T/m5" 2>&1
+printf '4\n\n0\n' | WMR_HOME="$T/empty" python3 "$PY" > "$T/m5" 2>&1
 check "menu: differences before any fetch says what to do first" grep -q "use step 2 first" "$T/m5"
 printf '' | python3 "$PY" > "$T/m6" 2>&1; check "menu: closing the input ends it cleanly" test $? -eq 0
 # ---- line endings: a CRLF copy of an unchanged file is harmless; a real WonderMaker change still merges
@@ -156,5 +156,55 @@ check "a WonderMaker change on top of a CRLF copy is TAKE, not a conflict" bash 
 WMR_TEST_TYPED=APPLY R apply 1.1.14 --apply >/dev/null
 check "...and it is applied" grep -q "y: 2" "$T/live3/printer_data/config/d.cfg"
 check "dup-macro list skips printer-<date>.cfg backups" bash -c "! grep -q 'printer-2026' $T/w1"
+
+# ---- option 1 (all steps) and the board login (fake ssh and rsync; the password must never be on a command line or saved)
+mkdir -p "$T/bin" "$T/tmp"
+cat > "$T/bin/ssh" <<'FS'
+#!/bin/bash
+echo "ssh $*" >> "$FAKE_LOG"
+a="$*"
+[[ "$a" == *"-O exit"* ]] && { echo "closed" >> "$FAKE_LOG"; exit 0; }
+if [[ "$a" == *" -M "* ]]; then
+  if [[ "$a" == *"BatchMode=yes"* ]]; then [ "${FAKE_PASSWORDLESS:-0}" = 1 ] && exit 0; echo "Permission denied" >&2; exit 255; fi
+  pw=$("$SSH_ASKPASS"); echo "askpass-env:${WMR_ASKPASS_PW:+set} force:${SSH_ASKPASS_REQUIRE:-}" >> "$FAKE_LOG"
+  [ "$pw" = "$FAKE_PW" ] && exit 0; echo "Permission denied (password)" >&2; exit 255
+fi
+cmd="${@: -1}"
+case "$cmd" in
+  *iso_version*) cat "$FAKE_BOARD/iso_version.txt" ;;
+  *"pip freeze"*) f="$FAKE_BOARD/_meta/klippy-env.txt"; [[ "$cmd" == *moonraker-env* ]] && f="$FAKE_BOARD/_meta/moonraker-env.txt"; cat "$f" 2>/dev/null ;;
+esac
+exit 0
+FS
+cat > "$T/bin/rsync" <<'FS'
+#!/bin/bash
+src="${@: -2:1}"; dst="${@: -1}"; rel="${src#*:~/}"; rel="${rel%/}"
+[ -d "$FAKE_BOARD/$rel" ] && cp -a "$FAKE_BOARD/$rel/." "$dst"; exit 0
+FS
+chmod +x "$T/bin/ssh" "$T/bin/rsync"
+export FAKE_LOG="$T/fake.log" FAKE_PW=secret123 TMPDIR="$T/tmp"
+export WMR_HOME="$T/data4" WMR_LIVE_HOME="$T/live4"; mkdir -p "$T/live4"; cp -a "$T/b1/klipper" "$T/b1/moonraker" "$T/b1/printer_data" "$T/b1/mcu_update" "$T/b1/TM_T1" "$T/live4/" 2>/dev/null
+run() { PATH="$T/bin:$PATH" setsid -w python3 "$PY" "$@"; }   # setsid: no terminal, so the hidden password prompt reads the piped line
+# A: nothing saved yet, the board needs a password (first one wrong)
+: > "$FAKE_LOG"
+printf '1\n10.9.9.9\npi_user\nwrong-one\nsecret123\ny\n\n0\n' | FAKE_BOARD="$T/b1" run > "$T/a1" 2>&1
+check "option 1: asks the board address, user name and password, and saves the baseline" bash -c "grep -q 'wants a login' $T/a1 && grep -q 'Login failed' $T/a1 && grep -q 'Baseline 1.1.13 recorded' $T/a1 && test -d $WMR_HOME/baseline/1.1.13"
+check "the password never appears on a command line or in the saved files" bash -c "! grep -q 'secret123\|wrong-one' $T/fake.log && ! grep -rq 'secret123\|wrong-one' $WMR_HOME"
+check "the password goes to ssh only through the one-shot helper (SSH_ASKPASS, env), and the helper is removed" bash -c "grep -q 'askpass-env:set force:force' $T/fake.log && ! ls $T/tmp/wmr-*/askpass.sh 2>/dev/null"
+check "the user name is remembered, the connection is closed and its temp folder removed" bash -c "grep -q pi_user $WMR_HOME/config.json && grep -q '^closed' $T/fake.log && [ -z \"\$(ls $T/tmp)\" ]"
+check "one login serves every step (only one master connection was opened)" bash -c "[ \$(grep -c ' -M ' $T/fake.log) -ge 1 ] && [ \$(grep -c 'BatchMode=no' $T/fake.log) -eq 2 ]"
+# B: board still on 1.1.13 = same as the baseline
+printf '1\n\n0\n' | FAKE_PASSWORDLESS=1 FAKE_BOARD="$T/b1" run > "$T/a2" 2>&1
+check "option 1: same version as the baseline -> nothing new, no password asked" bash -c "grep -q 'nothing new to bring over' $T/a2 && ! grep -q 'wants a login' $T/a2"
+# C: the board was updated to 1.1.14: fetch, diff, MCU, plan, then answer no
+printf '1\nno\n\n0\n' | FAKE_PASSWORDLESS=1 FAKE_BOARD="$T/b2" run > "$T/a3" 2>&1
+check "option 1: new version -> fetch, compare, MCU check, plan" bash -c "grep -q '\[3/6\] Fetching System 1.1.14' $T/a3 && grep -q 'Python files changed or new' $T/a3 && grep -q 'MCU firmware' $T/a3 && grep -q 'Plan for release 1.1.14' $T/a3 && test -d $WMR_HOME/releases/1.1.14"
+check "...and answering no applies nothing" bash -c "grep -q 'Nothing applied' $T/a3 && ! test -f $T/live4/klipper/klippy/extras/newmod.py"
+# D: answer yes
+printf '1\nyes\nn\n\n0\n' | WMR_TEST_TYPED=APPLY FAKE_PASSWORDLESS=1 FAKE_BOARD="$T/b2" run > "$T/a4" 2>&1
+check "option 1: yes -> backup, apply, test list, and the baseline is kept until you say so" bash -c "test -f $T/live4/klipper/klippy/extras/newmod.py && ls $WMR_HOME/backups/1.1.14-*.tgz && grep -q 'Test list after WonderMaker 1.1.14' $T/a4 && ! test -d $WMR_HOME/baseline/1.1.14"
+printf 'all\n' >/dev/null
+printf '' | FAKE_PASSWORDLESS=1 FAKE_BOARD="$T/b1" run all > "$T/a5" 2>&1
+check "the command line has it too: wm_release.py all" grep -q "Board runs System" "$T/a5"
 
 echo; echo "passed: $pass  failed: $fail"; [ "$fail" = 0 ]

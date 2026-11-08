@@ -39,29 +39,47 @@ Nothing is ever changed unless you run `apply --apply` and type `APPLY` (or `rol
 ```
 python3 wm_release.py
 ```
-With no command it opens a numbered menu. The top shows where you are (baseline saved, new version fetched, board address, last action) and the next step is the first one that is still empty.
+With no command it opens a numbered menu. The top shows where you are (baselines saved, new version fetched, board address, last action).
+
+**Option 1 does all the steps for you.** It looks at where you are and does what is needed next:
+
+| Where you are | What option 1 does |
+|---|---|
+| No baseline saved yet | Logs in to the board, saves its files as the baseline (the version before the update), and tells you to update the board next. |
+| The board still has the baseline version | Says there is nothing new yet. |
+| The board has a newer System version | Fetches it, compares it with the baseline and your live files, checks the MCU firmware, shows the plan, then asks if you want to apply it (backup first, you type `yes` and then `APPLY`), prints the test list, and asks if this version becomes the next baseline. |
+
+The same thing from the command line: `python3 wm_release.py all`.
 
 | Key | Does | Same as |
 |---|---|---|
-| 1 | Save the baseline from the board (do it before the update) | `init-baseline --from-board` |
-| 2 | Fetch the new version from the board | `fetch --from-board` |
-| 3 | Show the differences | `diff` |
-| 4 | Check MCU firmware | `mcu` |
-| 5 | Apply: shows the plan, then asks again; you type `yes`, then `APPLY` | `apply` / `apply --apply` |
-| 6 | Test list and a note | `checklist`, `notes` |
-| 7 | Roll back the last apply | `rollback` |
-| 8 | Keep this version as the next baseline | `promote` |
-| 9 | History | `log` |
-| s | Set the board address (remembered in `config.json` in the data folder) | |
+| 1 | All steps (above) | `all` |
+| 2 | Save the baseline from the board (before the update) | `init-baseline --from-board` |
+| 3 | Fetch the new version from the board | `fetch --from-board` |
+| 4 | Show the differences | `diff` |
+| 5 | Check MCU firmware | `mcu` |
+| 6 | Apply: shows the plan, then asks again; you type `yes`, then `APPLY` | `apply` / `apply --apply` |
+| 7 | Test list and a note | `checklist`, `notes` |
+| 8 | Roll back the last apply | `rollback` |
+| 9 | Keep this version as the next baseline | `promote` |
+| h | History | `log` |
+| s | Board address and user name (remembered in `config.json` in the data folder) | |
 
-The commands below still work on their own.
+### Logging in to the board (user name and password)
+- The tool logs in **once** per run and reuses that connection for every step, so you type the password once.
+- It first tries without a password (an SSH key or agent). If the board refuses, it asks for the **user name** (default `t13dp`, remembered) and the **password**.
+- The password is typed hidden, kept only in memory, given to `ssh` through a one-shot helper (`SSH_ASKPASS`), **never put on a command line and never saved**. Only the address and the user name are saved.
+- You get 3 tries. Needs OpenSSH 8.4 or newer on the Pi (Raspberry Pi OS Bookworm has 9.2). The board must allow SSH password login.
+- Prefer a key? `export WMR_BOARD_KEY=/path/to/key` and no password is asked.
+
+The single commands below still work on their own.
 
 ## How to use (step by step)
 
 Run everything from the folder that holds `wm_release.py`.
 
-### One-time: let the Pi log in to the board without a password
-The tool reads the board over SSH in batch mode. Either run `ssh-copy-id t13dp@ADDRESS` from the Pi, or use a key the board already accepts and tell the tool: `export WMR_BOARD_KEY=/path/to/key`. You give the board's address each time (`--from-board ADDRESS`) or set it once with `export WMR_BOARD_HOST=ADDRESS`. The user is `t13dp` (change with `WMR_BOARD_USER`).
+### Logging in
+Every step that reads the board asks for its user name and password if it needs to (see "Logging in to the board" above). Nothing to set up first.
 
 ### Step 1 - save the baseline (BEFORE the update)
 ```
@@ -169,9 +187,9 @@ python3 wm_release.py promote 1.1.14      # when you are happy: it becomes the n
 | `WMR_LIVE_HOME` | `~` | the folder holding your live files |
 | `WMR_MOONRAKER` | `http://127.0.0.1:7125` | used to see if a print runs and which MCU versions are installed |
 | `WMR_BOARD_HOST` | (none) | address of the screen board, used when `--from-board` has no address |
-| `WMR_BOARD_USER` | `t13dp` | user on the screen board |
+| `WMR_BOARD_USER` | `t13dp` | user on the screen board (asked and remembered when not set) |
 | `WMR_BOARD_KEY` | (none) | SSH key for the board |
 
 ## Tests
 
-`bash tools/wm-release/test.sh` runs 57 checks on throwaway folders (it never touches your real files).
+`bash tools/wm-release/test.sh` runs 67 checks on throwaway folders (it never touches your real files).
