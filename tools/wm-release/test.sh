@@ -3,6 +3,8 @@
 set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"; REPO="$(cd "$HERE/../.." && pwd)"; PY="$HERE/wm_release.py"
 T="$(mktemp -d)"; trap 'rm -rf "$T"; [ -n "${SRV:-}" ] && kill $SRV 2>/dev/null' EXIT
+mkdir -p "$T/wiki"; printf '<a href="/tm_t1_soc(1.1.08).zip">V1.1.08</a><a href="/tm_t1_soc(1.1.13).zip">V1.1.13</a><a href="/tm_t1_soc(1.1.12).zip">x</a><a href="/1.0.71.zip">old</a>' > "$T/wiki/page.html"
+export WMR_WIKI_URL="file://$T/wiki/page.html"
 export WMR_HOME="$T/data" WMR_LIVE_HOME="$T/live" WMR_MOONRAKER="http://127.0.0.1:1"
 pass=0; fail=0
 check() { local d="$1"; shift; if "$@" >/dev/null 2>&1; then pass=$((pass+1)); echo "  ok   $d"; else fail=$((fail+1)); echo "  FAIL $d"; fi; }
@@ -37,6 +39,18 @@ for c in "TAKE (" "ADD (" "MERGE (" "CONFLICT (" "PROTECTED (" "REMOVED ("; do c
 check "diff: macros.cfg merges cleanly" bash -c "sed -n '/^== MERGE/,/^==/p' $T/o3 | grep -q 'macros.cfg'"
 check "diff: moonraker.conf is a conflict" bash -c "sed -n '/^== CONFLICT/,/^==/p' $T/o3 | grep -q 'moonraker.conf'"
 check "diff: printer.cfg is protected" bash -c "sed -n '/^== PROTECTED/,/^==/p' $T/o3 | grep -q 'printer.cfg'"
+R check > "$T/ck1"
+check "check: finds the newest published version (1.1.13, not by text order)" grep -q "Newest published:      1.1.13" "$T/ck1"
+check "check: up to date against the saved baseline" grep -q "up to date" "$T/ck1"
+printf '<a href="/tm_t1_soc(1.1.15).zip">V1.1.15</a><a href="/tm_t1_soc(1.1.9).zip">x</a>' > "$T/wiki/page.html"
+R check > "$T/ck2"
+check "check: reports a NEW version when the page lists a newer one" grep -q "NEW: WonderMaker published 1.1.15" "$T/ck2"
+check "menu banner shows the new version" bash -c "printf '0\n' | python3 $PY menu 2>&1 | grep -q 'WonderMaker page:.*NEW'"
+check "menu has the check item" bash -c "printf 'c\n0\n' | python3 $PY menu 2>&1 | grep -q 'Newest published:      1.1.15'"
+WMR_WIKI_URL="file://$T/wiki/missing.html" R check > "$T/ck3"; 
+check "check: unreadable page gives a clear message" grep -q "could not read" "$T/ck3"
+check "menu still works when the page cannot be read" bash -c "printf '0\n' | WMR_WIKI_URL=file://$T/wiki/missing.html python3 $PY menu 2>&1 | grep -q 'could not be read'"
+printf '<a href="/tm_t1_soc(1.1.13).zip">V1.1.13</a>' > "$T/wiki/page.html"
 check "diff: tells to restart for compiled modules" grep -q "Compiled modules" "$T/o3"
 check "diff: report file saved" bash -c "ls $WMR_HOME/reports/1.1.14-*.txt"
 # apply: dry run changes nothing

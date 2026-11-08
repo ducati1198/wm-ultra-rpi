@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.23.12
+
+- Release tool 1.1.0 (`tools/wm-release/`): it can now read WonderMaker's firmware download page and tell you when a newer System version than yours is published (new menu item `c` and command `check`; a line in the menu header; a note at the start of option 1). It only reads the page: nothing is downloaded or changed, and if the page cannot be read the tool carries on.
+
 ## 1.23.11
 
 - Release tool 1.0.1 (`tools/wm-release/`): option 1 (all steps) now always asks for the board address first. The saved address is shown; press Enter to keep it or type another.

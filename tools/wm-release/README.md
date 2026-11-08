@@ -1,4 +1,4 @@
-# wm_release.py - WonderMaker release tool (version 1.0.1)
+# wm_release.py - WonderMaker release tool (version 1.1.0)
 
 For bringing a new WonderMaker System release (for example 1.1.14) to your Pi **without losing your own changes**.
 It is not part of any installer and no installer runs it. It lives in the `tools/wm-release/` folder of the repo, so `git pull` brings it to the Pi (the repo is public, so this folder is public too).
@@ -216,9 +216,14 @@ python3 tools/wm-release/wm_release.py --version
 `python3 wm_release.py --version` prints the tool's version; the menu title and `status` show it too, and every line in the history (`log`) records the version that wrote it. It is the tool's own number and has nothing to do with the installer's `VERSION` file, so changing the tool's version alone does not publish a GitHub release (the installer's `VERSION` does).
 
 Version history:
+- **1.1.0** - checks WonderMaker's firmware page for a newer System version: menu item `c`, command `check`, a line in the menu header and a note at the start of option 1. Read only; works offline too (it just says the page could not be read).
 - **1.0.1** - option 1 / `all` always asks for the board address first (the saved one is shown; press Enter to keep it).
 - **1.0.0** - option 1 / `all` does every needed step; asks the board's user name and password (hidden, one login, never saved); line-ending and trailing-space differences are not conflicts; board-wide checksums, pip freeze, baseline chosen as the version before the release, `promote`; numbered menu.
 
 ## Tests
 
-`bash tools/wm-release/test.sh` runs 70 checks on throwaway folders (it never touches your real files).
+`bash tools/wm-release/test.sh` runs 77 checks on throwaway folders (it never touches your real files).
+
+## Checking for a new WonderMaker version
+
+`python3 wm_release.py check` (or menu item `c`) reads WonderMaker's firmware download page and finds the highest `tm_t1_soc(x.y.z).zip` listed. It compares that with your newest baseline or fetched release and says "up to date" or "NEW: WonderMaker published x.y.z". The menu header shows the same line, and option 1 prints it before logging in. Nothing is downloaded. If the page cannot be read, or WonderMaker changes its layout, the tool says so and carries on. The page address can be changed with `WMR_WIKI_URL`.

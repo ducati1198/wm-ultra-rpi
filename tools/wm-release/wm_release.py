@@ -6,6 +6,7 @@ Everything is read-only unless you run `apply --apply` (and type APPLY) or `roll
 
   (no command) / menu          a numbered menu that runs the steps below; option 1 does all the steps
   all                          every needed step, in order (log in to the board, baseline or fetch, diff, MCU check, plan, apply)
+  check                        ask WonderMaker's firmware page for the newest published version (downloads nothing)
   status                       what is recorded: baseline, fetched releases, log
   init-baseline --from-board  record the board as it is NOW (the version before the new one); also --from-dir DIR or --src DIR (repo factory copy)
   promote VERSION              make a fetched release the baseline for the next one
@@ -22,12 +23,14 @@ Version: see --version.  Data folder: $WMR_HOME (default ~/wm-private-data).  Li
 """
 import argparse, atexit, getpass, hashlib, io, json, os, re, shutil, subprocess, sys, tarfile, tempfile, time, urllib.request, zipfile
 
-TOOL_VERSION = "1.0.1"   # this tool's own version (not the installer's VERSION file); see README "Version history"
+TOOL_VERSION = "1.1.0"   # this tool's own version (not the installer's VERSION file); see README "Version history"
 HOME = os.path.expanduser("~")
 DATA = os.environ.get("WMR_HOME", os.path.join(HOME, "wm-private-data"))
 LIVE = os.environ.get("WMR_LIVE_HOME", HOME)
 MOONRAKER = os.environ.get("WMR_MOONRAKER", "http://127.0.0.1:7125")
 BOARD_KEY = os.environ.get("WMR_BOARD_KEY", "")
+# WonderMaker's firmware page; the newest tm_t1_soc(x.y.z).zip link on it is the newest published System version
+WIKI_URL = os.environ.get("WMR_WIKI_URL", "https://wiki.wondermaker3d.com/en/ZR-Ultra-S/Standard-Operating-Procedures/Fireware-Download")
 # live-relative roots that belong to the WonderMaker release, and the folder names in this repo's factory/ultra-s
 ROOTS = ["klipper", "moonraker", "printer_data/config", "mcu_update", "TM_T1/scripts"]
 REPO_MAP = {"klipper": "klipper", "moonraker": "moonraker", "printer_data/config": "config", "mcu_update": "mcu", "TM_T1/scripts": "scripts"}
@@ -689,12 +692,55 @@ def board_system_version(host):
 def step(n, total, text): say("\n[%d/%d] %s" % (n, total, text))
 
 
+_WIKI = {}
+def wiki_latest(timeout=6):
+    """(newest published System version, all versions listed) from WonderMaker's page; (None, []) if the page cannot be read"""
+    if "r" in _WIKI: return _WIKI["r"]
+    r = (None, [])
+    try:
+        req = urllib.request.Request(WIKI_URL, headers={"User-Agent": "wm_release/" + TOOL_VERSION})
+        with urllib.request.urlopen(req, timeout=timeout) as f: html = f.read().decode("utf-8", "replace")
+        vs = sorted(set(re.findall(r"tm_t1_soc\(?(\d+(?:\.\d+)+)\)?\.zip", html, re.I)), key=vkey)
+        if vs: r = (vs[-1], vs)
+    except Exception: pass
+    _WIKI["r"] = r
+    return r
+
+
+def known_versions():
+    return sorted(set(versions("baseline") + versions("releases")), key=vkey)
+
+
+def wiki_line(board_ver=None):
+    """one line saying whether WonderMaker has published something newer than what you have; None when the page cannot be read"""
+    lat, _ = wiki_latest()
+    if not lat: return None
+    have = board_ver or (known_versions() or [None])[-1]
+    if not have: return "WonderMaker's newest published version is %s." % lat
+    if vkey(lat) > vkey(have): return "NEW: WonderMaker published %s (you have %s). Update the board with their updater, then run option 1." % (lat, have)
+    return "WonderMaker's newest published version is %s - you have %s, up to date." % (lat, have)
+
+
+def cmd_check(a):
+    """ask WonderMaker's firmware page for the newest published System version and compare (nothing is downloaded or changed)"""
+    lat, vs = wiki_latest(10)
+    if not lat: die("could not read " + WIKI_URL, "check the internet connection; the page layout may also have changed")
+    say("WonderMaker published: " + ", ".join(vs))
+    say("Newest published:      " + lat)
+    kv = known_versions()
+    say("Your baselines/fetched releases: " + (", ".join(kv) if kv else "none"))
+    say(wiki_line())
+
+
 def cmd_all(a):
     """every needed step, in order, by looking at where you are: nothing is changed on the board; your files change only after you type APPLY"""
     saved = os.environ.get("WMR_BOARD_HOST", "") or conf_get("board_host")
     host = ask("Board address (the WonderMaker screen board's IP; Enter keeps the one shown)", saved)
     if not host: die("which board?", "type the screen board's IP address")
     if host != conf_get("board_host"): conf_set("board_host", host)
+    wl = wiki_line()
+    if wl: say("\n  " + wl)
+    else: say("\n  (WonderMaker's firmware page could not be read; skipping the new-version check.)")
     step(1, 6, "Logging in to the board %s" % host)
     ssh_base(host)                                   # asks for user name and password if a login is needed
     say("  Logged in. The board is only read, never changed.")
@@ -702,6 +748,8 @@ def cmd_all(a):
     bv = board_system_version(host)
     if not bv: die("the board's iso_version.txt has no System version.", "use the single steps and give --version")
     bl = versions("baseline"); newest = bl[-1] if bl else None
+    lat, _ = wiki_latest()
+    if lat and vkey(lat) > vkey(bv): say("  Note: WonderMaker has published %s; the board is behind." % lat)
     say("  Board runs System %s.  Baselines saved: %s" % (bv, ", ".join(bl) if bl else "none"))
     if newest is None:
         step(3, 6, "Saving the board as it is now (%s) as the baseline" % bv)
@@ -767,6 +815,8 @@ def menu_status():
     say("  Fetched new version:        " + (", ".join(rs) if rs else "none yet -> choose 1 again after you updated the board"))
     say("  Board address:              " + (host or "not set (choose 1 or s)"))
     say("  Last action:                " + (last or "none"))
+    wl = wiki_line()
+    say("  WonderMaker page:           " + (wl or "could not be read (offline?)"))
 
 
 def cmd_menu(a):
@@ -783,6 +833,7 @@ def cmd_menu(a):
    7) Test list and my notes
    8) Roll back the last apply
    9) Keep this version as the next baseline  (after it works)
+   c) Check for a new WonderMaker version    (reads their firmware page)
    h) History
    s) Board address and user name
    0) Exit""")
@@ -790,6 +841,7 @@ def cmd_menu(a):
         try:
             if c == "0": return
             elif c == "1": cmd_all(argparse.Namespace())
+            elif c == "c": cmd_check(argparse.Namespace())
             elif c == "s":
                 h = ask("Board address (the screen board's IP)", conf_get("board_host"))
                 if h: conf_set("board_host", h)
@@ -834,6 +886,7 @@ def main():
         return s
     add("status", cmd_status)
     add("menu", cmd_menu)
+    add("check", cmd_check)
     add("all", cmd_all)
     add("init-baseline", cmd_init_baseline, (["--src"], {}), (["--version"], {}), (["--force"], {"action": "store_true"}),
         (["--from-board"], {"nargs": "?", "const": ""}), (["--from-dir"], {}))
