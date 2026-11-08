@@ -50,7 +50,7 @@ Run these in `~/wm-ultra-rpi` on the Pi.
 | **Fix everything** at once | `./installer.sh --doctor --fix-all` | Asks once, then applies every safe fix |
 | Do any of this from a **menu** | `./installer.sh` (opens the menu, also on an empty Pi) or `./installer.sh --menu` | Same as the options below; nothing changes until you pick something and confirm |
 | See what is new first | `./installer.sh --check-updates` | Nothing is changed |
-| **Update** to the latest version | `git pull && ./installer.sh --update` | Kept: `printer_data`, calibration, settings |
+| **Update** to the latest version | `./installer.sh --get-latest && ./installer.sh --update` (works with or without git) | Kept: `printer_data`, calibration, settings |
 | **Repair** a broken service, nginx or can0 rule | `./installer.sh --repair` | Kept |
 | **Back up** my settings | `./installer.sh --backup` | Saved to `~/wm-backups/` as a private `.tgz`. Copy it off the Pi. |
 | **Restore** a backup | `./installer.sh --restore FILE` | A safety copy is made first |
@@ -173,9 +173,11 @@ chmod +x installer.sh
 >
 > ```bash
 > cd ~/wm-ultra-rpi
-> git pull
-> ./installer.sh
+> ./installer.sh --get-latest
+> ./installer.sh --update
 > ```
+>
+> `--get-latest` works whether the folder is a git clone or was downloaded without git (a plain `git pull` stops with "not a git repository" on a downloaded folder). Or run `./installer.sh` and choose **2 Update > 2 Update now**.
 
 ### The installer menu
 
