@@ -516,6 +516,7 @@ WM_HOME="$G2" WM_INSTALLER_TEST=1 bash "$ROOT/installer.sh" --support-bundle >/d
 SB="$(ls $G2/wm-support-*.tgz | head -1)"
 check "support bundle made" "[ -f $SB ]"
 check "support bundle has no password or private IP" "! tar xzOf $SB | grep -Eq 'hunter2|192\\.168\\.7\\.44'"
+check "support bundle report has the USB tree and serial port sections" "tar xzOf $SB | grep -q \"usb tree\" && tar xzOf $SB | grep -q \"serial ports Klipper's python sees\""
 check "support bundle has no calibration database or gcodes" "! tar tzf $SB | grep -Eq 'database|gcodes|\\.gcode'"
 
 echo "== pre-flight"

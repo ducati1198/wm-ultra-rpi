@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.23.16
+
+- Support bundle: the system report now also has `lsusb -t`, the serial ports in `/dev` (`ttyACM*`, `ttyUSB*`), the list of serial ports Klipper's Python sees, and the last USB/serial kernel messages. This helps when a USB device (the CAN bridge, or an ACE Pro) shows in `lsusb` but does not work.
+
 ## 1.23.15
 
 - `~/iso_version.txt` (the System version, `System_1.1.13`) is now installed in the home folder by `installer.sh` for both models, and kept if one already exists (a copy goes to the backup folder). Release tool 1.4.0 reads it to know which version the machine has, adds a line to it after `apply` (rollback restores it), and shows it in `status` and the menu. 514 installer tests, 109 tool tests.

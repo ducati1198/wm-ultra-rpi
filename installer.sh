@@ -1839,7 +1839,13 @@ do_support_bundle() {
         echo "python3: $(python3 --version 2>&1)"; [ -x "$HOME_DIR/klippy-env/bin/python" ] && echo "klippy-env: $("$HOME_DIR/klippy-env/bin/python" --version 2>&1)"
         echo "power flags: $(power_flags)"; df -h "$HOME_DIR" | tail -1; free -m | sed -n 2p
         echo "--- services"; local s; for s in klipper moonraker nginx crowsnest; do printf '%-10s active=%s enabled=%s\n' $s "$(service_state $s)" "$(service_enabled $s)"; done
-        echo "--- usb"; lsusb 2>/dev/null; echo "--- can0"; ip -details link show can0 2>&1 | head -8
+        echo "--- usb"; lsusb 2>/dev/null
+        echo "--- usb tree (hubs and what hangs on them)"; lsusb -t 2>/dev/null
+        echo "--- serial ports in /dev (an ACE Pro should show as ttyACM*)"; ls -l /dev/ttyACM* /dev/ttyUSB* /dev/serial/by-id/* 2>&1 | head -20
+        echo "--- serial ports Klipper's python sees (name, description, hwid)"
+        if [ -x "$HOME_DIR/klippy-env/bin/python" ]; then "$HOME_DIR/klippy-env/bin/python" -m serial.tools.list_ports -v 2>&1 | head -40; else echo "klippy-env not found"; fi
+        echo "--- kernel messages about USB and serial (last 40)"; dmesg 2>&1 | grep -iE "usb|tty|cdc_acm|ch341|cp210|ftdi" | tail -40
+        echo "--- can0"; ip -details link show can0 2>&1 | head -8
         echo "--- missing modules: $(modules_present | tr '\n' ' ')"
         echo "--- config check"; validate_config 2>&1 | sed 's/\x1b\[[0-9;]*m//g'
         echo "--- canbus uuids in config"; cfg_uuids | sed "s#$HOME_DIR#~#"
