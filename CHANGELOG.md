@@ -2,7 +2,7 @@
 
 ## 1.23.15
 
-- `~/iso_version.txt` (the System version, `System_1.1.13`) is now installed in the home folder by `installer.sh` for both models, and kept if one already exists (a copy goes to the backup folder). Release tool 1.4.0 reads it to know which version the machine has, rewrites it after `apply` (rollback restores it), and shows it in `status` and the menu. 516 installer tests, 108 tool tests.
+- `~/iso_version.txt` (the System version, `System_1.1.13`) is now installed in the home folder by `installer.sh` for both models, and kept if one already exists (a copy goes to the backup folder). Release tool 1.4.0 reads it to know which version the machine has, adds a line to it after `apply` (rollback restores it), and shows it in `status` and the menu. 514 installer tests, 109 tool tests.
 
 ## 1.23.14
 

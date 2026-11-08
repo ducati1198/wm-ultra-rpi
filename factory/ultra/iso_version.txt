@@ -1,1 +1,2 @@
-System_1.1.13
+KLP_IMG_WM_ZRU_V1.0.26_20251127_Release
+2026-10-16 03:15:03: Add System_1.1.13

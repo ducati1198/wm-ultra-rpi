@@ -142,7 +142,13 @@ def live_version():
 
 
 def write_live_version(ver):
-    with open(p(LIVE, "iso_version.txt"), "w") as f: f.write("System_%s\n" % ver)
+    """record a System version the way the factory image does: keep the file's header and history, add one line
+    '<date time>: Add System_x.y.z' (the newest System_ line is the version in use)"""
+    path = p(LIVE, "iso_version.txt")
+    try: old = open(path).read()
+    except OSError: old = ""
+    if old and not old.endswith("\n"): old += "\n"
+    with open(path, "w") as f: f.write(old + "%s: Add System_%s\n" % (time.strftime("%Y-%m-%d %H:%M:%S"), ver))
 
 
 BOARD = {"host": None, "user": None, "dir": None, "sock": None}   # one SSH connection to the board, reused by every step

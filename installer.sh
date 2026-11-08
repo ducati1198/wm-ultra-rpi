@@ -378,9 +378,9 @@ step_unpack() {
     # It comes from factory/<model>/iso_version.txt. wm_release.py reads it to know your version and rewrites it after an update.
     if [ "$DRY" != 1 ]; then
         if [ -s "$HOME_DIR/iso_version.txt" ]; then
-            record "FILE $HOME_DIR/iso_version.txt"; print_info "System version: $(head -n1 "$HOME_DIR/iso_version.txt")  (~/iso_version.txt)"
+            record "FILE $HOME_DIR/iso_version.txt"; print_info "System version: $(grep -o 'System_[0-9.]*' "$HOME_DIR/iso_version.txt" | tail -n1)  (~/iso_version.txt)"
         else
-            warn_later "No ~/iso_version.txt (the System version) came with these files. tools/wm-release/wm_release.py will use its own recorded baseline instead; or create it: echo System_1.1.13 > ~/iso_version.txt (use your real version)."
+            warn_later "No ~/iso_version.txt (the System version) came with these files. tools/wm-release/wm_release.py will use its own recorded baseline instead; or create it: echo "$(date '+%Y-%m-%d %H:%M:%S'): Add System_1.1.13" > ~/iso_version.txt (use your real version)."
         fi
     fi
     print_success "Unpacked"
