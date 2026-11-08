@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.23.6
+
+- Screen board, Update now: waiting for Klipper on the Pi is now limited to 60 seconds and prints a line every 15 seconds ("still waiting: Klipper on the Pi is 'startup' (30 s)"). Before, it could wait up to 3 minutes without a word, which looked like a hang.
+- Pressing Ctrl-C during an update (board, Pi installer) now removes the 51 MB download from /tmp.
+- The error message in the board script about a missing installer file named an option that does not exist (`--get-latest`); it now says `--update`.
+- Pi installer: waiting for Klipper to be ready prints a progress line every 14 seconds.
+
 ## 1.23.5
 
 - The live bar no longer uses a pinned bottom line (it came out garbled in some phone terminal apps). While a slow step runs, the same bar is now printed again on its own line every 15 seconds with the time so far, like `[███░░░]  32%  Step 5 of 14  | 2m25s`. It works in every terminal.

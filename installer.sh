@@ -1171,6 +1171,7 @@ wait_klipper_ready() {   # sets WAIT_ST; waits up to 60 s, stops early when Klip
     for i in $(seq 1 30); do
         WAIT_ST="$(klippy_state)"
         [ "$WAIT_ST" = ready ] && return 0
+        [ $(( i % 7 )) -eq 0 ] && [ "$TESTING" != 1 ] && echo -e "  ${DIM}... still waiting: Klipper is '${WAIT_ST:-not answering}' ($(( i * 2 )) s of 60)${NC}"
         case "$WAIT_ST" in error|shutdown) bad=$((bad+1)); [ "$bad" -ge 2 ] && return 1 ;; *) bad=0 ;; esac
         sleep 2
     done
@@ -1648,7 +1649,7 @@ disk_free_mb() { [ "$TESTING" = 1 ] && { echo "${WM_TEST_DISK_MB:-4000}"; return
 do_get_latest() {   # download the newest version of this installer folder; git pull in a clone, the GitHub tarball otherwise (no git needed)
     print_header "Get the newest installer"
     local new w=""
-    _rmw() { [ -n "${WM_TEST_UPDATE_DIR:-}" ] || { [ -n "$w" ] && rm -rf "$w"; }; return 0; }   # the downloaded copy (about 50 MB) never stays in /tmp
+    _rmw() { [ -n "${WM_TEST_UPDATE_DIR:-}" ] || { [ -n "$w" ] && rm -rf "$w"; }; trap - INT TERM; return 0; }   # the downloaded copy (about 50 MB) never stays in /tmp
     if [ -d "$REPO_DIR/.git" ] && command -v git >/dev/null 2>&1; then
         local g=(git -C "$REPO_DIR")
         [ -n "${WM_TEST_NO_FETCH:-}" ] || timeout 60 "${g[@]}" fetch --quiet 2>/dev/null || die_with_fix "could not reach GitHub." "connect the Pi to the internet and try again."
@@ -1662,7 +1663,7 @@ do_get_latest() {   # download the newest version of this installer folder; git 
     fi
     if [ -n "${WM_TEST_UPDATE_DIR:-}" ]; then w="$WM_TEST_UPDATE_DIR"
     else
-        w="$(mktemp -d)"; print_info "Downloading the newest version from GitHub ..."
+        w="$(mktemp -d)"; trap '_rmw; exit 130' INT TERM; print_info "Downloading the newest version from GitHub ..."
         curl -fsSL -m 180 https://codeload.github.com/ducati1198/wm-ultra-rpi/tar.gz/refs/heads/main | tar -xz --strip-components=1 -C "$w" || { _rmw; die_with_fix "could not download the update." "connect the Pi to the internet and try again."; }
     fi
     new="$(head -1 "$w/VERSION" 2>/dev/null)"; [ -n "$new" ] && [ -f "$w/installer.sh" ] || { _rmw; die_with_fix "the download is not a complete installer." "try again later."; }

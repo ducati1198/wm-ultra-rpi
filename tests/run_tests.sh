@@ -974,4 +974,7 @@ check "Pi installer: the bar is repeated with the time so far, on its own line, 
 check "screen board: the bar is repeated with the time so far, on its own line, while a step runs (no cursor tricks)" "live_check $ROOT/scripts/screen_board.sh"
 check "bars: Check, Doctor, support bundle and backup all end at 100 percent" "M '' $LG --check | grep -q '100%  Check finished' && M '' $LG --doctor | grep -q '100%  Doctor finished' && M '' $LG --support-bundle | grep -q '100%  Done' && M '' $LG --backup | grep -q '100%  Done'"
 check "pip is told not to check for a newer pip (no warning on slow links)" "grep -q '^export PIP_DISABLE_PIP_VERSION_CHECK=1' $ROOT/installer.sh && grep -q '^export PIP_DISABLE_PIP_VERSION_CHECK=1' $ROOT/scripts/screen_board.sh"
+check "board update: waits at most 60 s for Klipper on the Pi, says it is still waiting, and cleans /tmp on Ctrl-C" "grep -q 'still waiting: Klipper on the Pi' $ROOT/scripts/screen_board.sh && grep -q 'rm -rf \"\${LATEST_TMP:-}\"; exit 130' $ROOT/scripts/screen_board.sh && ! grep -q 'for i in \$(seq 1 30); do' <(sed -n '/^restart_pi_klipper/,/^}/p' $ROOT/scripts/screen_board.sh)"
+check "board lib error message names an option that exists" "! grep -q 'screen_board.sh --get-latest' $ROOT/scripts/screen_board.sh"
+check "Pi installer: Klipper wait prints progress; the download in /tmp is removed on Ctrl-C" "grep -q 'still waiting: Klipper is' $ROOT/installer.sh && grep -q \"trap '_rmw; exit 130' INT TERM\" $ROOT/installer.sh"
 echo; echo "passed: $PASS  failed: $FAIL"; [ "$FAIL" = 0 ]

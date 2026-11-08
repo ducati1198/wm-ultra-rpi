@@ -299,7 +299,7 @@ FREE_NEED_MB=1500
 FS_LOGS_DIR="$CFG_DIR/../logs"
 # shared with installer.sh
 # shellcheck source=scripts/lib_free_space.sh
-. "$SCRIPT_DIR/lib_free_space.sh" || { echo "scripts/lib_free_space.sh is missing; run: bash scripts/screen_board.sh --get-latest"; exit 1; }
+. "$SCRIPT_DIR/lib_free_space.sh" || { echo "scripts/lib_free_space.sh is missing; run: bash scripts/screen_board.sh --update"; exit 1; }
 
 preflight() {
     print_header "Checking this board"
@@ -747,8 +747,12 @@ restart_pi_klipper() {   # after an install or update: restart Klipper on the Pi
     r="$(curl -fsS -m 6 "$u/printer/objects/query?print_stats" 2>/dev/null)" || { print_info "The Pi ($h) does not answer, so Klipper there was not restarted. Restart it from Fluidd when the Pi is on."; return 0; }
     if echo "$r" | grep -q '"state": *"\(printing\|paused\)"'; then print_warning "The Pi is printing, so Klipper there was not restarted."; return 0; fi
     curl -fsS -m 15 -X POST "$u/machine/services/restart?service=klipper" >/dev/null 2>&1 || { print_warning "The Pi refused the restart. Its moonraker.conf must trust this board's address (trusted_clients). Restart Klipper from Fluidd."; return 0; }
-    for i in $(seq 1 30); do
+    local t0 el last=0; t0="$(date +%s)"
+    print_info "Waiting for Klipper on the Pi to start (up to 60 seconds) ..."
+    while :; do
+        el=$(( $(date +%s) - t0 )); [ "$el" -lt 60 ] || break
         sleep 2; st="$(curl -fsS -m 4 "$u/printer/info" 2>/dev/null | sed -n 's/.*"state": *"\([a-z]*\)".*/\1/p' | head -1)"
+        [ $(( el / 15 )) -gt "$last" ] && { last=$(( el / 15 )); echo -e "  ${DIM}... still waiting: Klipper on the Pi is '${st:-not answering}' (${el} s)${NC}"; }
         [ "$st" = ready ] && { print_success "Klipper on the Pi restarted and is ready."; return 0; }
         [ "$st" = error ] || [ "$st" = shutdown ] && { print_warning "Klipper on the Pi restarted but reports '$st'. Look at the message in Fluidd."; return 0; }
     done
@@ -804,7 +808,7 @@ do_restore_board() {
 }
 fetch_latest() {   # sets LATEST_DIR to a folder with the newest version from GitHub (no git needed)
     if [ "$TESTING" = 1 ]; then LATEST_DIR="${WM_TEST_UPDATE_DIR:-}"; [ -d "$LATEST_DIR" ]; return; fi
-    LATEST_DIR="$(mktemp -d)"; LATEST_TMP="$LATEST_DIR"; print_info "Downloading the newest version from GitHub ..."
+    LATEST_DIR="$(mktemp -d)"; LATEST_TMP="$LATEST_DIR"; trap 'rm -rf "${LATEST_TMP:-}"; exit 130' INT TERM; print_info "Downloading the newest version from GitHub ..."
     curl -fsSL -m 120 https://codeload.github.com/ducati1198/wm-ultra-rpi/tar.gz/refs/heads/main | tar -xz --strip-components=1 -C "$LATEST_DIR" || return 1
 }
 do_whatsnew_board() {   # reads only two small text files (VERSION and CHANGELOG.md); nothing is downloaded or saved
@@ -832,7 +836,7 @@ refresh_installer_folder() {   # the folder this script runs from must be the ne
     [ -f "$REPO_DIR/scripts/screen_board.sh" ] && cp -a "$w"/. "$REPO_DIR"/ 2>/dev/null
     return 0
 }
-do_update_board() { do_update_board_core; local rc=$?; rm -rf "${LATEST_TMP:-}"; return $rc; }   # the downloaded copy (about 50 MB) never stays in /tmp
+do_update_board() { do_update_board_core; local rc=$?; rm -rf "${LATEST_TMP:-}"; trap - INT TERM; return $rc; }   # the downloaded copy (about 50 MB) never stays in /tmp
 do_update_board_core() {
     print_header "Update the ZR Tools screen files"
     local new old w; old="$(cat "$REPO_DIR/VERSION" 2>/dev/null)"
