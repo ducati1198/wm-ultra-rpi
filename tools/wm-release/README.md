@@ -3,6 +3,8 @@
 For bringing a new WonderMaker System release (for example 1.1.14) to your Pi **without losing your own changes**.
 It is not part of any installer and no installer runs it. It lives in the `tools/wm-release/` folder of the repo, so `git pull` brings it to the Pi (the repo is public, so this folder is public too).
 
+> **Permitted use.** This tool exists only to let a Raspberry Pi interoperate with, and maintain, WonderMaker printers that you own. Its ability to open WonderMaker's encrypted `TM_T1_SOC` files may only be used for that purpose: do not use it, or the information it produces, for anything else, and do not redistribute WonderMaker's firmware or decrypted files.
+
 ## Where the files are
 
 | What | Where |
