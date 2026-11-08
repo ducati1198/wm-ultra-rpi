@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.23.10
+
+- New folder `tools/wm-release/`: a separate tool (not used by the installer) that brings a new WonderMaker System release to the Pi: it saves the board's files as a baseline, compares the new version with the baseline and your live files, checks MCU firmware (never flashes), applies the safe changes after a backup, and can roll back. Option 1 does all the steps. Run it with `python3 tools/wm-release/wm_release.py`; see its README. Before this release `--get-latest` said "already up to date" because only the tool had changed.
+- The "destination path already exists" note in the README now uses `./installer.sh --get-latest`, which also works on a folder that was downloaded without git.
+
 ## 1.23.9
 
 - Screen board, Update now: the backup it saves first is named `screen-backup-<date>-before-update.tgz`, and only the newest 5 of those are kept in `~/wm-screen-backups`. Backups you make yourself are never deleted.

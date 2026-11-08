@@ -201,12 +201,18 @@ python3 tools/wm-release/wm_release.py --version
 ```
 
 - The first command downloads the newest files from GitHub. It replaces the tool's files (`wm_release.py`, this README, the tests) along with the rest of the installer folder, and changes nothing else on the printer. It does **not** apply the printer update.
+- **Important:** `--get-latest` decides by the installer's version number. If it says "Already up to date" but you know the tool changed, the installer version was not raised yet. Then download just the tool's files:
+
+  ```
+  cd ~/wm-ultra-rpi/tools/wm-release
+  for f in wm_release.py README.md test.sh; do curl -fsSL -o $f https://raw.githubusercontent.com/ducati1198/wm-ultra-rpi/main/tools/wm-release/$f; done
+  ```
 - The last command prints the tool's version (`wm_release.py 1.0.0` or newer). Check the "Version history" below to see what changed.
 - Your saved data is safe: baselines, fetched releases, reports, backups, the board address and user name, and notes live in `~/wm-private-data`, outside the installer folder, so updating the tool does not touch them.
 
 ## Version
 
-`python3 wm_release.py --version` prints the tool's version; the menu title and `status` show it too, and every line in the history (`log`) records the version that wrote it. It is the tool's own number and has nothing to do with the installer's `VERSION` file, so changing it does not publish a GitHub release.
+`python3 wm_release.py --version` prints the tool's version; the menu title and `status` show it too, and every line in the history (`log`) records the version that wrote it. It is the tool's own number and has nothing to do with the installer's `VERSION` file, so changing the tool's version alone does not publish a GitHub release (the installer's `VERSION` does).
 
 Version history:
 - **1.0.0** - option 1 / `all` does every needed step; asks the board's user name and password (hidden, one login, never saved); line-ending and trailing-space differences are not conflicts; board-wide checksums, pip freeze, baseline chosen as the version before the release, `promote`; numbered menu.
