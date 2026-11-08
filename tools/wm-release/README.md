@@ -1,4 +1,4 @@
-# wm_release.py - WonderMaker release tool (version 1.1.0)
+# wm_release.py - WonderMaker release tool (version 1.2.0)
 
 For bringing a new WonderMaker System release (for example 1.1.14) to your Pi **without losing your own changes**.
 It is not part of any installer and no installer runs it. It lives in the `tools/wm-release/` folder of the repo, so `git pull` brings it to the Pi (the repo is public, so this folder is public too).
@@ -26,13 +26,13 @@ Inside `~/wm-private-data/`:
 ## The idea in one minute
 
 1. **Before** you update the board, save its current files as the **baseline** (the version before).
-2. Update the board with WonderMaker's own updater (the encrypted `TM_T1_SOC` file cannot be opened by this tool).
+2. Get the new version. Either update the factory board with WonderMaker's own updater and then **fetch** from it, **or** — new — point the tool straight at the encrypted **`TM_T1_SOC`** file on the Pi with `--from-soc` (menu option **f**); it decrypts it locally, so no factory board is needed.
 3. **Fetch** the new files from the board (read-only).
 4. **Diff**: it shows what WonderMaker changed, what you changed, and what clashes.
 5. **Apply** (only the printer's own files), after a backup. **Rollback** if you do not like it.
 6. **Promote** the new version, so it becomes the baseline for the next release.
 
-Nothing is ever changed unless you run `apply --apply` and type `APPLY` (or `rollback` and type `ROLLBACK`). It never flashes MCU firmware.
+Nothing is ever changed unless you run `apply --apply` and type `APPLY` (or `rollback` and type `ROLLBACK`). MCU firmware is only flashed by the separate, guarded `flash --run` (menu `m`), after you type `FLASH`; option 1 never flashes.
 
 ## The menu (easiest way)
 
@@ -54,17 +54,84 @@ The same thing from the command line: `python3 wm_release.py all`.
 
 | Key | Does | Same as |
 |---|---|---|
-| 1 | All steps (above) | `all` |
+| 1 | All steps (above). **Asks first: the old screen board, or WonderMaker's website** | `all` (`--source board\|web`) |
 | 2 | Save the baseline from the board (before the update) | `init-baseline --from-board` |
 | 3 | Fetch the new version from the board | `fetch --from-board` |
+| f | Open a `TM_T1_SOC` file on the Pi (decrypt it here; no board needed) | `fetch --from-soc FILE` |
+| w | Download the newest from WonderMaker's website, then decrypt it here | `fetch --from-web` |
+| a | Saved firmware: list the kept SOC zips; reinstall or downgrade one offline | `firmware`, `fetch --from-archive VER` |
+| v | Compare two versions: what WonderMaker changed between them (read only) | `compare OLD NEW` |
 | 4 | Show the differences | `diff` |
 | 5 | Check MCU firmware | `mcu` |
 | 6 | Apply: shows the plan, then asks again; you type `yes`, then `APPLY` | `apply` / `apply --apply` |
 | 7 | Test list and a note | `checklist`, `notes` |
 | 8 | Roll back the last apply | `rollback` |
+| m | Flash MCU firmware (guarded: dry run first, then you type `FLASH`) | `flash [main\|thr\|ext\|hub\|cell] --run` |
 | 9 | Keep this version as the next baseline | `promote` |
+| g | Settings: decrypt key, firmware page URL, board address | `settings` |
 | h | History | `log` |
 | s | Board address and user name (remembered in `config.json` in the data folder) | |
+
+### Opening a `TM_T1_SOC` file on the Pi (no factory board)
+
+A `TM_T1_SOC` file is WonderMaker's encrypted System package. It is a Debian
+package wrapped in two layers: a repeating-key XOR, then OpenSSL AES-256-CBC
+(`Salted__` + salt, key derived with `EVP_BytesToKey`/SHA-256). The tool now
+decrypts it **on the Pi** and feeds it into the same diff/apply flow, so you no
+longer need the factory screen board to take a new release:
+
+```bash
+# treat the encrypted file as the new version, then compare and apply as usual
+python3 wm_release.py fetch --from-soc ~/TM_T1_SOC
+python3 wm_release.py diff 1.1.14
+python3 wm_release.py apply 1.1.14 --apply     # after you type APPLY
+```
+
+**Or download it straight from WonderMaker** (same firmware page the `check`
+command reads) with `--from-web` (menu option **w**). It finds the
+`tm_t1_soc(version).zip` link, downloads it, pulls the `TM_T1_SOC` out of the
+zip, and decrypts it here — no board, no manual download:
+
+```bash
+python3 wm_release.py fetch --from-web            # newest version on the page
+python3 wm_release.py fetch --from-web 1.1.14     # a specific version
+python3 wm_release.py diff 1.1.14
+```
+
+If WonderMaker ever changes that page's layout and the link isn't found, the
+tool says so and prints what it did find; download the zip yourself and fall
+back to `--from-soc FILE`. Point it at a mirror with `WMR_WIKI_URL` if needed.
+
+- Only `openssl` is required (already on Raspberry Pi OS); no extra Python packages.
+- The bundled Klipper MCU firmware is read for the `mcu` check but, as always,
+  **nothing is ever flashed** by this tool.
+- The SoC's own Android `boot.img` and kernel modules are ignored — the Pi boots
+  its own kernel.
+- The key is WonderMaker's own, read from the stock `client` binary. If a future
+  firmware changes it, set `WMR_SOC_KEY=<newkey>`.
+
+### Option 1 from the website (no screen board)
+
+Option 1 (`all`) now asks first: **board** or **web**. The web path:
+1. reads WonderMaker's firmware page for the newest System version;
+2. if you have no baseline yet, offers to record the current published version as one (needed to keep your own changes on the next update), then stops;
+3. if the page has nothing newer than your baseline, says "Up to date";
+4. otherwise downloads it (kept in the firmware archive), compares it with your baseline and live files, checks the MCU firmware, shows the plan, and asks before applying — you type `yes` and then `APPLY`. Nothing is applied automatically.
+
+Skip the question with `all --source web` / `all --source board`, or `WMR_SOURCE=web`.
+
+### Firmware archive, compare, settings
+
+- **Firmware archive** - every web download keeps the `tm_t1_soc(x.y.z).zip` in `~/wm-firmware` (change with `WMR_FIRMWARE_DIR`). `firmware` (menu `a`) lists them; `fetch --from-archive 1.1.13` reinstalls or downgrades one with no internet. A repeat download of the same version uses the kept copy.
+- **Compare two versions** - `compare 1.1.13 1.1.14` (menu `v`) lists what WonderMaker changed, added and removed between two fetched releases. Read only; your live files are not involved.
+- **Settings** - `settings` (menu `g`) shows and changes the decrypt key, the firmware page URL and the board address (saved in `config.json`). `WMR_SOC_KEY` / `WMR_WIKI_URL` in the environment still win over saved values.
+
+### Flashing MCU firmware (guarded)
+
+`flash [main|thr|ext|hub|cell]` (menu `m`) runs the flash script that a release installed in `~/mcu_update` (`mcu_update.sh`, `mcu_update_THRs.sh`, ...).
+- Without `--run` it is a dry run: it shows `mcu_info.ini` and the exact script it would run.
+- With `--run` it refuses while a print is running, then asks you to type `FLASH`.
+- It is never part of option 1. Run `mcu` first and do not flash a part marked `BAD`. Wrong or interrupted firmware can leave a board unbootable until it is flashed by hand.
 
 ### Logging in to the board (user name and password)
 - The tool logs in **once** per run and reuses that connection for every step, so you type the password once.
@@ -153,8 +220,8 @@ python3 wm_release.py promote 1.1.14      # when you are happy: it becomes the n
 | Command | What it does | Changes files? |
 |---|---|---|
 | `status` | baselines, fetched releases, backups | no |
-| `init-baseline [--from-board [HOST]] [--from-dir DIR] [--src DIR] [--version V] [--force]` | records a baseline | only the data folder |
-| `fetch --from-board [HOST]` / `--from-dir DIR [--version V]` | copies a release for comparing | only the data folder |
+| `init-baseline [--from-board [HOST]] [--from-dir DIR] [--from-soc FILE] [--src DIR] [--version V] [--force]` | records a baseline | only the data folder |
+| `fetch --from-board [HOST]` / `--from-dir DIR` / `--from-soc FILE` / `--from-web [VERSION]` | copies a release for comparing | only the data folder (plus the download for `--from-web`) |
 | `diff VERSION` | the comparison and the saved report | no |
 | `mcu ZIP_OR_FOLDER` | MCU firmware check and flashing steps | no |
 | `apply VERSION [--apply] [--force]` | plan; with `--apply`: backup, then change | yes, after `APPLY` |
@@ -216,13 +283,14 @@ python3 tools/wm-release/wm_release.py --version
 `python3 wm_release.py --version` prints the tool's version; the menu title and `status` show it too, and every line in the history (`log`) records the version that wrote it. It is the tool's own number and has nothing to do with the installer's `VERSION` file, so changing the tool's version alone does not publish a GitHub release (the installer's `VERSION` does).
 
 Version history:
+- **1.2.0** - takes WonderMaker releases without the factory screen board: `fetch --from-soc FILE` (decrypts a `TM_T1_SOC` on the Pi) and `fetch --from-web [VERSION]` (menu `w`; downloads it from WonderMaker's firmware page). Option 1 asks first: old screen board or website. Firmware archive (`~/wm-firmware`, `firmware`, `fetch --from-archive`, menu `a`), `compare OLD NEW` (menu `v`), `settings` (menu `g`), guarded `flash` (menu `m`). The tool now finds the repo root from any folder.
 - **1.1.0** - checks WonderMaker's firmware page for a newer System version: menu item `c`, command `check`, a line in the menu header and a note at the start of option 1. Read only; works offline too (it just says the page could not be read).
 - **1.0.1** - option 1 / `all` always asks for the board address first (the saved one is shown; press Enter to keep it).
 - **1.0.0** - option 1 / `all` does every needed step; asks the board's user name and password (hidden, one login, never saved); line-ending and trailing-space differences are not conflicts; board-wide checksums, pip freeze, baseline chosen as the version before the release, `promote`; numbered menu.
 
 ## Tests
 
-`bash tools/wm-release/test.sh` runs 77 checks on throwaway folders (it never touches your real files).
+`bash tools/wm-release/test.sh` runs 99 checks on throwaway folders (it never touches your real files).
 
 ## Checking for a new WonderMaker version
 

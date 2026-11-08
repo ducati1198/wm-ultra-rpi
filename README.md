@@ -51,6 +51,7 @@ Run these in `~/wm-ultra-rpi` on the Pi.
 | Do any of this from a **menu** | `./installer.sh` (opens the menu, also on an empty Pi) or `./installer.sh --menu` | Same as the options below; nothing changes until you pick something and confirm |
 | See what is new first | `./installer.sh --check-updates` | Nothing is changed |
 | **Update** to the latest version | `./installer.sh --get-latest && ./installer.sh --update` (works with or without git) | Kept: `printer_data`, calibration, settings |
+| Take a **new WonderMaker System release** (from their website, no screen board) | `python3 tools/wm-release/wm_release.py` then **1** → `web` | Plan first; your changes kept; backup before you type `APPLY`. See [Tools](#tools-new-wondermaker-releases-toolswm-release) |
 | **Repair** a broken service, nginx or can0 rule | `./installer.sh --repair` | Kept |
 | **Back up** my settings | `./installer.sh --backup` | Saved to `~/wm-backups/` as a private `.tgz`. Copy it off the Pi. |
 | **Restore** a backup | `./installer.sh --restore FILE` | A safety copy is made first |
@@ -89,7 +90,7 @@ More in [Troubleshooting](#9-troubleshooting).
 
 ## Contents
 
-- [Quick start](#quick-start) · [Everyday cheat sheet](#everyday-cheat-sheet) · [How it works](#how-it-works) · [If something goes wrong](#if-something-goes-wrong)
+- [Quick start](#quick-start) · [Everyday cheat sheet](#everyday-cheat-sheet) · [How it works](#how-it-works) · [If something goes wrong](#if-something-goes-wrong) · [Tools: new WonderMaker releases](#tools-new-wondermaker-releases-toolswm-release)
 
 Details:
 
@@ -634,6 +635,7 @@ screen_rescue/          rescue window and USB-stick check for the screen board
 scripts/                pull_from_board.sh, stage_from_repo.sh, board_check.sh, screen_board.sh (+ _inspect, _precheck, _preflight_mac) for the screen board
 config/                 systemd units, nginx files, can0 udev rule, pinned Python requirements, crowsnest template, addon version pins
 zr_tools/               ZR Tools KlipperScreen panel (copied by the installer)
+tools/wm-release/       release tool: takes a new WonderMaker System version (from their website, a TM_T1_SOC file or the screen board) and keeps your changes; not used by the installer
 docs/                   HARDWARE.md, WIRING.md and images
 tests/                  run_tests.sh (installer, fake home) and test_screen.py (ZR Tools panel)
 ```
@@ -643,6 +645,21 @@ tests/                  run_tests.sh (installer, fake home) and test_screen.py (
 ## 11. Credits and license
 
 Klipper, Moonraker and Fluidd are their own projects and licenses. The Anycubic ACE Pro and WonderMaker are trademarks of their owners; this project is unaffiliated. Layout inspired by [acepro-any-klipper](https://github.com/ducati1198/acepro-any-klipper). The Fluidd Toolheads card, the ACE Pro driver config and the OrcaSlicer plugin live in [wm-ultra-fluidd-acepro-panel](https://github.com/ducati1198/wm-ultra-fluidd-acepro-panel) ([plugin](https://github.com/ducati1198/wm-ultra-fluidd-acepro-panel/tree/main/orca_plugin)). This repository is under the GPL v3, see [LICENSE](LICENSE).
+
+## Tools: new WonderMaker releases (tools/wm-release)
+
+`tools/wm-release/wm_release.py` brings a new WonderMaker System release (1.1.14 and later) to the Pi **without losing your own changes**. It is separate from the installer; `git pull` or `./installer.sh --get-latest` keeps it up to date with the rest of this folder.
+
+```bash
+cd ~/wm-ultra-rpi
+python3 tools/wm-release/wm_release.py        # menu; option 1 asks: old screen board, or WonderMaker website
+```
+
+- **From WonderMaker's website, no screen board needed:** it downloads the encrypted `TM_T1_SOC` from their firmware page, decrypts it on the Pi, compares it with the previous version and your live files, and shows the plan. Your files change only after you type `APPLY` (a backup is made first; `rollback` undoes it). `printer.cfg`, `saved_variables.cfg` and `tmt1.ini` are never changed.
+- **Also:** open a `TM_T1_SOC` file you already have, keep downloaded versions for offline reinstall or downgrade, compare two versions, settings, and a guarded MCU flash step that only runs after you type `FLASH`.
+- **First time:** let option 1 (web) record the version you run now as the baseline. When WonderMaker publishes a newer one, run option 1 again.
+
+Full guide: [tools/wm-release/README.md](tools/wm-release/README.md). Like the rest of this project it is **not tested with a running printer yet**.
 
 ## Klipper gcode shell command (installed automatically)
 
