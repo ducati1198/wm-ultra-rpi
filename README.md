@@ -14,6 +14,33 @@
 
 > **Status:** tested with a fake home folder, on a fresh Raspberry Pi (install, doctor, Fluidd, Moonraker, Klipper loading the config) and on one WonderMaker screen board. **Not tested with a running printer yet.** Use at your own risk, see the [full disclaimer](#disclaimer-use-at-your-own-risk).
 
+## Contents
+
+- [Quick start](#quick-start) · [Everyday cheat sheet](#everyday-cheat-sheet) · [How it works](#how-it-works) · [If something goes wrong](#if-something-goes-wrong)
+
+Details:
+
+1. [Disclaimer](#disclaimer-use-at-your-own-risk) · [What you get](#what-you-get)
+2. [Hardware](#2-hardware)
+3. [Install](#3-install) (including [the installer menu](#the-installer-menu) and the [command table](#34-command-table))
+4. [When the main board is connected](#4-when-the-main-board-is-connected)
+5. [Fluidd (web panel and ZR Tools)](#5-fluidd-web-panel-and-zr-tools) (including the [OrcaSlicer plugin](#install-the-orcaslicer-plugin-optional-works-without-an-ace-pro))
+6. [KlipperScreen on the Raspberry Pi (touchscreen)](#6-klipperscreen-on-the-raspberry-pi-touchscreen)
+7. [KlipperScreen on the WonderMaker screen board (optional)](#7-klipperscreen-on-the-wondermaker-screen-board-optional)
+8. [Go back / uninstall](#8-go-back--uninstall)
+9. [Troubleshooting](#9-troubleshooting)
+10. [Repository layout](#10-repository-layout)
+11. [Credits and license](#11-credits-and-license)
+
+More:
+
+- [Tools: new WonderMaker releases](#tools-new-wondermaker-releases-toolswm-release) (`tools/wm-release`)
+- [The menu](#the-menu)
+- [Backup before every update](#backup-before-every-update)
+- [Status page and Network and system](#status-page-and-network-and-system)
+- [Klipper gcode shell command (installed automatically)](#klipper-gcode-shell-command-installed-automatically)
+- Optional add-ons: [Spoolman](#spoolman-optional-add-on) · [Klippain Shake&Tune](#klippain-shaketune-optional-add-on) · [Remote access: Obico, OctoApp, OctoEverywhere](#remote-access-add-ons-obico-octoapp-octoeverywhere-optional)
+
 ## Quick start
 
 The idea: a Raspberry Pi takes over the job of the WonderMaker screen/host board (it runs Klipper, Moonraker and the web page). You copy WonderMaker's own software and your settings to it once; after that the Pi runs everything.
@@ -87,24 +114,6 @@ The full command list is in [3.4](#34-command-table). The installer **never flas
 More in [Troubleshooting](#9-troubleshooting).
 
 ---
-
-## Contents
-
-- [Quick start](#quick-start) · [Everyday cheat sheet](#everyday-cheat-sheet) · [How it works](#how-it-works) · [If something goes wrong](#if-something-goes-wrong) · [Tools: new WonderMaker releases](#tools-new-wondermaker-releases-toolswm-release)
-
-Details:
-
-1. [Disclaimer](#disclaimer-use-at-your-own-risk)
-2. [Hardware](#2-hardware)
-3. [Install](#3-install)
-4. [When the main board is connected](#4-when-the-main-board-is-connected)
-5. [Fluidd (web panel and ZR Tools)](#5-fluidd-web-panel-and-zr-tools) (including the [OrcaSlicer plugin](#install-the-orcaslicer-plugin-optional-works-without-an-ace-pro))
-6. [KlipperScreen on the Raspberry Pi (touchscreen)](#6-klipperscreen-on-the-raspberry-pi-touchscreen)
-7. [KlipperScreen on the WonderMaker screen board (optional)](#7-klipperscreen-on-the-wondermaker-screen-board-optional)
-8. [Go back / uninstall](#8-go-back--uninstall)
-9. [Troubleshooting](#9-troubleshooting)
-10. [Repository layout](#10-repository-layout)
-11. [Credits and license](#11-credits-and-license)
 
 ## Disclaimer (use at your own risk)
 
