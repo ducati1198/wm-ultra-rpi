@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.23.8
+
+- The automatic backup saved before `--update` (and before an add-on install) now also holds `~/TM_T1/factory_settings`, WonderMaker's factory settings. `--restore` puts it back when the backup has it.
+
 ## 1.23.7
 
 - The progress bar no longer repeats itself on a timer. The repeated bar lines landed on top of questions (user name, password, IP address, yes/no) and made them hard to read. The bar is printed once at the start of each step again. A slow command still prints "still working: ... (N min N s)" every 15 seconds.

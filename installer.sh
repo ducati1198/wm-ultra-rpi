@@ -1471,7 +1471,7 @@ do_restore() {
     tar tzf "$f" 2>/dev/null | grep -q '^printer_data/config/printer.cfg$' || die_with_fix "this is not a backup made by --backup." "choose the right file."
     guard_not_printing
     print_header "Restore"
-    echo "This replaces ~/printer_data/config and the Moonraker database with the ones in the backup."
+    echo "This replaces ~/printer_data/config, the Moonraker database and (if the backup has it) WonderMaker's ~/TM_T1/factory_settings with the ones in the backup."
     echo "A safety copy of the current ones is made first."
     ask_yn "Continue?" n || { echo "Nothing changed."; return 0; }
     ARG1="$HOME_DIR/wm-backups"; do_backup >/dev/null
@@ -1487,9 +1487,9 @@ do_restore() {
 # ============================================================================
 auto_backup() {   # a quick safety copy of your settings before an update or an add-on install; the newest 5 are kept
     if [ "${NO_BACKUP:-0}" = 1 ]; then print_info "Backup before the update skipped (--no-backup)."; return 0; fi
-    [ "$DRY" = 1 ] && { echo -e "  ${DIM}would save a backup of your config, calibration and database first${NC}"; return 0; }
+    [ "$DRY" = 1 ] && { echo -e "  ${DIM}would save a backup of your config, calibration, database and factory settings first${NC}"; return 0; }
     local dir="$HOME_DIR/wm-backups" out items=() i
-    for i in printer_data/config printer_data/database printer_data/moonraker.asvc printer_data/wm-model; do [ -e "$HOME_DIR/$i" ] && items+=("$i"); done
+    for i in printer_data/config printer_data/database printer_data/moonraker.asvc printer_data/wm-model TM_T1/factory_settings; do [ -e "$HOME_DIR/$i" ] && items+=("$i"); done
     [ ${#items[@]} -gt 0 ] || return 0
     mkdir -p "$dir"; out="$dir/wm-backup-$(model_now)-before-update-$STAMP.tgz"
     if tar czf "$out" -C "$HOME_DIR" "${items[@]}" 2>/dev/null; then

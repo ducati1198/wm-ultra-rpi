@@ -803,6 +803,7 @@ printf "[server]\n" > "$NS/printer_data/config/moonraker.conf"; printf "klippy_a
 inst "$NS" --update >/dev/null
 check "--update saves a backup first" "ls $NS/wm-backups/wm-backup-*-before-update-*.tgz"
 check "the backup holds the config" "tar tzf \$(ls $NS/wm-backups/*before-update*.tgz | head -1) | grep -q printer_data/config/printer.cfg"
+check "the backup before an update holds TM_T1/factory_settings" "tar tzf \$(ls $NS/wm-backups/*before-update*.tgz | head -1) | grep -q TM_T1/factory_settings"
 for i in 1 2 3 4 5 6 7; do touch -d "2020-01-0$i" "$NS/wm-backups/wm-backup-ultra-s-before-update-2020010$i.tgz"; done
 inst "$NS" --update >/dev/null
 check "only the newest 5 automatic backups are kept" "[ \$(ls $NS/wm-backups/*before-update*.tgz | wc -l) -le 5 ]"
