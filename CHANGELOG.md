@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.23.20
+
+- `factory/ultra-s/config/offset_calibrate.cfg` is now the version running on a real Ultra-S board: `NOZZLE_PREPARE` takes a temperature `S` (default 220), so the nozzle heats to `S` instead of a fixed 220 degrees. (The board's own `TM_T1/factory_settings` copy still has the fixed value; this change is on the live file only.)
+
 ## 1.23.19
 
 - Test only: Fix everything (`--doctor --fix-all`) is checked to restore a missing `~/iso_version.txt`. 522 installer tests.
