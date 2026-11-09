@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.23.25
+
+- printer.cfg now follows WonderMaker's versions. New `scripts/wm_cfgmerge.py`: a 3-way merge by setting (old factory file, new factory file, the Pi's file). WonderMaker's new and changed settings and sections arrive; the Pi's own lines, sections and `[include]` lines stay; `canbus_uuid` / `serial` stay the Pi's; the SAVE_CONFIG block is kept byte for byte; a setting both sides changed differently is asked one by one (mine / theirs). `saved_variables.cfg` only gets new keys, never a changed value.
+- Installer: step 4e on install and `--update` (preview, question, copy `printer.cfg.wm-before-cfgmerge-<time>`), new `./installer.sh --cfg-merge`, the starting point is kept in `~/printer_data/wm-baseline/` (part of the backups), a Doctor check for it. The chamber PID fix only acts on a printer whose `printer.cfg` includes `zru-s.cfg` (the Ultra-S); the Ultra has no chamber heater and is left alone. 565 installer tests.
+- Release tool 1.7.0: `apply` and `diff` merge `printer.cfg` and `saved_variables.cfg` as above instead of leaving them alone, with a preview and per-setting questions; the choices are in the history. 136 tests.
+
 ## 1.23.24
 
 - PID results can be saved. Klipper's `SAVE_CONFIG` refuses when an included file sets `control` / `pid_Kp` / `pid_Ki` / `pid_Kd` for a heater it has to save: on the ZR Ultra-S `zru-s.cfg` does that for the chamber heater, which would also have blocked everything saved with it. New `scripts/wm_pidcfg.py` (check and fix): moves those lines into `printer.cfg` and gives each hotend `control: pid` where it has none (commented `#pid_*` values or the saved block supply the numbers; nothing else is touched; copies `<file>.wm-before-pidcfg-<time>`).

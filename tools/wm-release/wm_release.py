@@ -32,7 +32,7 @@ Version: see --version.  Data folder: $WMR_HOME (default ~/wm-private-data).  Li
 """
 import argparse, atexit, getpass, hashlib, io, json, os, re, shutil, subprocess, sys, tarfile, tempfile, time, urllib.request, urllib.parse, zipfile
 
-TOOL_VERSION = "1.6.0"   # this tool's own version (not the installer's VERSION file); see README "Version history"
+TOOL_VERSION = "1.7.0"   # this tool's own version (not the installer's VERSION file); see README "Version history"
 HOME = os.path.expanduser("~")
 DATA = os.environ.get("WMR_HOME", os.path.join(HOME, "wm-private-data"))
 LIVE = os.environ.get("WMR_LIVE_HOME", HOME)
@@ -44,7 +44,11 @@ DEFAULT_WIKI_URL = "https://wiki.wondermaker3d.com/en/ZR-Ultra-S/Standard-Operat
 ROOTS = ["klipper", "moonraker", "printer_data/config", "mcu_update", "TM_T1/scripts"]
 REPO_MAP = {"klipper": "klipper", "moonraker": "moonraker", "printer_data/config": "config", "mcu_update": "mcu", "TM_T1/scripts": "scripts"}
 # never changed by apply: your own data or files that hold your includes / SAVE_CONFIG block
-PROTECTED = {"printer_data/config/printer.cfg", "printer_data/config/saved_variables.cfg", "printer_data/config/tmt1.ini"}
+PROTECTED = {"printer_data/config/tmt1.ini"}
+# merged, never replaced: printer.cfg (3-way, scripts/wm_cfgmerge.py: WonderMaker's new settings come in, your own lines and the SAVE_CONFIG block stay) and
+# saved_variables.cfg (only keys you do not have yet are added; no value is ever changed)
+PRINTER_CFG = "printer_data/config/printer.cfg"; SAVED_VARS = "printer_data/config/saved_variables.cfg"
+CFG_INFO = {}   # rel -> (merge object, summary lines, exit code) for the printer.cfg merge of the plan being built
 SKIP_DIRS = {".git", "__pycache__", ".pytest_cache"}
 SKIP_SUFFIX = (".pyc", ".log")
 SKIP_GLOBS = ("plr*.ini*", "client_log.txt", "*.zrbak_*", "*.bkp", "*.wm-*.new", "*.wm-before-*")   # runtime data and leftovers, never compared
@@ -798,9 +802,42 @@ def merge3(live, base, new):
         return r.returncode == 0, r.stdout
 
 
+def _cfgmerge_mod():
+    """scripts/wm_cfgmerge.py of the repo as a module, or None when the tool runs outside the repo"""
+    d = os.path.dirname(os.path.abspath(__file__))
+    for _ in range(6):
+        f = p(d, "scripts", "wm_cfgmerge.py")
+        if os.path.isfile(f):
+            import importlib.util
+            sp = importlib.util.spec_from_file_location("wm_cfgmerge", f); m = importlib.util.module_from_spec(sp); sp.loader.exec_module(m); return m
+        d = os.path.dirname(d)
+    return None
+
+
+def classify_special(rel, b, n, l):
+    """printer.cfg and saved_variables.cfg: merged (None = not handled here)"""
+    if rel not in (PRINTER_CFG, SAVED_VARS) or not (b and n and l): return None
+    mod = _cfgmerge_mod()
+    if mod is None: return None
+    live = open(l, errors="replace").read()
+    if rel == SAVED_VARS:
+        text, added = mod.addkeys(open(n, errors="replace").read(), live)
+        if not added: return ("UNCHANGED", None)
+        CFG_INFO[rel] = (None, ["saved_variables.cfg: adds %s (your values are never changed)" % ", ".join(added)], 10)
+        return ("MERGE", text.encode())
+    m = mod.merge(open(b, errors="replace").read(), open(n, errors="replace").read(), live)
+    code, lines, text = mod.summary(m, live)
+    if code == 0: return ("UNCHANGED", None)
+    CFG_INFO[rel] = (m, lines, code)
+    return ("MERGE", text.encode())
+
+
 def classify(rel, B, N, L):
     """rel is relative to the live home (e.g. printer_data/config/macros.cfg)"""
     b, n, l = B.get(rel), N.get(rel), L.get(rel)
+    sp = classify_special(rel, b, n, l)
+    if sp: return sp
+    if rel in (PRINTER_CFG, SAVED_VARS): return ("PROTECTED", None) if (n and (not b or sha(n) != sha(b))) else ("UNCHANGED", None)   # nothing to compare with
     if rel in PROTECTED:
         return ("PROTECTED", None) if (n and (not b or sha(n) != sha(b))) else ("UNCHANGED", None)
     if n is None:
@@ -917,7 +954,7 @@ def cmd_diff(a):
             ("CONFLICT", "both changed the same place (or a binary): decide by hand"),
             ("KEEP_MINE", "only you changed it: stays as it is"),
             ("WHITESPACE", "your file differs from WonderMaker's only in line endings or trailing spaces: harmless, stays"),
-            ("PROTECTED", "WonderMaker changed it, but it holds your includes or data: never applied, look yourself"),
+            ("PROTECTED", "WonderMaker changed it, but it holds your data: never applied, look yourself"),
             ("REMOVED", "removed in the release: nothing is deleted on your Pi")]
     lines.append("Summary: " + ", ".join("%s %d" % (k, len(groups.get(k, []))) for k, _ in expl if k != "WHITESPACE") + ", WHITESPACE %d, UNCHANGED %d" % (len(groups.get("WHITESPACE", [])), len(groups.get("UNCHANGED", []))))
     for k, text in expl:
@@ -944,6 +981,8 @@ def cmd_diff(a):
     if d: lines += ["", "== Macros defined in more than one file in this release (the later include wins)"] + d
     clash = rpi_cfg_clash(newcfg)
     if clash: lines += ["", "== Macros this release defines that the Pi's own files (rpi-cfg) define too (the later include wins)"] + clash; notes.append("A macro name in this release is also used by rpi-cfg/wm_calibration.cfg: rename one of them.")
+    for r, (m, ls, code) in sorted(CFG_INFO.items()):
+        lines += ["", "== What apply would merge into %s (your own lines and the SAVE_CONFIG block stay%s)" % (r.split("/")[-1], "; settings you both changed are asked one by one" if code == 11 else "")] + ["  " + x for x in ls]
     ensure(p(DATA, "reports")); rp = p(DATA, "reports", "%s-%s.txt" % (a.version, now()))
     open(rp, "w").write("\n".join(lines) + "\n")
     say("\n".join(lines)); say("\nReport saved: " + rp)
@@ -969,6 +1008,8 @@ def cmd_apply(a):
     for c in ("TAKE", "ADD", "MERGE"):
         for r in sorted(x for x, (k, _) in todo.items() if k == c): say("  %-6s %s" % (c, r))
     for r in conf: say("  HAND   %s   (conflict: saved for you in %s)" % (r, p(DATA, "conflicts", a.version)))
+    for r, (m, lines, code) in sorted(CFG_INFO.items()):
+        if r in todo: say("\nPreview of the merge into %s (nothing is written yet):" % r); [say("  " + x) for x in lines]; say("")
     for n, st in rpi_cfg_state(): say("  KEEP   printer_data/config/%s   (the Pi's own file, never changed by apply; %s)" % (n, st))
     clash = rpi_cfg_clash({os.path.basename(r): N[r] for r in N if r.startswith("printer_data/config/") and r.endswith(".cfg")})
     if clash: say("WARNING: this release defines macros that your Pi's own files define too (the later include wins in Klipper):"); [say(x) for x in clash]
@@ -980,6 +1021,12 @@ def cmd_apply(a):
     pr, st = printing_now()
     if pr and not a.force: die("a print is running (%s)." % st, "wait for it to finish")
     if st is None: say("Note: Moonraker did not answer, so I cannot tell whether a print is running.")
+    for r, (m, lines, code) in sorted(CFG_INFO.items()):   # settings that you and WonderMaker changed differently: you decide, one by one
+        if r in todo and m is not None and code == 11:
+            mod = _cfgmerge_mod(); cs = mod.conflicts_of(m)
+            ch = list(os.environ["WMR_TEST_CFG_CHOICE"]) if os.environ.get("WMR_TEST_CFG_CHOICE") else mod.choose(m, input)
+            todo[r] = ("MERGE", mod.render(m, ch).encode())
+            log("cfgmerge", a.version, file=r, conflicts=len(cs), choices="".join(ch))
     typed = os.environ.get("WMR_TEST_TYPED") or input("Type APPLY to change %d files (a backup is made first): " % len(todo)).strip()
     if typed != "APPLY": say("Nothing changed."); return
     ensure(p(DATA, "backups")); bk = p(DATA, "backups", "%s-%s.tgz" % (a.version, now()))

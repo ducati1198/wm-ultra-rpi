@@ -30,7 +30,8 @@ echo "# wm change at the end" >> "$RC/macros.cfg"                     # merges c
 echo "# wm line" >> "$RC/moonraker.conf"                              # same place as mine -> conflict
 echo "# wm changed" >> "$RC/change_macros.cfg"                        # I did not touch -> TAKE
 echo "[gcode_macro NEWTHING]" > "$RC/new.cfg"; echo "gcode:" >> "$RC/new.cfg"   # ADD
-echo "# wm printer" >> "$RC/printer.cfg"                              # PROTECTED
+sed -i 's|^#\*# <---------------------- SAVE_CONFIG|[output_pin wm_test]\npin: PB9\n\n&|' "$RC/printer.cfg"                # merged into printer.cfg (a new WonderMaker section)
+echo "; wm tmt1" >> "$RC/tmt1.ini"                                   # PROTECTED
 rm -f "$RC/extruder3.cfg"                                            # REMOVED
 printf 'x' >> "$T/rel/klipper/klippy/chelper/c_helper.so" 2>/dev/null || true
 echo "2026-11-20 10:00:00: Add System_1.1.14" > "$T/rel/iso_version.txt"
@@ -41,7 +42,8 @@ R diff 1.1.14 > "$T/o3"
 for c in "TAKE (" "ADD (" "MERGE (" "CONFLICT (" "PROTECTED (" "REMOVED ("; do check "diff: category $c" grep -q "^== $c" "$T/o3"; done
 check "diff: macros.cfg merges cleanly" bash -c "sed -n '/^== MERGE/,/^==/p' $T/o3 | grep -q 'macros.cfg'"
 check "diff: moonraker.conf is a conflict" bash -c "sed -n '/^== CONFLICT/,/^==/p' $T/o3 | grep -q 'moonraker.conf'"
-check "diff: printer.cfg is protected" bash -c "sed -n '/^== PROTECTED/,/^==/p' $T/o3 | grep -q 'printer.cfg'"
+check "diff: tmt1.ini is protected" bash -c "sed -n '/^== PROTECTED/,/^==/p' $T/o3 | grep -q 'tmt1.ini'"
+check "diff: printer.cfg is merged, not protected" bash -c "sed -n '/^== MERGE/,/^==/p' $T/o3 | grep -q 'printer.cfg' && ! sed -n '/^== PROTECTED/,/^==/p' $T/o3 | grep -q 'printer.cfg'"
 R check > "$T/ck1"
 check "check: finds the newest published version (1.1.13, not by text order)" grep -q "Newest published:      1.1.13" "$T/ck1"
 check "check: up to date against the saved baseline" grep -q "up to date" "$T/ck1"
@@ -122,6 +124,29 @@ R status > "$T/rp5"
 check "status: PID settings ok after the fix" grep -q "PID settings:  ok" "$T/rp5"
 check "the checklist asks for the PID check" bash -c "python3 $PY checklist 1.1.14 | grep -q 'pid-cfg'"
 cp "$T/pc.keep" "$C/printer.cfg"; cp "$T/zru.keep" "$C/zru-s.cfg"; rm -f "$C"/*.wm-before-pidcfg-*   # back to the state before this block
+# printer.cfg: 3-way merge (WonderMaker's new settings in, the Pi's own lines and the SAVE_CONFIG block stay; same-setting changes are asked)
+cp "$C/printer.cfg" "$T/pc2.keep"
+sed -i 's/^pressure_advance: 0.032/pressure_advance: 0.045/; s/^#\*# pid_kp = 26.638/#*# pid_kp = 99.999/' "$C/printer.cfg"                      # mine
+sed -i 's|^#\*# <---------------------- SAVE_CONFIG|[output_pin my_led]\npin: PB1\n\n&|' "$C/printer.cfg"                                      # my own section
+cp -a "$T/rel" "$T/rel3"; RC3="$T/rel3/printer_data/config"
+sed -i 's/^pressure_advance: 0.032/pressure_advance: 0.040/; s/^max_extrude_cross_section:5000/max_extrude_cross_section:6000/' "$RC3/printer.cfg"   # WonderMaker's: one conflict, one clean
+echo "2026-12-05 10:00:00: Add System_1.1.16" > "$T/rel3/iso_version.txt"
+R fetch --from-dir "$T/rel3" > "$T/o30"
+R apply 1.1.16 > "$T/o31"
+check "apply shows what it would merge into printer.cfg and the conflict" bash -c "grep -q 'Preview of the merge into printer_data/config/printer.cfg' $T/o31 && grep -q 'CONFLICT 1: \[extruder\] pressure_advance' $T/o31 && grep -q 'now 6000' $T/o31"
+check "the dry run leaves printer.cfg alone" bash -c "grep -q '^pressure_advance: 0.045' $C/printer.cfg && ! grep -q 'wm_test' $C/printer.cfg"
+WMR_TEST_CFG_CHOICE=m WMR_TEST_TYPED=APPLY R apply 1.1.16 --apply > "$T/o32"
+check "merge, mine on the conflict: WonderMaker's new section and setting arrive" bash -c "grep -q '^\[output_pin wm_test\]' $C/printer.cfg && grep -q '^max_extrude_cross_section:6000' $C/printer.cfg"
+check "merge, mine on the conflict: my value, my section, my include stay" bash -c "grep -q '^pressure_advance: 0.045' $C/printer.cfg && grep -q '^\[output_pin my_led\]' $C/printer.cfg && grep -q '^\[include mine.cfg\]' $C/printer.cfg"
+check "merge keeps the SAVE_CONFIG block exactly (my saved PID value)" bash -c "grep -q '^#\*# pid_kp = 99.999' $C/printer.cfg && ! grep -q 'pid_kp = 26.638' $C/printer.cfg"
+check "merge: the SAVE_CONFIG block has the same lines as before (only my edited value differs)" bash -c "[ \$(grep -c '^#\*#' $C/printer.cfg) = \$(grep -c '^#\*#' $T/pc2.keep) ]"
+WMR_TEST_TYPED=ROLLBACK R rollback > "$T/o33"
+check "rollback puts my printer.cfg back" bash -c "grep -q '^pressure_advance: 0.045' $C/printer.cfg && ! grep -q 'wm_test' $C/printer.cfg"
+WMR_TEST_CFG_CHOICE=t WMR_TEST_TYPED=APPLY R apply 1.1.16 --apply > "$T/o34"
+check "merge, theirs on the conflict: WonderMaker's value is used, the rest stays mine" bash -c "grep -q '^pressure_advance: 0.040' $C/printer.cfg && grep -q '^\[output_pin my_led\]' $C/printer.cfg && grep -q '^#\*# pid_kp = 99.999' $C/printer.cfg"
+check "the choices are in the history" bash -c "python3 $PY log | grep -q 'cfgmerge'"
+WMR_TEST_TYPED=ROLLBACK R rollback > "$T/o35"
+cp "$T/pc2.keep" "$C/printer.cfg"   # back to the state before this block
 # print guard
 cat > "$T/srv.py" <<'PY'
 import http.server, json
@@ -376,6 +401,6 @@ mkdir -p "$WMR_HOME/baseline/x" "$T/fw"; echo z > "$T/fw/a.zip"
 check "clean --keep-firmware keeps the archive" bash -c "WMR_TEST_TYPED=DELETE python3 $PY clean --run --keep-firmware >/dev/null && test -f $T/fw/a.zip && ! test -e $WMR_HOME"
 check "clean refuses a protected location" bash -c "WMR_HOME=$T/live WMR_LIVE_HOME=$T/live python3 $PY clean --run 2>&1 | grep -q refusing; test -d $T/live"
 
-check "the tool has a version: --version, the menu title, status and the history" bash -c "python3 $PY --version | grep -q 'wm_release.py [0-9]' && printf '0\n' | python3 $PY | grep -q 'WonderMaker release tool [0-9]' && python3 $PY status | grep -q 'Tool version: [0-9]' && grep -q '(version 1.6.0)' $HERE/README.md"
+check "the tool has a version: --version, the menu title, status and the history" bash -c "python3 $PY --version | grep -q 'wm_release.py [0-9]' && printf '0\n' | python3 $PY | grep -q 'WonderMaker release tool [0-9]' && python3 $PY status | grep -q 'Tool version: [0-9]' && grep -q '(version 1.7.0)' $HERE/README.md"
 
 echo; echo "passed: $pass  failed: $fail"; [ "$fail" = 0 ]

@@ -1,4 +1,4 @@
-# wm_release.py - WonderMaker release tool (version 1.6.0)
+# wm_release.py - WonderMaker release tool (version 1.7.0)
 
 For bringing a new WonderMaker System release (for example 1.1.14) to your Pi **without losing your own changes**.
 It is not part of any installer and no installer runs it. It lives in the `tools/wm-release/` folder of the repo, so `git pull` brings it to the Pi (the repo is public, so this folder is public too).
@@ -182,7 +182,9 @@ The baseline used is the newest one **older** than 1.1.14. The report shows:
 | CONFLICT | both changed the same place, or a binary: you decide |
 | KEEP_MINE | only you changed it: stays |
 | WHITESPACE | your file differs only in line endings or trailing spaces: harmless, stays (and never causes a conflict) |
-| PROTECTED | `printer.cfg`, `saved_variables.cfg`, `tmt1.ini`: never applied, look yourself |
+| PROTECTED | `tmt1.ini`: never applied, look yourself |
+| MERGE (printer.cfg) | a 3-way merge by setting, not by line: WonderMaker's new and changed settings and sections come in, your own lines, sections and `[include]` lines stay, `canbus_uuid` / `serial` stay yours, the SAVE_CONFIG block (the `#*#` lines: PID, input shaper, bed mesh) stays yours byte for byte. A setting you and WonderMaker changed to different values is asked one by one (mine / theirs) |
+| MERGE (saved_variables.cfg) | only keys you do not have yet are added; no value is ever changed |
 | REMOVED | removed in the release: nothing is deleted on your Pi |
 | Everything else on the board | screen app, Fluidd, crowsnest, services, nginx, udev: checksums only, never applied |
 | Python package versions | `pip freeze` differences of `klippy-env` and `moonraker-env` |
@@ -241,7 +243,7 @@ python3 wm_release.py promote 1.1.14      # when you are happy: it becomes the n
 - **Copied and compared line by line, and applied by `apply`:** `~/klipper`, `~/moonraker`, `~/printer_data/config`, `~/mcu_update`, `~/TM_T1/scripts`.
 - **Compared by checksum, never applied:** `~/TM_T1/bin`, `~/TM_T1/other`, `~/TM_T1/access`, `~/moonraker-timelapse`, `~/fluidd-config`, `~/crowsnest`, `~/fluidd`, `~/access`, `/etc/systemd/system/*.service`, `/etc/nginx/conf.d`, `/etc/nginx/sites-enabled`, `/etc/udev/rules.d/*wm*.rules`, and the `pip freeze` of the two Python environments.
 - **Ignored:** `.git`, `__pycache__`, `*.pyc`, `*.log`, `plr*.ini*`, `client_log.txt`, `*.zrbak_*`, `*.bkp`, `*.wm-before-*` (the installer's safety copies), the Pi's own files from `rpi-cfg/`, `KlipperScreen` (your own installation).
-- **Never changed by `apply`:** `printer.cfg`, `saved_variables.cfg`, `tmt1.ini`, the Pi's own files from `rpi-cfg/` (`wm_calibration.cfg`), and anything outside the five printer folders.
+- **Never replaced by `apply`:** `tmt1.ini`, the Pi's own files from `rpi-cfg/` (`wm_calibration.cfg`), and anything outside the five printer folders. `printer.cfg` and `saved_variables.cfg` are merged (see above), never replaced.
 - Merging uses `git merge-file` (git must be installed). A file changed by both of you in different places merges; the same place is a conflict.
 
 ## Limits - read this
@@ -288,6 +290,7 @@ python3 tools/wm-release/wm_release.py --version
 `python3 wm_release.py --version` prints the tool's version; the menu title and `status` show it too, and every line in the history (`log`) records the version that wrote it. It is the tool's own number and has nothing to do with the installer's `VERSION` file, so changing the tool's version alone does not publish a GitHub release (the installer's `VERSION` does).
 
 Version history:
+- **1.7.0** - `apply` and `diff` merge WonderMaker's changes into your `printer.cfg` (3-way: the baseline, the release, your file) instead of leaving the file alone: new and changed settings and sections arrive, your own lines, sections, includes and the SAVE_CONFIG block stay; the preview shows every change first and settings that you and WonderMaker changed differently are asked one by one (mine / theirs). `saved_variables.cfg` only gets keys it does not have. Uses the repo's `scripts/wm_cfgmerge.py`, the same code as `./installer.sh --cfg-merge`. The choices are written to the history.
 - **1.6.0** - `pid-cfg [--fix]` and the same check in `status`: `SAVE_CONFIG` refuses to store a PID result when an included file (the ZR Ultra-S `zru-s.cfg`, for the chamber heater) sets `control` / `pid_Kp` / `pid_Ki` / `pid_Kd` for it, and a hotend without `control: pid` has nothing to tune. `apply` warns when a release would bring that back and says what to run after it; the test list asks for the check. It runs the repo's `scripts/wm_pidcfg.py` (the installer, step 4d and `--pid-cfg`, and the Doctor use the same script).
 - **1.5.0** - knows the Pi's own config files in the repo folder `rpi-cfg/` (today `wm_calibration.cfg`, the calibration macros `WM_BED_LEVELING`, `WM_CAL_ALL`, ...). They are not WonderMaker's, so no release contains them: `apply` never changes them (a release that ships a file with the same name is ignored for it), the baseline and the file lists skip them, `status` reports each one (ok, missing, not included in printer.cfg, or different from the repo copy), `apply` and `diff` warn when a release defines a macro with the same name as one of theirs, and the test list now includes "WM_CAL_HELP lists the calibration macros". Install or repair them with `./installer.sh --rpi-cfg`.
 - **1.4.1** - `flash` shows an access check (script, hid-flash, firmware file) and says what to do if the bootloader device needs permissions. It still changes nothing and makes no root change.
@@ -300,7 +303,7 @@ Version history:
 
 ## Tests
 
-`bash tools/wm-release/test.sh` runs 126 checks on throwaway folders (it never touches your real files).
+`bash tools/wm-release/test.sh` runs 136 checks on throwaway folders (it never touches your real files).
 
 ## Checking for a new WonderMaker version
 

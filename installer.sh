@@ -14,6 +14,7 @@
 # ./installer.sh --check               report problems, change nothing
 # ./installer.sh --free-space          list what is safe to erase (sizes, warnings), erase what you pick and confirm
 # ./installer.sh --zr-tools            check the ZR Tools macros (for the screen board), install them when missing
+# ./installer.sh --cfg-merge           bring WonderMaker's changes in this repository's factory printer.cfg (and saved_variables.cfg) to the Pi's printer.cfg with a 3-way merge; your own lines and the SAVE_CONFIG block stay (scripts/wm_cfgmerge.py)
 # ./installer.sh --pid-cfg             check that the PID settings of the hotends, bed and chamber heater are where Klipper's SAVE_CONFIG can store a PID result, and fix them (scripts/wm_pidcfg.py)
 # ./installer.sh --rpi-cfg             install or refresh the Pi's own config files from rpi-cfg/ (calibration macros WM_BED_LEVELING, WM_CAL_ALL, ...) and their include line in printer.cfg
 # ./installer.sh --first-start         checks with the main board connected; fixes canbus_uuid; then starts Klipper and the other services
@@ -95,7 +96,7 @@ COMPILED_MODULES=(cs1237 hx711 heater_air_core heater_feng xy_offset_calibrator_
 
 pi_weight() {   # how long each install step takes, roughly (a step that is switched off counts for nothing)
     case "$1" in
-        1) echo 14 ;; 2) echo 1 ;; 3) echo 8 ;; 4) echo 5 ;; 4b) echo 1 ;; 4c) echo 1 ;; 4d) echo 1 ;; 5) echo 30 ;; 6) echo 2 ;; 7|8|9) echo 2 ;; 10) echo 4 ;;
+        1) echo 14 ;; 2) echo 1 ;; 3) echo 8 ;; 4) echo 5 ;; 4b) echo 1 ;; 4c) echo 1 ;; 4d) echo 1 ;; 4e) echo 2 ;; 5) echo 30 ;; 6) echo 2 ;; 7|8|9) echo 2 ;; 10) echo 4 ;;
         11) [ "${WANT_SCREEN:-0}" = 1 ] && echo 12 || echo 1 ;;
         12) [ "${WANT_TIMELAPSE:-0}" = 1 ] && echo 2 || echo 0 ;;
         12b) [ "${WANT_SHELLCMD:-0}" = 1 ] && echo 1 || echo 0 ;;
@@ -111,7 +112,7 @@ pi_weight() {   # how long each install step takes, roughly (a step that is swit
 }
 pi_cum() {   # percent-points finished when step KEY starts; "end" = the total
     local k s sum=0
-    for k in 1 2 3 4 4b 4c 4d 5 6 7 8 9 10 11 12 12b 12f 12g 12c 12d 12e 13 14; do
+    for k in 1 2 3 4 4b 4c 4e 4d 5 6 7 8 9 10 11 12 12b 12f 12g 12c 12d 12e 13 14; do
         [ "$k" = "$1" ] && { echo "$sum"; return; }
         sum=$((sum + $(pi_weight "$k")))
     done
@@ -195,6 +196,7 @@ while [ $# -gt 0 ]; do
         --doctor)       MODE=doctor ;;
         --free-space)   MODE=freespace ;;   # list what is safe to erase, erase what you pick and confirm
         --zr-tools)     MODE=zrtools ;;   # check the ZR Tools macros (for the screen board), install them when missing
+        --cfg-merge)    MODE=cfgmerge ;;  # WonderMaker's printer.cfg changes merged into the Pi's printer.cfg
         --pid-cfg)      MODE=pidcfg ;;    # PID settings in printer.cfg, where SAVE_CONFIG can store a PID result
         --rpi-cfg)      MODE=rpicfg ;;    # the Pi's own config files (rpi-cfg/): calibration macros
         --fix-all)      FIXALL=1 ;;
@@ -419,6 +421,49 @@ do_rpicfg() {   # ./installer.sh --rpi-cfg
     [ "$DRY" = 1 ] || { restart_klipper_after; print_info "In Fluidd run WM_CAL_HELP to list the calibration macros."; }
 }
 
+cfgmerge_py() { echo "$SCRIPT_DIR/scripts/wm_cfgmerge.py"; }
+cfgmerge_base_dir() { echo "$HOME_DIR/printer_data/wm-baseline"; }
+cfgmerge_new_dir() { echo "$SCRIPT_DIR/factory/$(model_now)/config"; }
+cfgmerge_record() {   # the factory printer.cfg and saved_variables.cfg of this repository become the starting point for the next merge
+    local b n f; b="$(cfgmerge_base_dir)"; n="$(cfgmerge_new_dir)"; mkdir -p "$b" || return 1
+    for f in printer.cfg saved_variables.cfg; do [ -f "$n/$f" ] && cp "$n/$f" "$b/$f"; done; return 0
+}
+step_cfgmerge() {   # WonderMaker's new settings (a new version of the factory files in this repository) into the Pi's printer.cfg, 3-way: old factory, new factory, your file
+    print_header "Step 4e: WonderMaker's changes to printer.cfg"
+    why "When this repository gets a newer WonderMaker version, its printer.cfg may have new settings. This compares three files: the factory printer.cfg the Pi was set up from, the new one, and yours. WonderMaker's changes are added; your own lines, includes, sections and the SAVE_CONFIG block (PID, input shaper, bed mesh) stay. A setting that you and WonderMaker changed differently is asked one by one."
+    local cd="$HOME_DIR/printer_data/config" live="$HOME_DIR/printer_data/config/printer.cfg" b n code out
+    b="$(cfgmerge_base_dir)"; n="$(cfgmerge_new_dir)"
+    if [ "$DRY" = 1 ] || [ ! -f "$live" ]; then echo -e "  ${DIM}would compare WonderMaker's factory printer.cfg in this repository with the one the Pi was set up from, and merge the difference into printer.cfg${NC}"; return 0; fi
+    [ -f "$(cfgmerge_py)" ] && [ -f "$n/printer.cfg" ] || { print_info "no factory printer.cfg for the $(model_now) in this repository: nothing to compare"; return 0; }
+    if [ ! -f "$b/printer.cfg" ]; then
+        cfgmerge_record && print_success "Recorded this repository's factory printer.cfg as the starting point. The next WonderMaker version will be merged against it."; return 0
+    fi
+    out="$(python3 "$(cfgmerge_py)" plan "$b/printer.cfg" "$n/printer.cfg" "$live" 2>&1)"; code=$?
+    if [ -f "$n/saved_variables.cfg" ] && [ -f "$b/saved_variables.cfg" ] && [ -f "$cd/saved_variables.cfg" ] && ! cmp -s "$n/saved_variables.cfg" "$b/saved_variables.cfg"; then
+        python3 "$(cfgmerge_py)" addkeys "$n/saved_variables.cfg" "$cd/saved_variables.cfg" --stamp "$STAMP" 2>&1 | sed 's/^/  /'
+    fi
+    case "$code" in
+        0) print_success "printer.cfg already has everything from this WonderMaker version"; cfgmerge_record; return 0 ;;
+        10|11)
+            echo "$out" | sed 's/^/  /'
+            if ask_yn "  Merge these WonderMaker changes into your printer.cfg (a copy of yours is kept)?" y; then
+                local mode=""; { [ "${WM_ASSUME_YES:-0}" = 1 ] || [ ! -t 0 ]; } && mode="--all mine"
+                if python3 "$(cfgmerge_py)" apply "$b/printer.cfg" "$n/printer.cfg" "$live" $mode --stamp "$STAMP" | tail -n 2 | sed 's/^/  /'; then
+                    print_success "printer.cfg merged (copy of the old one: printer.cfg.wm-before-cfgmerge-$STAMP)"; cfgmerge_record
+                else print_warning "the merge did not work: printer.cfg is unchanged"; return 1; fi
+            else print_info "Left as it is. Run ./installer.sh --cfg-merge when you want it."; fi ;;
+        *) print_warning "could not compare the printer.cfg files: $out"; return 1 ;;
+    esac
+}
+do_cfgmerge() {   # ./installer.sh --cfg-merge
+    print_header "WonderMaker's changes to printer.cfg"
+    [ -f "$HOME_DIR/printer_data/config/printer.cfg" ] || die_with_fix "there is no printer.cfg on this Pi yet." "install first (menu 1), then run this again."
+    guard_not_printing
+    local before; before="$(cksum < "$HOME_DIR/printer_data/config/printer.cfg")"
+    step_cfgmerge
+    step_pidcfg
+    [ "$DRY" = 1 ] || { [ "$before" = "$(cksum < "$HOME_DIR/printer_data/config/printer.cfg")" ] || restart_klipper_after; }
+}
 pidcfg_py() { echo "$SCRIPT_DIR/scripts/wm_pidcfg.py"; }
 pidcfg_check() { python3 "$(pidcfg_py)" check "$HOME_DIR/printer_data/config" 2>&1; }   # exit 0 = fine, 1 = problems (listed), 2 = no printer.cfg
 step_pidcfg() {   # the PID values of the hotends, the bed and the chamber heater must live in printer.cfg itself, or Klipper cannot save a PID result
@@ -1526,7 +1571,7 @@ do_backup() {
     print_header "Backup of your printer settings"
     why "Your calibration and config live only on this SD card. SD cards fail."
     local items=() i
-    for i in printer_data/config printer_data/database printer_data/wm-model TM_T1/factory_settings; do [ -e "$HOME_DIR/$i" ] && items+=("$i"); done
+    for i in printer_data/config printer_data/database printer_data/wm-model printer_data/wm-baseline TM_T1/factory_settings; do [ -e "$HOME_DIR/$i" ] && items+=("$i"); done
     progress_bar 0 2 "Backup 1 of 2: packing your settings"
     tar czf "$out" -C "$HOME_DIR" "${items[@]}" 2>/dev/null || die_with_fix "could not write the backup." "free disk space, or choose another folder: ./installer.sh --backup /path"
     progress_bar 1 2 "Backup 2 of 2: protecting the file"
@@ -1559,7 +1604,7 @@ auto_backup() {   # a quick safety copy of your settings before an update or an 
     if [ "${NO_BACKUP:-0}" = 1 ]; then print_info "Backup before the update skipped (--no-backup)."; return 0; fi
     [ "$DRY" = 1 ] && { echo -e "  ${DIM}would save a backup of your config, calibration, database and factory settings first${NC}"; return 0; }
     local dir="$HOME_DIR/wm-backups" out items=() i
-    for i in printer_data/config printer_data/database printer_data/moonraker.asvc printer_data/wm-model TM_T1/factory_settings; do [ -e "$HOME_DIR/$i" ] && items+=("$i"); done
+    for i in printer_data/config printer_data/database printer_data/moonraker.asvc printer_data/wm-model printer_data/wm-baseline TM_T1/factory_settings; do [ -e "$HOME_DIR/$i" ] && items+=("$i"); done
     [ ${#items[@]} -gt 0 ] || return 0
     mkdir -p "$dir"; out="$dir/wm-backup-$(model_now)-before-update-$STAMP.tgz"
     if tar czf "$out" -C "$HOME_DIR" "${items[@]}" 2>/dev/null; then
@@ -1591,7 +1636,7 @@ do_update() {
         "$HOME_DIR/moonraker-env/bin/pip" install -q -r "$SCRIPT_DIR/config/moonraker-requirements.txt" || warn_later "moonraker-env packages did not update."
     fi
     progress_bar 45 100 "Update step 4 of $UT: services, nginx, CAN"
-    if [ -z "$ONLY_ADDON" ]; then step_services_files; step_nginx; step_can; step_rpicfg; step_pidcfg; fi
+    if [ -z "$ONLY_ADDON" ]; then step_services_files; step_nginx; step_can; step_rpicfg; step_cfgmerge; step_pidcfg; fi
     progress_bar 50 100 "Update step 5 of $UT: Fluidd panel"
     if [ -z "$ONLY_ADDON" ] && [ "$WANT_PANEL" = 1 ]; then
         local sha=""; panel_get && sha="$(sha256sum "$PANEL_ZIP" | cut -d' ' -f1)"
@@ -1861,6 +1906,10 @@ do_doctor() {
         elif ! cmp -s "$SCRIPT_DIR/rpi-cfg/$rf" "$HOME_DIR/printer_data/config/$rf"; then doc_bad "$rf differs from the one in rpi-cfg (edited, or an older version)" "Fixing replaces it with the repository version; your copy is kept as $rf.wm-before-rpicfg-<time>."; offer_fix "replace $rf with the version from rpi-cfg" step_rpicfg
         else doc_ok "calibration macros $rf (included in printer.cfg, same as rpi-cfg)"; fi
     done
+    if [ -f "$(cfgmerge_py)" ] && [ -f "$HOME_DIR/printer_data/config/printer.cfg" ] && [ -f "$(cfgmerge_new_dir)/printer.cfg" ]; then
+        if [ -f "$(cfgmerge_base_dir)/printer.cfg" ]; then doc_ok "the WonderMaker printer.cfg this Pi was set up from is recorded (the starting point for merging a newer version)"
+        else doc_bad "the WonderMaker printer.cfg this Pi was set up from is not recorded" "Without it a newer WonderMaker version cannot be merged into your printer.cfg (3-way). Fixing records this repository's factory file as the starting point."; offer_fix "record the factory printer.cfg as the starting point" cfgmerge_record; fi
+    fi
     if [ -f "$(pidcfg_py)" ] && [ -f "$HOME_DIR/printer_data/config/printer.cfg" ]; then
         local pco pcr; pco="$(pidcfg_check)"; pcr=$?
         if [ "$pcr" = 0 ]; then doc_ok "PID settings of the hotends, bed and chamber heater are where Klipper can save a PID result"
@@ -2655,6 +2704,7 @@ case "$MODE" in
     zrtools)    do_zr_tools; exit $? ;;
     rpicfg)     do_rpicfg; exit $? ;;
     pidcfg)     do_pidcfg; exit $? ;;
+    cfgmerge)   do_cfgmerge; exit $? ;;
     freespace)  do_free_space; exit $? ;;
     doctor)     do_doctor; exit $? ;;
     repair)     do_repair; exit 0 ;;
@@ -2689,7 +2739,7 @@ show_plan
 guard_not_printing
 save_answers
 PROG_STEPS=14
-step_packages; step_groups; step_python; step_unpack; step_model; step_rpicfg; step_pidcfg; step_venvs; step_modules
+step_packages; step_groups; step_python; step_unpack; step_model; step_rpicfg; step_cfgmerge; step_pidcfg; step_venvs; step_modules
 step_services; step_nginx; step_can; step_panel; step_screen; step_netmgr; step_timelapse; step_shellcmd; step_shaketune; step_spoolman; step_remote; step_crowsnest; step_start
 save_answers
 restart_klipper_after

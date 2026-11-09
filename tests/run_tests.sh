@@ -1020,7 +1020,8 @@ P3="$G3/printer_data/config"
 check "pid-cfg: the factory Ultra-S files have the chamber conflict (what the check must find)" "python3 $ROOT/scripts/wm_pidcfg.py check $P3 | grep -q 'CONFLICT zru-s.cfg \\[heater_generic chamber\\] control pid_Kp pid_Ki pid_Kd'"
 check "pid-cfg: the factory hotends are pid (the SAVE_CONFIG block has control = pid), so no hotend problem" "! python3 $ROOT/scripts/wm_pidcfg.py check $P3 | grep -q HOTEND"
 D3="WM_HOME=$G3 WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash $ROOT/installer.sh"
-check "doctor reports the chamber PID conflict" "$D3 --doctor 2>&1 </dev/null | grep -q 'problem.*PID settings: CONFLICT zru-s.cfg'"
+DR3="yes n 2>/dev/null | WM_HOME=$G3 WM_INSTALLER_TEST=1 bash $ROOT/installer.sh --doctor"   # answers n to every fix: report only
+check "doctor reports the chamber PID conflict (and changes nothing when the fix is declined)" "eval \"$DR3\" > $T/dr1.out 2>&1; grep -q 'problem.*PID settings: CONFLICT zru-s.cfg' $T/dr1.out && grep -q '^pid_Kp=63.418' $P3/zru-s.cfg"
 WM_HOME="$G3" WM_INSTALLER_TEST=1 bash "$ROOT/installer.sh" --pid-cfg --dry-run >/dev/null 2>&1 </dev/null
 check "--pid-cfg dry run changes nothing" "grep -q '^pid_Kp=63.418' $P3/zru-s.cfg && ! ls $P3/*.wm-before-pidcfg-* "
 WM_HOME="$G3" WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash "$ROOT/installer.sh" --pid-cfg > "$T/pid.out" 2>&1 </dev/null
@@ -1047,6 +1048,49 @@ check "Fix everything gives the 4 hotends control: pid (6 lines with bed and cha
 check "pid check is clean again (hotends and chamber)" "python3 $ROOT/scripts/wm_pidcfg.py check $P3 | grep -qx OK"
 check "the hotend fix saved printer.cfg first" "ls $P3/printer.cfg.wm-before-pidcfg-* >/dev/null && grep -q '^#control: pid' $P3/printer.cfg.wm-before-pidcfg-*"
 check "the Ultra (no zru-s.cfg include, no chamber) is not touched" "R=$T/g4; rm -rf \$R; mkdir -p \$R/printer_data; cp -r $ROOT/factory/ultra/config \$R/printer_data/config; ! grep -q 'heater_generic chamber' \$R/printer_data/config/printer.cfg && python3 $ROOT/scripts/wm_pidcfg.py check \$R/printer_data/config | grep -qx OK"
+# ---- WonderMaker's printer.cfg changes merged into the Pi's printer.cfg (scripts/wm_cfgmerge.py, installer step 4e, --cfg-merge)
+check "doctor says when the WonderMaker printer.cfg starting point is not recorded" "grep -q 'problem.*printer.cfg this Pi was set up from is not recorded' $T/dr1.out"
+RP="$T/repo5"; rm -rf "$RP"; mkdir -p "$RP/factory/ultra-s/config" "$RP/scripts" "$RP/rpi-cfg"; cp "$ROOT/installer.sh" "$ROOT/VERSION" "$RP/"; cp "$ROOT"/scripts/* "$RP/scripts/"; cp "$ROOT"/rpi-cfg/* "$RP/rpi-cfg/"
+cp "$ROOT/factory/ultra-s/config/printer.cfg" "$T/pc-old.cfg"
+python3 - "$T/pc-old.cfg" "$RP/factory/ultra-s/config/printer.cfg" <<'PY'
+import sys
+s=open(sys.argv[1]).read()
+n=s.replace("pressure_advance: 0.032","pressure_advance: 0.040",1).replace("max_extrude_cross_section:5000","max_extrude_cross_section:6000",1)
+n=n.replace("#*# <---------------------- SAVE_CONFIG","[output_pin wm_new_pin]\npin: PB9\n\n#*# <---------------------- SAVE_CONFIG",1)
+open(sys.argv[2],"w").write(n)
+PY
+G5="$T/g5"; rm -rf "$G5"; mkdir -p "$G5/printer_data"; cp -r "$ROOT/factory/ultra-s/config" "$G5/printer_data/config"; echo ultra-s > "$G5/printer_data/wm-model"; P5="$G5/printer_data/config"
+python3 "$ROOT/scripts/wm_pidcfg.py" fix "$P5" T0 >/dev/null; rm -f "$P5"/*.wm-before-pidcfg-*   # a Pi whose PID settings are already fine
+sed -i 's/^pressure_advance: 0.032/pressure_advance: 0.045/; s/^#\*# pid_kp = 26.638/#*# pid_kp = 99.999/' "$P5/printer.cfg"
+sed -i 's|^#\*# <---------------------- SAVE_CONFIG|[output_pin my_led]\npin: PB1\n\n&|' "$P5/printer.cfg"
+sed -i '1i [include wm_calibration.cfg]' "$P5/printer.cfg"
+cp "$P5/printer.cfg" "$T/pc5.mine"
+WM_HOME="$G5" WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash "$RP/installer.sh" --cfg-merge > "$T/cm0.out" 2>&1 </dev/null
+check "--cfg-merge with no record only records the starting point and changes nothing" "cmp $P5/printer.cfg $T/pc5.mine && cmp $G5/printer_data/wm-baseline/printer.cfg $RP/factory/ultra-s/config/printer.cfg && grep -q 'Recorded this repository' $T/cm0.out"
+cp "$T/pc-old.cfg" "$G5/printer_data/wm-baseline/printer.cfg"   # the Pi was set up from the old WonderMaker file
+WM_HOME="$G5" WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash "$RP/installer.sh" --cfg-merge --dry-run >/dev/null 2>&1 </dev/null
+check "--cfg-merge dry run changes nothing" "cmp $P5/printer.cfg $T/pc5.mine"
+WM_HOME="$G5" WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash "$RP/installer.sh" --cfg-merge > "$T/cm1.out" 2>&1 </dev/null
+check "merge: WonderMaker's new setting and new section arrive" "grep -q '^max_extrude_cross_section:6000' $P5/printer.cfg && grep -q '^\\[output_pin wm_new_pin\\]' $P5/printer.cfg"
+check "merge: my value (a conflict, assume-yes keeps mine), my section and my include stay" "grep -q '^pressure_advance: 0.045' $P5/printer.cfg && grep -q '^\\[output_pin my_led\\]' $P5/printer.cfg && head -1 $P5/printer.cfg | grep -qx '\\[include wm_calibration.cfg\\]'"
+check "merge: the SAVE_CONFIG block is mine, byte for byte" "diff <(sed -n '/SAVE_CONFIG ---/,\$p' $T/pc5.mine) <(sed -n '/SAVE_CONFIG ---/,\$p' $P5/printer.cfg)"
+check "merge: a copy of my printer.cfg is kept and the starting point moves to the new version" "cmp $T/pc5.mine $P5/printer.cfg.wm-before-cfgmerge-* && cmp $G5/printer_data/wm-baseline/printer.cfg $RP/factory/ultra-s/config/printer.cfg"
+NBC=$(ls $P5 | grep -c 'wm-before-cfgmerge')
+WM_HOME="$G5" WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash "$RP/installer.sh" --cfg-merge > "$T/cm2.out" 2>&1 </dev/null
+check "merge: a second run finds nothing to do and makes no new copy" "grep -q 'already has everything' $T/cm2.out && [ \$(ls $P5 | grep -c 'wm-before-cfgmerge') = $NBC ]"
+check "the merge keeps the PID settings in a place SAVE_CONFIG can store them" "python3 $ROOT/scripts/wm_pidcfg.py check $P5 | grep -qx OK || python3 $ROOT/scripts/wm_pidcfg.py check $P5 | grep -q CONFLICT"
+check "backup and auto backup include the recorded starting point" "[ \$(grep -c 'printer_data/wm-baseline' $ROOT/installer.sh) -ge 3 ]"
+python3 - "$ROOT/scripts/wm_cfgmerge.py" <<'PY'
+import importlib.util,sys
+sp=importlib.util.spec_from_file_location("m",sys.argv[1]); m=importlib.util.module_from_spec(sp); sp.loader.exec_module(m)
+base="[mcu T0]\ncanbus_uuid: aaaa\n[extruder]\nrotation_distance: 21.0\n"
+rel="[mcu T0]\ncanbus_uuid: bbbb\n[extruder]\nrotation_distance: 22.0\nnew_opt: 1\n[gone]\nx: 1\n"
+live="[mcu T0]\ncanbus_uuid: cccc\n[extruder]\nrotation_distance: 21.0\nmy_opt: 2\n"
+t,c,n=m.merge_cfg(base,rel,live)
+ok = "canbus_uuid: cccc" in t and "bbbb" not in t and "rotation_distance: 22.0" in t and "new_opt: 1" in t and "my_opt: 2" in t and not c
+sys.exit(0 if ok else 1)
+PY
+check "merge unit: canbus_uuid stays the Pi's, WonderMaker's change and new setting arrive, my setting stays" "[ $? = 0 ]"
 check "pip is told not to check for a newer pip (no warning on slow links)" "grep -q '^export PIP_DISABLE_PIP_VERSION_CHECK=1' $ROOT/installer.sh && grep -q '^export PIP_DISABLE_PIP_VERSION_CHECK=1' $ROOT/scripts/screen_board.sh"
 check "board update: waits at most 60 s for Klipper on the Pi, says it is still waiting, and cleans /tmp on Ctrl-C" "grep -q 'still waiting: Klipper on the Pi' $ROOT/scripts/screen_board.sh && grep -q 'rm -rf \"\${LATEST_TMP:-}\"; exit 130' $ROOT/scripts/screen_board.sh && ! grep -q 'for i in \$(seq 1 30); do' <(sed -n '/^restart_pi_klipper/,/^}/p' $ROOT/scripts/screen_board.sh)"
 check "board lib error message names an option that exists" "! grep -q 'screen_board.sh --get-latest' $ROOT/scripts/screen_board.sh"
