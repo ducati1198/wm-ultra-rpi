@@ -543,6 +543,28 @@ check "--rpi-cfg with nothing changed makes no extra copy of wm_calibration.cfg"
 check "--rpi-cfg dry run changes nothing" "rm -f $G2/printer_data/config/wm_calibration.cfg; WM_HOME=$G2 WM_INSTALLER_TEST=1 bash $ROOT/installer.sh --rpi-cfg --dry-run >/dev/null 2>&1 </dev/null; [ ! -f $G2/printer_data/config/wm_calibration.cfg ]"
 WM_HOME="$G2" WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash "$ROOT/installer.sh" --rpi-cfg >/dev/null 2>&1 </dev/null
 check "--rpi-cfg restores a deleted file" "cmp $ROOT/rpi-cfg/wm_calibration.cfg $G2/printer_data/config/wm_calibration.cfg"
+check "nozzle: wm_nozzle.cfg is installed and included, with its helper script" "cmp $ROOT/rpi-cfg/wm_nozzle.cfg $G2/printer_data/config/wm_nozzle.cfg && [ \$(grep -c '^\\[include wm_nozzle.cfg\\]' $G2/printer_data/config/printer.cfg) = 1 ] && cmp $ROOT/scripts/wm_nozzle.py $G2/printer_data/wm-tools/wm_nozzle.py"
+check "nozzle: the shell command extension is there too" "[ -f $G2/klipper/klippy/extras/gcode_shell_command.py ]"
+check "nozzle: doctor is happy with the helper script" "eval \"$D\" 2>&1 | grep -q 'wm_nozzle.py (the helper behind WM_NOZZLE_TYPE) is in place'"
+rm -f "$G2/printer_data/wm-tools/wm_nozzle.py"
+check "nozzle: doctor notices a missing helper script" "yes n | WM_HOME=$G2 WM_INSTALLER_TEST=1 bash $ROOT/installer.sh --doctor 2>&1 | grep -q 'wm_nozzle.py is missing or different'"
+WM_HOME="$G2" WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash "$ROOT/installer.sh" --rpi-cfg >/dev/null 2>&1 </dev/null
+check "nozzle: --rpi-cfg puts the helper script back" "cmp $ROOT/scripts/wm_nozzle.py $G2/printer_data/wm-tools/wm_nozzle.py"
+NZ="$T/nz"; mkdir -p "$NZ"; cp "$ROOT/factory/ultra-s/config/printer.cfg" "$ROOT/factory/ultra-s/config/tmt1.ini" "$NZ/"
+check "nozzle script: show lists the four nozzles" "[ \$(python3 $ROOT/scripts/wm_nozzle.py --config $NZ show | grep -c '0.400000 mm') = 4 ]"
+check "nozzle script: set changes only that nozzle's diameter and the type in tmt1.ini" "python3 $ROOT/scripts/wm_nozzle.py --config $NZ set 1 0.6 1 | grep -q 'Restart Klipper' && [ \$(diff $NZ/printer.cfg $ROOT/factory/ultra-s/config/printer.cfg | grep -c '^<') = 1 ] && python3 $ROOT/scripts/wm_nozzle.py --config $NZ show | grep -q 'Nozzle 2 (tool T1, \\[extruder1\\]): 0.600000' && grep -q '^type1=1' $NZ/tmt1.ini && grep -q '^type0=0' $NZ/tmt1.ini"
+check "nozzle script: a copy of printer.cfg and tmt1.ini is kept first" "ls $NZ/printer.cfg.wm-before-nozzle-* $NZ/tmt1.ini.wm-before-nozzle-* && cmp \$(ls $NZ/printer.cfg.wm-before-nozzle-* | head -1) $ROOT/factory/ultra-s/config/printer.cfg"
+check "nozzle script: refuses a tool, a diameter and a type that make no sense" "! python3 $ROOT/scripts/wm_nozzle.py --config $NZ set 4 0.4 && ! python3 $ROOT/scripts/wm_nozzle.py --config $NZ set 0 7 && ! python3 $ROOT/scripts/wm_nozzle.py --config $NZ set 0 0.4 5 && ! python3 $ROOT/scripts/wm_nozzle.py --config $NZ set 0 abc"
+check "nozzle script: refuses a tool this printer does not have" "cp $ROOT/factory/ultra-s/config-variants/printer2.cfg $NZ/p2.cfg; mkdir -p $NZ/two; cp $NZ/p2.cfg $NZ/two/printer.cfg; ! python3 $ROOT/scripts/wm_nozzle.py --config $NZ/two set 3 0.4 | grep -v refused"
+check "nozzle script: the SAVE_CONFIG block of printer.cfg is unchanged" "[ \"\$(sed -n '/SAVE_CONFIG/,\$p' $NZ/printer.cfg)\" = \"\$(sed -n '/SAVE_CONFIG/,\$p' $ROOT/factory/ultra-s/config/printer.cfg)\" ]"
+NZ2="$T/nz2"; mkdir -p "$NZ2"; { cat "$ROOT/factory/ultra-s/config/printer.cfg" | sed '$d'; printf '#*# [extruder1]\n#*# nozzle_diameter = 0.400000\n'; } > "$NZ2/printer.cfg"
+check "nozzle script: a nozzle_diameter that sits in the SAVE_CONFIG block is changed there too" "python3 $ROOT/scripts/wm_nozzle.py --config $NZ2 set 1 0.8 >/dev/null && grep -q '^#\\*# nozzle_diameter = 0.800000' $NZ2/printer.cfg"
+HNZ="$T/hnz"; mkdir -p "$HNZ"; inst "$HNZ" --from-github --model ultra-s --shell-command off >/dev/null
+check "nozzle: with the shell command extension off, wm_nozzle.cfg is not installed or included" "[ ! -f $HNZ/printer_data/config/wm_nozzle.cfg ] && ! grep -q 'wm_nozzle' $HNZ/printer_data/config/printer.cfg"
+check "nozzle: and the doctor does not ask for it" "! yes n | WM_HOME=$HNZ WM_INSTALLER_TEST=1 bash $ROOT/installer.sh --doctor 2>&1 | grep -q 'wm_nozzle'"
+inst "$HNZ" --update --shell-command on >/dev/null
+check "nozzle: turning the extension on installs wm_nozzle.cfg and includes it" "[ -f $HNZ/printer_data/config/wm_nozzle.cfg ] && grep -q '^\\[include wm_nozzle.cfg\\]' $HNZ/printer_data/config/printer.cfg && [ -f $HNZ/klipper/klippy/extras/gcode_shell_command.py ]"
+check "nozzle: removing the shell command extension takes wm_nozzle.cfg out of printer.cfg first" "M 'y\n' $HNZ --remove shell-command | grep -q 'Removed' && ! grep -q 'wm_nozzle.cfg' $HNZ/printer_data/config/printer.cfg && ls $HNZ/printer_data/config/wm_nozzle.cfg.wm-removed-* && [ ! -e $HNZ/klipper/klippy/extras/gcode_shell_command.py ]"
 rm -f "$G2"/klipper/klippy/extras/cs1237.*.so
 check "doctor finds a missing module and restores it from the repo" "WM_HOME=$G2 WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash $ROOT/installer.sh --doctor; ls $G2/klipper/klippy/extras/cs1237.*.so"
 check "doctor reports bad network clock/power as problems" "! WM_TEST_THROTTLED=0x50005 WM_HOME=$G2 WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash $ROOT/installer.sh --doctor"

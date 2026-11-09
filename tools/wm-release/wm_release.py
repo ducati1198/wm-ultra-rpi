@@ -32,7 +32,7 @@ Version: see --version.  Data folder: $WMR_HOME (default ~/wm-private-data).  Li
 """
 import argparse, atexit, getpass, hashlib, io, json, os, re, shutil, subprocess, sys, tarfile, tempfile, time, urllib.request, urllib.parse, zipfile
 
-TOOL_VERSION = "1.7.0"   # this tool's own version (not the installer's VERSION file); see README "Version history"
+TOOL_VERSION = "1.7.1"   # this tool's own version (not the installer's VERSION file); see README "Version history"
 HOME = os.path.expanduser("~")
 DATA = os.environ.get("WMR_HOME", os.path.join(HOME, "wm-private-data"))
 LIVE = os.environ.get("WMR_LIVE_HOME", HOME)
@@ -115,6 +115,7 @@ def rpi_cfg_state():
     except OSError: pc = ""
     for n in rpi_cfg_files():
         live = p(cfgd, n)
+        if n == "wm_nozzle.cfg" and not os.path.isfile(live) and not os.path.isfile(p(LIVE, "klipper", "klippy", "extras", "gcode_shell_command.py")): continue   # it needs the shell command extension; without it the installer leaves it out on purpose
         if not os.path.isfile(live): st = "missing (run ./installer.sh --rpi-cfg)"
         elif not re.search(r"^\s*\[include\s+%s\s*\]" % re.escape(n), pc, re.M): st = "not included in printer.cfg (run ./installer.sh --rpi-cfg)"
         elif d and os.path.isfile(p(d, n)) and not same_text(live, p(d, n)): st = "differs from the copy in rpi-cfg (edited, or older; ./installer.sh --rpi-cfg replaces it and keeps yours)"

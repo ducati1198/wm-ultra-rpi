@@ -392,7 +392,11 @@ step_unpack() {
     print_success "Unpacked"
 }
 
-rpicfg_list() { local f; for f in "$SCRIPT_DIR"/rpi-cfg/*.cfg; do [ -f "$f" ] && basename "$f"; done; }
+nozzle_script_dst() { echo "$HOME_DIR/printer_data/wm-tools/wm_nozzle.py"; }
+rpicfg_shell_ok() { [ -f "$HOME_DIR/klipper/klippy/extras/gcode_shell_command.py" ] || [ "${WANT_SHELLCMD:-0}" = 1 ]; }
+rpicfg_list() {   # wm_nozzle.cfg holds a [gcode_shell_command] section: Klipper would not start without that extension, so it is only used where the extension is or will be installed
+    local f b; for f in "$SCRIPT_DIR"/rpi-cfg/*.cfg; do [ -f "$f" ] || continue; b="$(basename "$f")"; [ "$b" = wm_nozzle.cfg ] && ! rpicfg_shell_ok && continue; echo "$b"; done
+}
 rpicfg_included() { grep -qE "^[[:space:]]*\[include[[:space:]]+$1[[:space:]]*\]" "$HOME_DIR/printer_data/config/printer.cfg" 2>/dev/null; }
 step_rpicfg() {   # the Pi's own config files (repo folder rpi-cfg/, not WonderMaker's): copy them and include them in printer.cfg
     print_header "Step 4c: the Pi's calibration macros (rpi-cfg)"
@@ -405,6 +409,9 @@ step_rpicfg() {   # the Pi's own config files (repo folder rpi-cfg/, not WonderM
             cp "$cd/$f" "$cd/$f.wm-before-rpicfg-$STAMP"; print_info "$f was different: your old copy is kept as $f.wm-before-rpicfg-$STAMP"
         fi
         cp "$SCRIPT_DIR/rpi-cfg/$f" "$cd/$f"
+        if [ "$f" = wm_nozzle.cfg ]; then   # its shell command runs this script; it is kept outside the config folder, which WonderMaker updates merge
+            mkdir -p "$(dirname "$(nozzle_script_dst)")" && cp "$SCRIPT_DIR/scripts/wm_nozzle.py" "$(nozzle_script_dst)" && chmod +x "$(nozzle_script_dst)"
+        fi
         if rpicfg_included "$f"; then print_success "$f is installed (printer.cfg already includes it)"
         else
             cp "$cfg" "$cfg.wm-before-rpicfg-$STAMP"
@@ -417,6 +424,8 @@ do_rpicfg() {   # ./installer.sh --rpi-cfg
     print_header "The Pi's own config files (rpi-cfg)"
     [ -f "$HOME_DIR/printer_data/config/printer.cfg" ] || die_with_fix "there is no printer.cfg on this Pi yet." "install first (menu 1), then run this again."
     guard_not_printing
+    # wm_nozzle.cfg needs Klipper's gcode shell command extension: put it in first (an install or update does that in its own step)
+    [ -f "$HOME_DIR/klipper/klippy/extras/gcode_shell_command.py" ] || [ ! -d "$HOME_DIR/klipper/klippy/extras" ] || [ "$WANT_SHELLCMD" != 1 ] || step_shellcmd
     step_rpicfg
     [ "$DRY" = 1 ] || { restart_klipper_after; print_info "In Fluidd run WM_CAL_HELP to list the calibration macros."; }
 }
@@ -1905,6 +1914,10 @@ do_doctor() {
         elif ! rpicfg_included "$rf"; then doc_bad "printer.cfg does not include $rf" "The WM_ calibration macros are not loaded."; offer_fix "add the include line for $rf" step_rpicfg
         elif ! cmp -s "$SCRIPT_DIR/rpi-cfg/$rf" "$HOME_DIR/printer_data/config/$rf"; then doc_bad "$rf differs from the one in rpi-cfg (edited, or an older version)" "Fixing replaces it with the repository version; your copy is kept as $rf.wm-before-rpicfg-<time>."; offer_fix "replace $rf with the version from rpi-cfg" step_rpicfg
         else doc_ok "calibration macros $rf (included in printer.cfg, same as rpi-cfg)"; fi
+        if [ "$rf" = wm_nozzle.cfg ] && [ -f "$HOME_DIR/printer_data/config/$rf" ]; then
+            if cmp -s "$SCRIPT_DIR/scripts/wm_nozzle.py" "$(nozzle_script_dst)" 2>/dev/null; then doc_ok "wm_nozzle.py (the helper behind WM_NOZZLE_TYPE) is in place"
+            else doc_bad "wm_nozzle.py is missing or different in ~/printer_data/wm-tools" "WM_NOZZLE_TYPE could not write the nozzle diameter."; offer_fix "copy wm_nozzle.py again" step_rpicfg; fi
+        fi
     done
     if [ -f "$(cfgmerge_py)" ] && [ -f "$HOME_DIR/printer_data/config/printer.cfg" ] && [ -f "$(cfgmerge_new_dir)/printer.cfg" ]; then
         if [ -f "$(cfgmerge_base_dir)/printer.cfg" ]; then doc_ok "the WonderMaker printer.cfg this Pi was set up from is recorded (the starting point for merging a newer version)"
@@ -2147,9 +2160,13 @@ do_remove_addon_core() {
         shell-command)
             local ef="$HOME_DIR/klipper/klippy/extras/gcode_shell_command.py" users
             [ -f "$ef" ] || { print_info "The shell command extension is not installed."; return 0; }
-            users="$(grep -rl '^\[gcode_shell_command' "$cfgd" 2>/dev/null | tr '\n' ' ')"
+            users="$(grep -rl '^\[gcode_shell_command' "$cfgd" 2>/dev/null | grep -v '/wm_nozzle\.cfg$' | tr '\n' ' ')"   # wm_nozzle.cfg is ours: it is taken out below
             if [ -n "$users" ] && [ "$FORCE" != 1 ]; then die_with_fix "printer.cfg still has [gcode_shell_command ...] sections (in: $users). Klipper would not start without the extension." "remove those sections first, then try again."; fi
             ask_yn "Remove the Klipper gcode shell command extension?" n || { echo "Nothing changed."; return 0; }
+            if [ -f "$cfgd/wm_nozzle.cfg" ]; then   # WM_NOZZLE_TYPE needs the extension: take its include out (printer.cfg is copied first) and keep the file aside
+                [ -f "$cfgd/printer.cfg" ] && cp "$cfgd/printer.cfg" "$cfgd/printer.cfg.wm-before-rmshell-$STAMP" && sed -i '/^[[:space:]]*\[include[[:space:]]\+wm_nozzle\.cfg[[:space:]]*\]/d' "$cfgd/printer.cfg"
+                mv "$cfgd/wm_nozzle.cfg" "$cfgd/wm_nozzle.cfg.wm-removed-$STAMP"; print_info "wm_nozzle.cfg (WM_NOZZLE_TYPE) was taken out of printer.cfg too, because it needs the extension. It is kept as wm_nozzle.cfg.wm-removed-$STAMP."
+            fi
             rm -f "$ef"; WANT_SHELLCMD=0; save_answers
             print_success "Removed. Restart Klipper from Fluidd when you are ready." ;;
         obico|octoapp|octoeverywhere)

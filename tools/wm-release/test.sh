@@ -401,6 +401,6 @@ mkdir -p "$WMR_HOME/baseline/x" "$T/fw"; echo z > "$T/fw/a.zip"
 check "clean --keep-firmware keeps the archive" bash -c "WMR_TEST_TYPED=DELETE python3 $PY clean --run --keep-firmware >/dev/null && test -f $T/fw/a.zip && ! test -e $WMR_HOME"
 check "clean refuses a protected location" bash -c "WMR_HOME=$T/live WMR_LIVE_HOME=$T/live python3 $PY clean --run 2>&1 | grep -q refusing; test -d $T/live"
 
-check "the tool has a version: --version, the menu title, status and the history" bash -c "python3 $PY --version | grep -q 'wm_release.py [0-9]' && printf '0\n' | python3 $PY | grep -q 'WonderMaker release tool [0-9]' && python3 $PY status | grep -q 'Tool version: [0-9]' && grep -q '(version 1.7.0)' $HERE/README.md"
+check "the tool has a version: --version, the menu title, status and the history" bash -c "python3 $PY --version | grep -q 'wm_release.py [0-9]' && printf '0\n' | python3 $PY | grep -q 'WonderMaker release tool [0-9]' && python3 $PY status | grep -q 'Tool version: [0-9]' && grep -q '(version 1.7.1)' $HERE/README.md"
 
 echo; echo "passed: $pass  failed: $fail"; [ "$fail" = 0 ]

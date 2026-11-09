@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.23.26
+
+- New `rpi-cfg/wm_nozzle.cfg`: `WM_NOZZLE_TYPE` (pick nozzle 1 to 4, material hardened or stainless steel, diameter 0.2 to 0.8 mm, confirm, optional Klipper restart) and `WM_EXTRUDER_SETUP` / `WM_EXTRUDER_SETUP_END` (the app's instruction, heater and temperature check, `is_nozzle_setting` on, park and unlock the tool on the carriage, Done puts it back and checks the dock sensors), as Fluidd window wizards like `WM_QUICK_START`. The calibration macros now refuse to start while `is_nozzle_setting` is 1.
+- New `scripts/wm_nozzle.py`: writes `nozzle_diameter` into printer.cfg (copy `.wm-before-nozzle-<time>`, SAVE_CONFIG block value changed too) and the type into `tmt1.ini`. Run through Klipper's gcode shell command extension; the installer copies it to `~/printer_data/wm-tools/`, installs `wm_nozzle.cfg` only where that extension is (or will be) installed, the Doctor checks the script, and `--remove shell-command` takes `wm_nozzle.cfg` out of printer.cfg first. 581 installer tests, 31 macros in the render test. Not tested on a real printer.
+- Release tool 1.7.1: `status` does not report `wm_nozzle.cfg` as missing where the shell command extension is not installed.
+
 ## 1.23.25
 
 - printer.cfg now follows WonderMaker's versions. New `scripts/wm_cfgmerge.py`: a 3-way merge by setting (old factory file, new factory file, the Pi's file). WonderMaker's new and changed settings and sections arrive; the Pi's own lines, sections and `[include]` lines stay; `canbus_uuid` / `serial` stay the Pi's; the SAVE_CONFIG block is kept byte for byte; a setting both sides changed differently is asked one by one (mine / theirs). `saved_variables.cfg` only gets new keys, never a changed value.
