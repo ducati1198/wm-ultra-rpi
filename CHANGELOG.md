@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.23.22
+
+- `rpi-cfg/wm_calibration.cfg`: new `WM_QUICK_START`, a one-click hands-off calibration modeled on the K1's QUICK_START. A Fluidd window explains what runs (bed leveling, rapid tool offsets, vibration compensation, hotend PID where `control: pid`), the checks to make and the time, then runs everything and asks once to Save and Restart. Z height is offered at the end instead. 18 macros in the render test. Not tested on a real printer.
+
 ## 1.23.21
 
 - New folder `rpi-cfg/` for config files made for the Pi (not WonderMaker's). First file: `wm_calibration.cfg`, the calibration items of the screen app (General > Maintenance) as Fluidd macros: `WM_BED_LEVELING`, `WM_PROBE_CALIBRATE`, `WM_TOOL_OFFSETS MODE=rapid|accurate`, `WM_VIBRATION_COMP`, `WM_NOZZLE_TEMP_CAL`, `WM_CAL_ALL` (asks before each stage), `WM_CAL_STOP`, `WM_CAL_HELP`, `WM_ZOFFSET_UP/DOWN`. Each refuses to run during a print or with a heater on, asks for confirmation, and turns the heaters off at the end. The G-code sequences come from the screen app's own strings. Not tested on a real printer.
