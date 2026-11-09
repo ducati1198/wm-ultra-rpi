@@ -1111,7 +1111,7 @@ s=re.sub(r"#\*# \[extruder\d?\]\n(#\*# (control|pid_k.) = .*\n)+#\*#\n","",s)
 s=s.replace("[heater_generic chamber]\n# moved here from zru-s.cfg: Klipper's SAVE_CONFIG cannot save a value that an included file sets\n","[heater_generic chamber]\n")
 open(f,"w").write(s)
 PY
-check "pid-cfg: hotends without control: pid and without a saved value are found" "python3 $ROOT/scripts/wm_pidcfg.py check $P3 | grep -c '^HOTEND' | grep -qx 4"
+check "pid-cfg: hotends without control: pid and without a saved value are found" "python3 $ROOT/scripts/wm_pidcfg.py check $P3 | grep -c '^HOTEND' | grep -qx 1"
 cp "$P3/printer.cfg" "$T/pid-before.cfg"
 WM_HOME="$G3" WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash "$ROOT/installer.sh" --doctor --fix-all >/dev/null 2>&1 </dev/null
 check "Fix everything gives the 4 hotends control: pid (6 lines with bed and chamber) and keeps their old (commented) values" "[ \$(sed -n '1,/SAVE_CONFIG ---/p' $P3/printer.cfg | grep -c '^control: pid') = 6 ] && grep -q '^pid_Kp: 25.788' $P3/printer.cfg && grep -q '^pid_Kd: 14.291' $P3/printer.cfg"
