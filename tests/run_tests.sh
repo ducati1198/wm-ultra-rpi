@@ -469,6 +469,20 @@ check "new main board: canbus_uuid changed" "grep -q 'canbus_uuid: bb1122334455'
 check "old file kept before the change" "grep -q 'aa157497ce9c' $G5/wm-rpi-backup/uuid-*/wm_zru_mcu.cfg"
 check "hub uuid left alone" "grep -q 'ae2982cf97e9' $G5/printer_data/config/wm_zru_hub.cfg"
 check "klipper started after the uuid fix" "grep -q 'systemctl restart klipper' $G5/.sudo.log"
+# ---- CAN ids of the hub, extruder board, T0-T3 and the load cell: checked, offered a fix, set by hand (--can-ids, Doctor, first start)
+G7="$T/g7"; mkdir -p "$G7"; WM_TEST_CANQUERY="$T/can_ok.txt" inst "$G7" --from-github --model ultra-s --no-start >/dev/null
+C7="$G7/printer_data/config"; T2OLD="$(awk '/canbus_uuid/{print $2}' $C7/wm_zru_thr2.cfg)"; T1OLD="$(awk '/canbus_uuid/{print $2}' $C7/wm_zru_thr1.cfg)"
+(awk '/canbus_uuid/{print $2}' $C7/wm_zru_*.cfg | grep -vx "$T2OLD"; echo ac9999999999) | sed 's/^/Found canbus_uuid=/; s/$/, Application: Klipper/' > "$T/can_t2.txt"
+(awk '/canbus_uuid/{print $2}' $C7/wm_zru_*.cfg | grep -vx -e "$T2OLD" -e "$T1OLD"; echo ac9999999999; echo ac8888888888) | sed 's/^/Found canbus_uuid=/; s/$/, Application: Klipper/' > "$T/can_t12.txt"
+cp -r "$C7" "$T/c7-orig"
+check "doctor says which board's id is not on the bus (answers n: nothing changed)" "yes n 2>/dev/null | WM_TEST_CANQUERY=$T/can_t2.txt WM_HOME=$G7 WM_INSTALLER_TEST=1 bash $ROOT/installer.sh --doctor 2>&1 | grep -q 'toolhead T2 has $T2OLD in the config, which is not on the CAN bus' && grep -q $T2OLD $C7/wm_zru_thr2.cfg"
+check "two boards wrong and two unknown ids on the bus: unattended it does not guess" "WM_TEST_CANQUERY=$T/can_t12.txt WM_HOME=$G7 WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash $ROOT/installer.sh --can-ids 2>&1 | grep -q 'cannot tell which is which' && grep -q $T2OLD $C7/wm_zru_thr2.cfg && grep -q $T1OLD $C7/wm_zru_thr1.cfg"
+check "--can-ids lists each board and whether it answers" "WM_TEST_CANQUERY=$T/can_t2.txt WM_HOME=$G7 WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash $ROOT/installer.sh --can-ids 2>&1 | grep -q 'toolhead T2 .*NOT on the bus'"
+check "one board wrong and one unknown id on the bus: it takes the id, keeps a copy" "grep -q ac9999999999 $C7/wm_zru_thr2.cfg && ls $G7/wm-rpi-backup/uuid-*/wm_zru_thr2.cfg >/dev/null && grep -q $T2OLD $G7/wm-rpi-backup/uuid-*/wm_zru_thr2.cfg"
+check "the other boards' files were not touched" "for f in mcu hub ext thr0 thr1 thr3 load_cell; do cmp -s $C7/wm_zru_\$f.cfg $T/c7-orig/wm_zru_\$f.cfg || exit 1; done"
+check "--can-ids says all fine when every id answers" "WM_TEST_CANQUERY=$T/can_t2.txt WM_HOME=$G7 WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash $ROOT/installer.sh --can-ids 2>&1 | grep -q 'Every id in the config answers'"
+check "--can-ids set T1 writes the id (lower case) and keeps a copy" "WM_HOME=$G7 WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash $ROOT/installer.sh --can-ids set T1 AABBCCDDEEFF >/dev/null 2>&1 && grep -qx 'canbus_uuid: aabbccddeeff' $C7/wm_zru_thr1.cfg"
+check "--can-ids set refuses an unknown board name and a bad id" "! WM_HOME=$G7 WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash $ROOT/installer.sh --can-ids set T9 aabbccddeeff >/dev/null 2>&1 && ! WM_HOME=$G7 WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash $ROOT/installer.sh --can-ids set T1 xyz >/dev/null 2>&1 && grep -qx 'canbus_uuid: aabbccddeeff' $C7/wm_zru_thr1.cfg"
 G6="$T/g6"; mkdir -p "$G6"; WM_TEST_CANQUERY="$T/can_ok.txt" inst "$G6" --from-github --model ultra-s --no-start >/dev/null
 sed -i 's/^\[include zru-s.cfg\]/# [include zru-s.cfg]/' "$G6/printer_data/config/printer.cfg"
 check "validator: ultra-s with zru-s off is an error" "! WM_TEST_CANQUERY=$T/can_ok.txt WM_HOME=$G6 WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash $ROOT/installer.sh --first-start"

@@ -15,6 +15,7 @@
 # ./installer.sh --free-space          list what is safe to erase (sizes, warnings), erase what you pick and confirm
 # ./installer.sh --zr-tools            check the ZR Tools macros (for the screen board), install them when missing
 # ./installer.sh --cfg-merge           bring WonderMaker's changes in this repository's factory printer.cfg (and saved_variables.cfg) to the Pi's printer.cfg with a 3-way merge; your own lines and the SAVE_CONFIG block stay (scripts/wm_cfgmerge.py)
+# ./installer.sh --can-ids [set NAME ID]  which CAN ids in the config answer on the bus (hub, extruder board, T0-T3, load cell, main board); offers to correct wrong ones; "set T2 ac8b57e80210" sets one by hand
 # ./installer.sh --pid-cfg             check that the PID settings of the hotends, bed and chamber heater are where Klipper's SAVE_CONFIG can store a PID result, and fix them (scripts/wm_pidcfg.py)
 # ./installer.sh --rpi-cfg             install or refresh the Pi's own config files from rpi-cfg/ (calibration macros WM_BED_LEVELING, WM_CAL_ALL, ...) and their include line in printer.cfg
 # ./installer.sh --first-start         checks with the main board connected; fixes canbus_uuid; then starts Klipper and the other services
@@ -199,6 +200,7 @@ while [ $# -gt 0 ]; do
         --free-space)   MODE=freespace ;;   # list what is safe to erase, erase what you pick and confirm
         --zr-tools)     MODE=zrtools ;;   # check the ZR Tools macros (for the screen board), install them when missing
         --cfg-merge)    MODE=cfgmerge ;;  # WonderMaker's printer.cfg changes merged into the Pi's printer.cfg
+        --can-ids)      MODE=canids; if [ "${2:-}" = set ]; then CANID_NAME="${3:-}"; CANID_UUID="${4:-}"; shift $(( $# < 3 ? $# : 3 )); fi ;;   # which config ids answer on the CAN bus; fix wrong ones; set one by hand
         --pid-cfg)      MODE=pidcfg ;;    # PID settings in printer.cfg, where SAVE_CONFIG can store a PID result
         --rpi-cfg)      MODE=rpicfg ;;    # the Pi's own config files (rpi-cfg/): calibration macros
         --fix-all)      FIXALL=1 ;;
@@ -1539,6 +1541,95 @@ fix_main_uuid() {  # the main board's uuid in wm_zru_mcu.cfg does not match the 
     chk_fail "main board uuid not changed"; return 1
 }
 
+can_dev_name() {  # config file -> the name used in messages
+    case "$(basename "$1")" in
+        wm_zru_mcu.cfg) echo "main board" ;; wm_zru_hub.cfg) echo "hub" ;; wm_zru_ext.cfg) echo "extruder board" ;;
+        wm_zru_load_cell.cfg) echo "load cell" ;; wm_zru_thr[0-3].cfg) echo "toolhead T$(basename "$1" | tr -dc '0-3')" ;; *) basename "$1" ;;
+    esac
+}
+can_dev_file() {  # a name typed by the user (main, hub, ext, cell, T0..T3, thr0..) -> config file path (empty = unknown name)
+    local n; n="$(echo "$1" | tr 'A-Z' 'a-z' | tr -d ' _-')"
+    case "$n" in
+        main|mcu|mainboard) echo "$(cfg_dir)/wm_zru_mcu.cfg" ;; hub) echo "$(cfg_dir)/wm_zru_hub.cfg" ;;
+        ext|extt|extruder|extruderboard) echo "$(cfg_dir)/wm_zru_ext.cfg" ;; cell|loadcell) echo "$(cfg_dir)/wm_zru_load_cell.cfg" ;;
+        t[0-3]|thr[0-3]) echo "$(cfg_dir)/wm_zru_thr${n: -1}.cfg" ;;
+    esac
+}
+can_missing_devs() {  # $1 = ids on the bus; prints "file uuid" for every device in the config whose id is not on the bus
+    local f u; while read -r f u; do [ -n "$f" ] || continue; echo "$1" | grep -qx "$u" || echo "$f $u"; done < <(cfg_uuids)
+}
+set_dev_uuid() {  # file new-uuid : writes it, a copy of the file is saved first
+    local f="$1" u="$2"
+    mkdir -p "$BACKUP_ROOT/uuid-$STAMP"; cp "$f" "$BACKUP_ROOT/uuid-$STAMP/"
+    sed -i -E "s/^([[:space:]]*canbus_uuid[[:space:]]*:)[[:space:]]*[0-9a-fA-F]*/\1 $u/" "$f"
+}
+fix_dev_uuid() {  # file have found nmissing : the config id of one device is not on the bus; offer the unknown device on the bus
+    local f="$1" have="$2" found="$3" nmiss="${4:-1}" name cand=() u c configured
+    name="$(can_dev_name "$f")"
+    configured="$(cfg_uuids | awk '{print $2}' | sort -u)"
+    for u in $found; do echo "$configured" | grep -qx "$u" || cand+=("$u"); done
+    if [ ${#cand[@]} -eq 0 ]; then echo "  $name: the config says $have, which is not on the CAN bus, and the bus has no unknown device (not powered, or not connected?)."; return 1; fi
+    if [ "${WM_ASSUME_YES:-0}" = 1 ] || [ "${DOC_FIXALL:-0}" = 1 ]; then
+        if [ ${#cand[@]} -ne 1 ] || [ "$nmiss" -ne 1 ]; then
+            echo "  $name: $nmiss device(s) have an id that is not on the bus and ${#cand[@]} unknown device(s) are on it (${cand[*]}), so I cannot tell which is which. Run ./installer.sh --can-ids and choose."; return 1
+        fi
+    fi
+    if [ ${#cand[@]} -gt 1 ]; then
+        echo "  $name has $have in the config; unknown devices on the bus:"
+        local i=1; for c in "${cand[@]}"; do echo "    $i) $c"; i=$((i+1)); done
+        read -r -p "  Which one is the $name (number, empty = leave it): " c || c=""
+        [[ "$c" =~ ^[0-9]+$ ]] && [ "$c" -ge 1 ] && [ "$c" -le ${#cand[@]} ] || { echo "  $name: left as it is."; return 1; }
+        u="${cand[$((c-1))]}"
+    else u="${cand[0]}"; fi
+    echo "  The config says the $name is $have; the bus has an unknown device $u."
+    if ask_yn "  Change canbus_uuid in $(basename "$f") to $u (a copy is saved first)?" y; then
+        set_dev_uuid "$f" "$u"; echo "  $name now uses $u (old file: $BACKUP_ROOT/uuid-$STAMP/)"; return 0
+    fi
+    echo "  $name: not changed."; return 1
+}
+fix_all_dev_uuids() {  # $1 = ids on the bus : every device whose config id is not on the bus gets the same offer
+    local found="$1" miss f u n rc=0 fixed=0
+    miss="$(can_missing_devs "$found")"; n="$(echo "$miss" | grep -c . || true)"
+    [ "$n" -gt 0 ] || return 0
+    while read -r f u; do [ -n "$f" ] || continue
+        if fix_dev_uuid "$f" "$u" "$found" "$n"; then fixed=$((fixed+1)); else rc=1; fi
+    done <<< "$miss"
+    [ "$fixed" -gt 0 ] && echo "  Klipper reads the ids when it starts: restart it (sudo systemctl restart klipper) for the change to count."
+    return $rc
+}
+do_can_ids() {  # --can-ids [set NAME UUID] : show which config ids answer on the CAN bus, offer to correct wrong ones, or set one by hand
+    guard_not_printing
+    print_header "CAN ids of the boards"
+    if [ -n "${CANID_NAME:-}" ]; then
+        local f; f="$(can_dev_file "$CANID_NAME")"
+        [ -n "$f" ] && [ -f "$f" ] || die_with_fix "no board called '$CANID_NAME'." "Use one of: main, hub, ext, cell, T0, T1, T2, T3."
+        [[ "${CANID_UUID:-}" =~ ^[0-9a-fA-F]{12}$ ]] || die_with_fix "'${CANID_UUID:-}' is not a CAN id." "A CAN id has 12 hex digits, for example ac8b57e80210. ./installer.sh --can-ids shows the ids on the bus."
+        set_dev_uuid "$f" "$(echo "$CANID_UUID" | tr 'A-F' 'a-f')"
+        print_success "$(can_dev_name "$f"): canbus_uuid is now $(echo "$CANID_UUID" | tr 'A-F' 'a-f') (copy of the old file: $BACKUP_ROOT/uuid-$STAMP/). Restart Klipper to use it."
+        return 0
+    fi
+    if ! { can_exists && can_is_up; }; then print_error "can0 is not up: the main board is not connected or the CAN rule is missing."; echo "  ./installer.sh --repair puts the can0 rule back."; return 1; fi
+    local restart=0
+    if [ "$(service_state klipper)" = active ]; then
+        echo "Klipper is running and uses the bus, so the boards cannot be asked while it runs."
+        ask_yn "Stop Klipper for the scan? It is started again afterwards." y || { echo "Nothing changed."; return 0; }
+        SUDO systemctl stop klipper; restart=1
+    fi
+    local found f u; found="$(found_uuids)"
+    if [ -z "$found" ]; then print_error "nothing answers on the CAN bus. Printer powered? CAN cable?"
+    else
+        echo "  On the bus: $(echo $found)"
+        while read -r f u; do [ -n "$f" ] || continue
+            if echo "$found" | grep -qx "$u"; then printf '  %-16s %s   answers\n' "$(can_dev_name "$f")" "$u"
+            else printf '  %-16s %s   NOT on the bus\n' "$(can_dev_name "$f")" "$u"; fi
+        done < <(cfg_uuids)
+        if [ -z "$(can_missing_devs "$found")" ]; then print_success "Every id in the config answers."
+        else fix_all_dev_uuids "$found" || true; fi
+    fi
+    if [ "$restart" = 1 ]; then SUDO systemctl start klipper; echo "Klipper started again."; fi
+    return 0
+}
+
 hw_checks() {  # $1 = quiet header flag
     CHK_FAIL=0; CHK_WARN=0
     print_header "Checks before starting Klipper"
@@ -1572,7 +1663,11 @@ hw_checks() {  # $1 = quiet header flag
             else fix_main_uuid "$have" "$found"; fi
             local f u; while read -r f u; do
                 case "$f" in */wm_zru_mcu.cfg) continue ;; esac
-                echo "$found" | grep -qx "$u" && chk_ok "$(basename "$f"): $u is on the bus" || chk_warn "$(basename "$f"): $u is not on the bus" "Toolhead or hub not powered, or its uuid differs: see WonderMaker's scripts/read_write_can_id.sh."
+                if echo "$found" | grep -qx "$u"; then chk_ok "$(basename "$f"): $u is on the bus"
+                else
+                    chk_warn "$(basename "$f"): $u ($(can_dev_name "$f")) is not on the bus" "Not powered, or its id in the config differs from the board's own."
+                    if fix_dev_uuid "$f" "$u" "$found" "$(can_missing_devs "$found" | grep -c .)"; then chk_ok "$(basename "$f") fixed"; fi
+                fi
             done < <(cfg_uuids)
         fi
     fi
@@ -2019,6 +2114,17 @@ do_doctor() {
         [ "$hc" = 200 ] && doc_ok "Fluidd page opens" || { doc_bad "Fluidd page answers HTTP ${hc:-none}" "403 means nginx cannot read your home folder (Debian 12 makes it private)."; offer_fix "let nginx pass through the home folder" bash -c "chmod o+x '$HOME_DIR' && sudo systemctl reload nginx"; }
     fi
     [ -n "$(api_get /server/info)" ] && doc_ok "Moonraker API answers" || doc_bad "Moonraker API does not answer" "Last log lines: $(tail -n 3 "$HOME_DIR/printer_data/logs/moonraker.log" 2>/dev/null | tr '\n' ' ')"
+    if can_exists && can_is_up && [ "$(service_state klipper)" != active ]; then
+        local cf; cf="$(found_uuids)"
+        if [ -z "$cf" ]; then echo -e "  ${DIM}[skip]${NC}    CAN ids not checked: nothing answers on the bus (printer off?)"
+        elif [ -z "$(can_missing_devs "$cf")" ]; then doc_ok "every CAN id in the config answers on the bus"
+        else
+            local cf_f cf_u; while read -r cf_f cf_u; do [ -n "$cf_f" ] || continue
+                doc_bad "$(can_dev_name "$cf_f") has $cf_u in the config, which is not on the CAN bus" "Klipper cannot connect to it. Either it is not powered, or the id differs from the board's own."
+            done <<< "$(can_missing_devs "$cf")"
+            offer_fix "offer the unknown ids on the bus to the boards whose id does not answer (a copy is saved first)" fix_all_dev_uuids "$cf"
+        fi
+    elif can_exists; then echo -e "  ${DIM}[skip]${NC}    CAN ids not checked (Klipper is running and uses the bus). ./installer.sh --can-ids checks them."; fi
     progress_bar 4 5 "Doctor 5 of 5: disk space and power"
     local free; free=$(df -Pm "$HOME_DIR" | awk 'NR==2{print $4}'); [ "${free:-0}" -gt 800 ] && doc_ok "disk space (${free} MB free)" || doc_bad "only ${free} MB free" "Old backups: ~/wm-rpi-backup and ~/wm-backups. Gcode files: ~/printer_data/gcodes."
     local p; p="$(power_flags)"; if [ -z "$p" ] || [ "$p" = 0x0 ]; then doc_ok "no power problems reported"; else doc_bad "the Pi reported power/heat flags $p" "Use the official 5 V / 3 A supply and a short cable."; fi
@@ -2818,6 +2924,7 @@ case "$MODE" in
     zrtools)    do_zr_tools; exit $? ;;
     rpicfg)     do_rpicfg; exit $? ;;
     pidcfg)     do_pidcfg; exit $? ;;
+    canids)     do_can_ids; exit $? ;;
     cfgmerge)   do_cfgmerge; exit $? ;;
     freespace)  do_free_space; exit $? ;;
     doctor)     do_doctor; exit $? ;;
