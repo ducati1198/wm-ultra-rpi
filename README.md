@@ -233,6 +233,7 @@ The installer first asks **which printer you have** (ZR Ultra or ZR Ultra-S; or 
 |---|---|
 | Checks | user is `t13dp`, 64-bit ARM, enough disk space |
 | Model | asks Ultra or Ultra-S and sets `printer.cfg` for it (the Ultra-S includes `zru-s.cfg`: chamber heater, air filter fan, door sensors). This applies to every source; your old `printer.cfg` is saved as `printer.cfg.wm-model-bak` if it had to change |
+| Pi's own config | copies [`rpi-cfg/`](rpi-cfg) (calibration macros for Fluidd that do what the screen app's Maintenance menu does) into `~/printer_data/config` and adds an `[include]` line to `printer.cfg` (a copy of the old one is kept). Not WonderMaker's files: a WonderMaker update never changes them |
 | Packages | nginx, can-utils, build tools, libraries (apt) |
 | Groups | `moonraker-admin`, plus `dialout` and `plugdev` |
 | Python 3.9 | installed with `uv` into `~/.pythons` |
@@ -275,6 +276,7 @@ The installer first asks **which printer you have** (ZR Ultra or ZR Ultra-S; or 
 | `./installer.sh --doctor` | finds problems, explains them, offers a fix for each (asks first) |
 | `./installer.sh --repair` | puts back services, nginx files, can0 rule, groups; your data is untouched |
 | `./installer.sh --free-space` | lists what is safe to erase (sizes and a warning for each), erases only what you pick and confirm. The install offers it when the SD card is nearly full (about 2500 MB needed) |
+| `./installer.sh --rpi-cfg` | installs or repairs the Pi's own config files from [`rpi-cfg/`](rpi-cfg) (the calibration macros `WM_BED_LEVELING`, `WM_CAL_ALL`, ... and their include line in `printer.cfg`), then restarts Klipper (not during a print). The install, `--update` and the Doctor do this too |
 | `./installer.sh --zr-tools` | checks the ZR Tools macros on this Pi (for the screen board); says "already installed" or installs what is missing, then restarts Klipper (not during a print) |
 | `./installer.sh --check-updates` | read-only: lists what is new on GitHub since your copy, and says how to update |
 | `./installer.sh --update` | after `git pull`: refreshes services, packages, panel, add-ons; shows what changed; keeps `printer_data` (an edited `zr_tools.cfg` is saved as `zr_tools.cfg.zrbak_<date>` before it is replaced) |
@@ -640,6 +642,7 @@ On the Pi, `./installer.sh --screen-remove` removes KlipperScreen again (Klipper
 installer.sh            the Pi installer
 factory/ultra/          WonderMaker ZR Ultra: Klipper, Moonraker, settings, scripts, checksums
 factory/ultra-s/        WonderMaker ZR Ultra-S: same, with the chamber/air-filter/door settings on
+rpi-cfg/                the Pi's own config files (not WonderMaker's): wm_calibration.cfg, the calibration macros; installed by the installer
 screen_rescue/          rescue window and USB-stick check for the screen board
 scripts/                pull_from_board.sh, stage_from_repo.sh, board_check.sh, screen_board.sh (+ _inspect, _precheck, _preflight_mac) for the screen board
 config/                 systemd units, nginx files, can0 udev rule, pinned Python requirements, crowsnest template, addon version pins

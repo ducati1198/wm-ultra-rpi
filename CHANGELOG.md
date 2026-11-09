@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.23.21
+
+- New folder `rpi-cfg/` for config files made for the Pi (not WonderMaker's). First file: `wm_calibration.cfg`, the calibration items of the screen app (General > Maintenance) as Fluidd macros: `WM_BED_LEVELING`, `WM_PROBE_CALIBRATE`, `WM_TOOL_OFFSETS MODE=rapid|accurate`, `WM_VIBRATION_COMP`, `WM_NOZZLE_TEMP_CAL`, `WM_CAL_ALL` (asks before each stage), `WM_CAL_STOP`, `WM_CAL_HELP`, `WM_ZOFFSET_UP/DOWN`. Each refuses to run during a print or with a heater on, asks for confirmation, and turns the heaters off at the end. The G-code sequences come from the screen app's own strings. Not tested on a real printer.
+- Installer: new step 4c copies `rpi-cfg/*.cfg` into the config folder and adds the include line to `printer.cfg` (copy kept); `--update` refreshes them (an edited copy is kept as `.wm-before-rpicfg-<time>`); new `./installer.sh --rpi-cfg`; the Doctor and Fix everything check that each file is there, included and the same as the repository. 538 installer tests (a jinja2 render test of every macro is part of them).
+- Release tool 1.5.0: knows the Pi's own files: `apply` never changes them, the baseline and file lists skip them, `status` reports them, `apply` and `diff` warn when a release defines a macro with the same name, and the test list mentions the calibration macros. 119 tests.
+
 ## 1.23.20
 
 - `factory/ultra-s` and `factory/ultra` `config/offset_calibrate.cfg` are now the version running on a real Ultra-S board: `NOZZLE_PREPARE` takes a temperature `S` (default 220), so the nozzle heats to `S` instead of a fixed 220 degrees. (The board's own `TM_T1/factory_settings` copy still has the fixed value; this change is on the live file only.)
