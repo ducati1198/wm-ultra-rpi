@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.23.33
+
+- `factory/ultra-s/config/` is now the configuration of the new screen board after switching it to the Ultra-S setup (`model=2`, `[include zru-s.cfg]` on, screen shows ZR Ultra-S). Changes against the old folder: board's CAN ids, `saved_variables.cfg`, `offset_calibrate.cfg`, `zru-s.cfg`, `printer.cfg` (older WonderMaker version, no saved PID values for extruders 1 to 3) and `tmt1.ini` (camera, timelapse, air_filter and auxiliary_fan now 1). `factory/ultra/` unchanged.
+
 ## 1.23.32
 
 - `factory/ultra/config/` now holds the configuration files of a new factory screen board for the ZR Ultra (image V1.0.26), copied unchanged: `tmt1.ini` has `model=1` (it was `model=2`, so an Ultra install showed up as an Ultra-S on the screen), `saved_variables.cfg` has `adaptive_mesh_enable = 0`, and `printer.cfg`, `offset_calibrate.cfg`, the CAN ids and `zru-s.cfg` are that board's own (older WonderMaker versions of `printer.cfg` and `offset_calibrate.cfg` than the Ultra-S folder, no saved PID values). `factory/ultra-s/` is unchanged. 606 installer tests.
