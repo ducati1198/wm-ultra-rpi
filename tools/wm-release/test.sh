@@ -389,6 +389,19 @@ check "flash dry run shows an access check and flags a missing hid-flash" bash -
 check "flash --run does nothing unless you type FLASH" bash -c "WMR_TEST_TYPED=nope python3 $PY flash --run | grep -q 'Nothing flashed' && ! test -f $T/flashed"
 check "flash --run + FLASH runs the board's own flash script" bash -c "WMR_TEST_TYPED=FLASH python3 $PY flash --run >/dev/null && test -f $T/flashed"
 check "flash refuses an unknown board name" bash -c "python3 $PY flash nosuch 2>&1 | grep -q 'unknown target'"
+# flash of the CAN boards: versions and ids are checked first
+L8="$T/live8"; mkdir -p "$L8/mcu_update" "$L8/printer_data/config"
+printf '[version]\nversion_HUB=KLP_HUB_WM_ZRU_20251114_151549\nversion_THR=KLP_THR_WM_ZRU_20251114_151129\n' > "$L8/mcu_update/mcu_info.ini"
+printf '#!/bin/bash\necho flashed-hub > "%s/flashed-hub"\n' "$T" > "$L8/mcu_update/mcu_update_HUB.sh"; touch "$L8/mcu_update/klipper_HUB.bin"
+printf '[mcu HUB]\ncanbus_uuid: b10000000000\n' > "$L8/printer_data/config/wm_zru_hub.cfg"
+WMR_LIVE_HOME="$L8" python3 "$PY" flash hub > "$T/f2" 2>&1
+check "flash hub: a placeholder id is called out, versions are shown" bash -c "grep -q 'placeholder' $T/f2 && grep -q 'Firmware now and in the package' $T/f2 && grep -q 'KLP_HUB_WM_ZRU_20251114_151549' $T/f2"
+check "flash hub --run with a placeholder id: refused, nothing flashed" bash -c "WMR_LIVE_HOME=$L8 WMR_TEST_TYPED=FLASH python3 $PY flash hub --run >/dev/null 2>&1; ! test -f $T/flashed-hub"
+printf '[mcu HUB]\ncanbus_uuid: ae2982cf97e9\n' > "$L8/printer_data/config/wm_zru_hub.cfg"
+printf 'Found canbus_uuid=aa157497ce9c, Application: Klipper\n' > "$T/bus-nohub.txt"; printf 'Found canbus_uuid=ae2982cf97e9, Application: Klipper\n' > "$T/bus-hub.txt"
+check "flash hub --run: an id that is not on the bus is refused, nothing flashed" bash -c "WMR_CANQUERY=$T/bus-nohub.txt WMR_LIVE_HOME=$L8 WMR_TEST_TYPED=FLASH python3 $PY flash hub --run 2>&1 | grep -q 'NOT on the bus'; ! test -f $T/flashed-hub"
+check "flash hub --run: an id on the bus is flashed after FLASH" bash -c "WMR_CANQUERY=$T/bus-hub.txt WMR_LIVE_HOME=$L8 WMR_TEST_TYPED=FLASH python3 $PY flash hub --run >/dev/null 2>&1; test -f $T/flashed-hub"
+check "flash --verify is read-only and says when Klipper does not answer" bash -c "WMR_LIVE_HOME=$L8 python3 $PY flash hub --verify | grep -q 'did not answer'"
 
 # clean: delete everything the tool created, nothing else
 mkdir -p "$T/fw"; export WMR_FIRMWARE_DIR="$T/fw"; echo z > "$T/fw/tm_t1_soc(9.9.9).zip"
@@ -401,6 +414,6 @@ mkdir -p "$WMR_HOME/baseline/x" "$T/fw"; echo z > "$T/fw/a.zip"
 check "clean --keep-firmware keeps the archive" bash -c "WMR_TEST_TYPED=DELETE python3 $PY clean --run --keep-firmware >/dev/null && test -f $T/fw/a.zip && ! test -e $WMR_HOME"
 check "clean refuses a protected location" bash -c "WMR_HOME=$T/live WMR_LIVE_HOME=$T/live python3 $PY clean --run 2>&1 | grep -q refusing; test -d $T/live"
 
-check "the tool has a version: --version, the menu title, status and the history" bash -c "python3 $PY --version | grep -q 'wm_release.py [0-9]' && printf '0\n' | python3 $PY | grep -q 'WonderMaker release tool [0-9]' && python3 $PY status | grep -q 'Tool version: [0-9]' && grep -q '(version 1.7.1)' $HERE/README.md"
+check "the tool has a version: --version, the menu title, status and the history" bash -c "python3 $PY --version | grep -q 'wm_release.py [0-9]' && printf '0\n' | python3 $PY | grep -q 'WonderMaker release tool [0-9]' && python3 $PY status | grep -q 'Tool version: [0-9]' && grep -q '(version 1.8.0)' $HERE/README.md"
 
 echo; echo "passed: $pass  failed: $fail"; [ "$fail" = 0 ]

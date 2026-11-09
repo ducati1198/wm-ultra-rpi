@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.23.36
+
+- `tools/wm-release/wm_release.py` 1.8.0: `flash` shows the version each board runs now and the one in `~/mcu_update`, refuses an empty or placeholder CAN id and an id that does not answer on the bus (unless `--force`), and the new `flash [board] --verify` compares what the boards report with the package after FIRMWARE_RESTART. Still a dry run unless `--run` and FLASH is typed. The load cell has no firmware file in the repo or on the screen board, so `flash cell` cannot run yet.
+
 ## 1.23.35
 
 - CAN ids of every board are checked and can be fixed, not only the main board's: hub, extruder board, T0-T3 and load cell. New `./installer.sh --can-ids` shows which ids in the config answer on the bus and offers the unknown id on the bus to the board that does not answer (a copy of the file is saved first); `--can-ids set T2 ID` sets one by hand. The same check is in the first-start checks and in the Doctor (so also in Fix everything). Unattended it only changes an id when exactly one board is wrong and exactly one unknown id is on the bus. The warning no longer points at a script that is not on the Pi. 614 installer tests.

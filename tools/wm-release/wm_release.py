@@ -21,7 +21,8 @@ Everything is read-only unless you run `apply --apply` (and type APPLY), `rollba
   diff VERSION                 baseline <-> release <-> your live files; saves a report
   compare OLD NEW              what WonderMaker changed between two fetched releases (read only)
   mcu ZIP_OR_DIR               check MCU firmware (versions, md5), print the flashing steps; never flashes
-  flash [main|thr|ext|hub|cell] [--run]  flash ~/mcu_update firmware - dry run unless --run, then you type FLASH
+  flash [main|thr|ext|hub|cell] [--run]  flash ~/mcu_update firmware - dry run unless --run, then you type FLASH; shows the versions and the CAN ids first and refuses a placeholder or absent id
+  flash [target] --verify      read-only: the firmware version each board reports against ~/mcu_update (use after FIRMWARE_RESTART)
   settings                     show/change the decrypt key, firmware page URL and board address
   apply VERSION [--apply]      plan only; with --apply: backup, then apply after you type APPLY
   rollback [BACKUP]            put back the files from the backup made by apply
@@ -32,7 +33,7 @@ Version: see --version.  Data folder: $WMR_HOME (default ~/wm-private-data).  Li
 """
 import argparse, atexit, getpass, hashlib, io, json, os, re, shutil, subprocess, sys, tarfile, tempfile, time, urllib.request, urllib.parse, zipfile
 
-TOOL_VERSION = "1.7.1"   # this tool's own version (not the installer's VERSION file); see README "Version history"
+TOOL_VERSION = "1.8.0"   # this tool's own version (not the installer's VERSION file); see README "Version history"
 HOME = os.path.expanduser("~")
 DATA = os.environ.get("WMR_HOME", os.path.join(HOME, "wm-private-data"))
 LIVE = os.environ.get("WMR_LIVE_HOME", HOME)
@@ -686,12 +687,103 @@ def cmd_clean(a):
     say("Done: %d item(s) deleted." % gone)
 
 
+# which Klipper MCU objects and config files belong to each firmware part (flash target main/thr/ext/hub/cell)
+PICK_PART = {"main": "MCU", "thr": "THR", "ext": "EXT", "hub": "HUB", "cell": "CELL"}
+MCU_OBJECTS = {"MCU": ["mcu"], "THR": ["mcu T0", "mcu T1", "mcu T2", "mcu T3"], "EXT": ["mcu EX_T"], "HUB": ["mcu HUB"], "CELL": ["mcu CELL"]}
+MCU_CFGS = {"MCU": ["wm_zru_mcu.cfg"], "THR": ["wm_zru_thr0.cfg", "wm_zru_thr1.cfg", "wm_zru_thr2.cfg", "wm_zru_thr3.cfg"],
+            "EXT": ["wm_zru_ext.cfg"], "HUB": ["wm_zru_hub.cfg"], "CELL": ["wm_zru_load_cell.cfg"]}
+PLACEHOLDER = re.compile(r"^[0-9a-f]{2}0{10}$")   # the installer's stand-in for an empty id (b00000000000, b10000000000 ...)
+
+
+def cfg_can_id(cfgname):
+    """the canbus_uuid in ~/printer_data/config/<cfgname>: '' = empty, None = file or line missing"""
+    f = p(LIVE, "printer_data", "config", cfgname)
+    if not os.path.isfile(f): return None
+    m = re.search(r"^[ \t]*canbus_uuid[ \t]*:[ \t]*([0-9a-fA-F]*)", open(f, errors="replace").read(), re.M)
+    return m.group(1).lower() if m else None
+
+
+def bus_ids():
+    """the CAN ids that answer on can0 right now (a set), or None when it cannot be asked. Boards that Klipper holds do not answer."""
+    f = os.environ.get("WMR_CANQUERY")
+    if f:
+        try: txt = open(f).read()
+        except OSError: return None
+    else:
+        py, qs = p(LIVE, "klippy-env", "bin", "python"), p(LIVE, "klipper", "scripts", "canbus_query.py")
+        if not (os.path.isfile(py) and os.path.isfile(qs) and os.path.isdir("/sys/class/net/can0")): return None
+        try: txt = subprocess.run([py, qs, "can0"], capture_output=True, text=True, timeout=20).stdout
+        except Exception: return None
+    return set(re.findall(r"canbus_uuid=([0-9a-f]{12})", txt.lower()))
+
+
+def flash_package_versions():
+    f = p(LIVE, "mcu_update", "mcu_info.ini")
+    return parse_ini(open(f).read())[0] if os.path.isfile(f) else {}
+
+
+def version_table(parts):
+    """installed (from Klipper) against the package in ~/mcu_update: returns (lines, problems)"""
+    pkg, live, lines, bad = flash_package_versions(), installed_mcu(), [], []
+    lines.append("%-14s %-34s %s" % ("Board", "Running now", "In ~/mcu_update"))
+    for part in parts:
+        want = pkg.get(part)
+        for obj in MCU_OBJECTS[part]:
+            have = (live or {}).get(obj)
+            if live is None: st = "unknown"
+            elif have is None: st = "NOT READY / not in config"
+            elif want and have.startswith(want): st = "same"
+            elif want: st = "DIFFERENT"
+            else: st = "no package version"
+            if st in ("DIFFERENT", "NOT READY / not in config"): bad.append("%s: %s" % (obj, st))
+            lines.append("%-14s %-34s %s   %s" % (obj, (have or "-").split(" / ")[0], want or "-", st))
+    if live is None: lines.append("(Klipper or Moonraker did not answer, so the versions running now are not known.)")
+    return lines, bad
+
+
+def flash_id_check(pick, force):
+    """ids of the CAN boards in the config: refuse a placeholder or an empty id; compare with the bus when Klipper is not holding the boards"""
+    part = PICK_PART[pick]
+    if part == "MCU": return True   # the main board is flashed over USB (hid-flash), not by id
+    ids = []
+    for fn in MCU_CFGS[part]:
+        v = cfg_can_id(fn)
+        if v is None:
+            if part == "THR": continue   # a Pi with fewer toolheads
+            say("   CAN id: %s has no canbus_uuid." % fn); return False
+        if v == "" or PLACEHOLDER.match(v):
+            say("   CAN id: %s has %s, which is %s. Flashing by this id would hit nothing." % (fn, v or "no id", "a placeholder" if v else "empty"))
+            say("           Set the real id first (./installer.sh --can-ids)."); return False
+        ids.append((fn, v))
+    if not ids: say("   CAN id: no config file found for %s." % pick); return False
+    bus = bus_ids()
+    if installed_mcu() is not None:
+        say("   CAN ids: %s. Not compared with the bus: Klipper is running and holds the boards (stop it, or use ./installer.sh --can-ids)." % ", ".join(v for _, v in ids)); return True
+    if bus is None: say("   CAN ids: %s. Not compared with the bus (can0 or canbus_query.py not available)." % ", ".join(v for _, v in ids)); return True
+    ok = True
+    for fn, v in ids:
+        here = v in bus
+        say("   CAN id: %-20s %s  %s" % (fn, v, "answers on the bus" if here else "NOT on the bus"))
+        ok = ok and here
+    if not ok and not force:
+        say("   Refusing: a board whose id does not answer cannot be flashed. Fix the id (./installer.sh --can-ids) or give --force."); return False
+    return True
+
+
+
 def cmd_flash(a):
     """flash the bundled Klipper MCU firmware onto the motion/toolhead boards - guarded; nothing runs unless you add --run and type FLASH"""
     mdir = p(LIVE, "mcu_update")
     targets = {"main": "mcu_update.sh", "thr": "mcu_update_THRs.sh", "ext": "mcu_update_EXT.sh",
                "hub": "mcu_update_HUB.sh", "cell": "mcu_update_CELL.sh"}
     pick = (getattr(a, "target", None) or "main").lower()
+    if getattr(a, "verify", False) and pick not in PICK_PART: die("unknown target '%s'." % pick, "one of: " + ", ".join(targets))
+    if getattr(a, "verify", False):   # read-only: which firmware runs now, against the package
+        parts = [PICK_PART[pick]] if getattr(a, "target", None) else list(MCU_OBJECTS)
+        lines, bad = version_table(parts)
+        for ln in lines: say(ln)
+        say("\nAll boards run the package's firmware." if not bad else "\nNot as in the package: " + "; ".join(bad) + ". After a flash run FIRMWARE_RESTART first; the versions are read when Klipper connects.")
+        return
     if pick not in targets: die("unknown target '%s'." % pick, "one of: " + ", ".join(targets))
     if not os.path.isdir(mdir): die("no ~/mcu_update on this Pi.", "apply a release first - it installs mcu_update/ with the firmware and scripts")
     scr = p(mdir, targets[pick])
@@ -714,6 +806,13 @@ def cmd_flash(a):
         say("     bootloader device (/dev/serial/by-id/usb-*_DRIVER_BOOT*), nothing was written; the device needs a udev rule for your user.")
     pr, st = printing_now()
     if pr and not getattr(a, "force", False): die("a print is running (%s)." % st, "wait for it to finish")
+    lines, _ = version_table([PICK_PART[pick]])
+    say("   Firmware now and in the package:")
+    for ln in lines: say("     " + ln)
+    ids_ok = flash_id_check(pick, getattr(a, "force", False))
+    if not ids_ok:
+        if getattr(a, "run", False): die("not flashing %s." % pick, "see the CAN id line above")
+        say("   (a real --run would stop here)")
     if not getattr(a, "run", False):
         say("\nDry run: nothing was flashed. To really flash: python3 wm_release.py flash %s --run" % pick); return
     typed = os.environ.get("WMR_TEST_TYPED") or input("Type FLASH to write firmware to the %s board(s): " % pick).strip()
@@ -723,6 +822,7 @@ def cmd_flash(a):
     r = subprocess.run(["bash", scr], cwd=mdir)
     if r.returncode != 0: say("The flash script reported an error. If it said permission denied for the bootloader device, your user cannot open it: ask before changing permissions; no root change is made by this tool.")
     say("Flash script exited with %d. In Fluidd run FIRMWARE_RESTART and check the MCU comes back 'Ready'." % r.returncode)
+    say("Then check the result: python3 wm_release.py flash %s --verify   (reads the version each board reports and compares it with ~/mcu_update)" % pick)
 
 
 def cmd_init_baseline(a):
@@ -1549,7 +1649,7 @@ def main():
     add("firmware", cmd_firmware)
     add("settings", cmd_settings)
     add("clean", cmd_clean, (["--run"], {"action": "store_true"}), (["--keep-firmware"], {"action": "store_true"}), (["--keep-backups"], {"action": "store_true"}))
-    add("flash", cmd_flash, (["target"], {"nargs": "?"}), (["--run"], {"action": "store_true"}), (["--force"], {"action": "store_true"}))
+    add("flash", cmd_flash, (["target"], {"nargs": "?"}), (["--run"], {"action": "store_true"}), (["--force"], {"action": "store_true"}), (["--verify"], {"action": "store_true"}))
     add("mcu", cmd_mcu, (["source"], {}))
     add("apply", cmd_apply, (["version"], {}), (["--apply"], {"action": "store_true"}), (["--force"], {"action": "store_true"}))
     add("rollback", cmd_rollback, (["backup"], {"nargs": "?"}), (["--force"], {"action": "store_true"}))
