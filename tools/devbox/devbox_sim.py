@@ -49,6 +49,20 @@ class DevboxSim:
         hs = self.printer.event_handlers.get("klippy:ready")
         if hs and hs[-1] == self._handle_ready:
             hs.insert(0, hs.pop())
+        # the factory weight-cell module (cs1237) waits for its fake MCU inside its "ready" handler and never returns,
+        # so every handler after it is skipped: that includes the ACE Pro driver, which then never opens the ACE.
+        # The ACE reboots itself every ~3 s when nobody talks to it. Put the ACE handler right after ours.
+        self.printer.register_event_handler("klippy:connect", self._reorder_ready)
+
+    def _reorder_ready(self):
+        hs = self.printer.event_handlers.get("klippy:ready") or []
+        mine = [cb for cb in hs if getattr(cb, "__self__", None) is self]
+        ace = [cb for cb in hs if "ace" in type(getattr(cb, "__self__", None)).__module__.lower().split(".")
+               or type(getattr(cb, "__self__", None)).__name__ == "AceManager"]
+        if ace:
+            rest = [cb for cb in hs if cb not in mine and cb not in ace]
+            hs[:] = mine + ace + rest
+            logging.info("devbox_sim: ACE driver ready handler moved up (%d)", len(ace))
 
     # ---- objects to drive -------------------------------------------------------------------------------------
     def _things(self):
