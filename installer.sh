@@ -467,8 +467,11 @@ step_cfgmerge() {   # WonderMaker's new settings (a new version of the factory f
         *) print_warning "could not compare the printer.cfg files: $out"; return 1 ;;
     esac
 }
+devbox_on() { grep -qs 'printer_data/devbox' "$HOME_DIR/printer_data/systemd/klipper.env"; }   # tools/devbox/devbox.py on: Klipper runs on a private copy with fake boards
+devbox_notice() { devbox_on && print_warning "Dev box mode is ON (tools/devbox/devbox.py): Klipper runs with simulated boards on a private copy of the config. Results saved by Klipper now (PID, bed mesh, offsets) go to that copy, not to your real printer.cfg. Switch it off with: python3 tools/devbox/devbox.py off"; return 0; }
 do_cfgmerge() {   # ./installer.sh --cfg-merge
     print_header "WonderMaker's changes to printer.cfg"
+    devbox_notice
     [ -f "$HOME_DIR/printer_data/config/printer.cfg" ] || die_with_fix "there is no printer.cfg on this Pi yet." "install first (menu 1), then run this again."
     guard_not_printing
     local before; before="$(cksum < "$HOME_DIR/printer_data/config/printer.cfg")"
@@ -494,6 +497,7 @@ step_pidcfg() {   # the PID values of the hotends, the bed and the chamber heate
 }
 do_pidcfg() {   # ./installer.sh --pid-cfg
     print_header "PID settings (hotends, bed, chamber heater)"
+    devbox_notice
     [ -f "$HOME_DIR/printer_data/config/printer.cfg" ] || die_with_fix "there is no printer.cfg on this Pi yet." "install first (menu 1), then run this again."
     guard_not_printing
     local before; before="$(pidcfg_check)"
@@ -1893,6 +1897,7 @@ do_doctor() {
     DOC_PROBLEMS=0
     load_answers || true
     print_header "Doctor (asks before changing anything)"
+    devbox_notice
     if [ "${FIXALL:-0}" = 1 ]; then
         echo "  Fix everything: every problem the Doctor finds is fixed with its normal safe fix (the same fixes it would offer one by one). Your printer data is not touched."
         ask_yn "Apply every fix without asking again?" n && DOC_FIXALL=1 || echo "  Normal mode: the Doctor asks before each fix."

@@ -13,7 +13,7 @@ nearly every macro work as on a printer, except for real motion, endstops, probi
   python3 devbox.py gcode "M104 S200" ...   send G-code to Klipper (through Moonraker)
   python3 devbox.py --help
 
-Options for on:  --speed N (heating speed, default 2)   --yes (do not ask)
+Options for on:  --speed N (heating speed, default 2)   --yes (do not ask)   --force (even if a real printer seems connected)
 Nothing here is used by the installers. See README-DEVBOX.md.
 """
 import argparse, json, os, re, shlex, shutil, subprocess, sys, time, urllib.error, urllib.request, zlib
@@ -25,6 +25,9 @@ REPO = os.path.abspath(os.path.join(HERE, "..", ".."))
 DATA = os.environ.get("DEVBOX_DATA", os.path.join(HOME, "printer_data"))
 CFG = os.path.join(DATA, "config")
 DEV = os.path.join(DATA, "devbox")
+SYS = os.environ.get("DEVBOX_SYS", "/sys")               # where USB devices and network links are read from (changed in tests)
+COPY_IGNORE = ("*.before-*", "*.wm-before-*", "*.wm-removed-*", "*.wm-tmp", "*.zrbak*", "*.bak", "*.log", "__pycache__")   # saved copies and logs are not part of the private config
+REAL_USB_IDS = (("1d50", "606f"),)                       # the USB bridge between the Pi and WonderMaker's main board
 ENV = os.environ.get("DEVBOX_ENV", os.path.join(DATA, "systemd", "klipper.env"))
 KLIPPER = os.environ.get("DEVBOX_KLIPPER", os.path.join(HOME, "klipper"))
 MOONRAKER = os.environ.get("DEVBOX_MOONRAKER", "http://127.0.0.1:7125")
@@ -294,6 +297,28 @@ def wait_ready(seconds=90):
 
 
 # ---------------------------------------------------------------------------------------------- commands
+def real_printer_signs():
+    """what says that a real WonderMaker printer is connected to this Pi: [text]"""
+    found = []
+    base = os.path.join(SYS, "bus", "usb", "devices")
+    try:
+        for d in sorted(os.listdir(base)):
+            try:
+                ids = (open(os.path.join(base, d, "idVendor")).read().strip().lower(), open(os.path.join(base, d, "idProduct")).read().strip().lower())
+            except OSError:
+                continue
+            if ids in REAL_USB_IDS:
+                found.append("the main board's USB bridge %s:%s is plugged in" % ids)
+    except OSError:
+        pass
+    try:
+        if open(os.path.join(SYS, "class", "net", "can0", "operstate")).read().strip().lower() == "up":
+            found.append("the CAN bus can0 is up")
+    except OSError:
+        pass
+    return found
+
+
 def cmd_on(a):
     if is_on():
         say("Dev mode is already on. (python3 devbox.py status)")
@@ -304,6 +329,10 @@ def cmd_on(a):
         die("Klipper not found at %s" % KLIPPER)
     if print_state() in ("printing", "paused"):
         die("a print is running or paused", "dev mode restarts Klipper: wait until the print is finished")
+    signs = real_printer_signs()
+    if signs and not a.force:
+        die("this Pi looks like it is connected to a real printer (%s)" % "; ".join(signs),
+            "dev mode would cut Klipper off from the printer. Use it on a Pi with no printer. If you are sure, add --force.")
     if not a.yes:
         say("Dev mode: Klipper will stop talking to any real printer and use fake MCUs with simulated temperatures.")
         say("It restarts Klipper. Switch back with:  python3 devbox.py off")
@@ -318,7 +347,7 @@ def cmd_on(a):
     real_vars = os.path.join(CFG, "saved_variables.cfg")
     dev_vars = os.path.join(DEV, "saved_variables.cfg")
     shutil.rmtree(DEV_CFG, ignore_errors=True)
-    shutil.copytree(CFG, DEV_CFG, ignore=shutil.ignore_patterns("*.before-*", "*.zrbak*", "*.bak", "*.log", "__pycache__"))
+    shutil.copytree(CFG, DEV_CFG, ignore=shutil.ignore_patterns(*COPY_IGNORE))
     say("  %s private copy of the config folder: %s" % (OK, DEV_CFG))
     if os.path.exists(real_vars) and not os.path.exists(dev_vars):
         shutil.copyfile(real_vars, dev_vars)
@@ -477,7 +506,7 @@ def main():
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0], formatter_class=argparse.RawDescriptionHelpFormatter, epilog=__doc__)
     p.add_argument("--version", action="version", version="devbox " + TOOL_VERSION)
     sub = p.add_subparsers(dest="cmd")
-    s = sub.add_parser("on"); s.add_argument("--speed", type=float, default=2.0); s.add_argument("--yes", action="store_true"); s.set_defaults(f=cmd_on)
+    s = sub.add_parser("on"); s.add_argument("--speed", type=float, default=2.0); s.add_argument("--yes", action="store_true"); s.add_argument("--force", action="store_true", help="switch on even though a real printer seems to be connected"); s.set_defaults(f=cmd_on)
     s = sub.add_parser("off"); s.set_defaults(f=cmd_off)
     s = sub.add_parser("status"); s.set_defaults(f=cmd_status)
     s = sub.add_parser("smoke"); s.add_argument("--timeout", type=int, default=180); s.set_defaults(f=cmd_smoke)

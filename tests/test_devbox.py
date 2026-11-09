@@ -1,4 +1,4 @@
-"""Tests for tools/devbox (the dev box branch). No Klipper, no Pi: a fake data folder and stand-in Klipper objects."""
+"""Tests for tools/devbox (dev mode). No Klipper, no Pi: a fake data folder and stand-in Klipper objects."""
 import importlib.util, os, shutil, sys, tempfile, types, unittest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -36,6 +36,35 @@ class Tool(unittest.TestCase):
         write(os.path.join(D.CFG, "a.cfg"), "[mcu T0]\ncanbus_uuid: 1\n[mcu HUB]\ncanbus_uuid: 2\n")
         write(os.path.join(D.CFG, "a.cfg.before-update"), "[mcu OLD]\n")
         self.assertEqual(sorted(D.mcu_names()), ["", "HUB", "T0"])
+
+    def test_a_real_printer_is_recognised_and_dev_mode_refuses(self):
+        sysdir = os.path.join(TMP, "sys"); D.SYS = sysdir
+        self.assertEqual(D.real_printer_signs(), [])
+        write(os.path.join(sysdir, "bus", "usb", "devices", "1-1", "idVendor"), "046d\n"); write(os.path.join(sysdir, "bus", "usb", "devices", "1-1", "idProduct"), "c52b\n")
+        self.assertEqual(D.real_printer_signs(), [])          # some other USB device
+        write(os.path.join(sysdir, "bus", "usb", "devices", "1-2", "idVendor"), "1d50\n"); write(os.path.join(sysdir, "bus", "usb", "devices", "1-2", "idProduct"), "606F\n")
+        self.assertEqual(len(D.real_printer_signs()), 1)
+        write(os.path.join(sysdir, "class", "net", "can0", "operstate"), "up\n")
+        self.assertEqual(len(D.real_printer_signs()), 2)
+        write(os.path.join(sysdir, "class", "net", "can0", "operstate"), "down\n")
+        self.assertEqual(len(D.real_printer_signs()), 1)
+        args = types.SimpleNamespace(yes=True, force=False, speed=2.0)
+        saved = (D.is_on, D.print_state, D.KLIPPER)
+        self.addCleanup(lambda: (setattr(D, 'is_on', saved[0]), setattr(D, 'print_state', saved[1]), setattr(D, 'KLIPPER', saved[2])))
+        D.is_on = lambda: False; D.print_state = lambda: None; D.KLIPPER = os.path.join(TMP, "klipper"); os.makedirs(D.KLIPPER, exist_ok=True)
+        import io, contextlib
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), self.assertRaises(SystemExit): D.cmd_on(args)    # refuses before changing anything
+        self.assertIn("looks like it is connected to a real printer", out.getvalue())
+        self.assertFalse(os.path.exists(D.DEV_CFG))
+        shutil.rmtree(sysdir); D.SYS = os.path.join(TMP, "nosys")
+        self.assertEqual(D.real_printer_signs(), [])
+
+    def test_saved_copies_are_not_copied_into_the_private_config(self):
+        src = os.path.join(TMP, "cfgsrc"); dst = os.path.join(TMP, "cfgdst")
+        for n in ("printer.cfg", "printer.cfg.wm-before-cfgmerge-1", "wm_nozzle.cfg.wm-removed-1", "a.cfg.before-update", "x.log"): write(os.path.join(src, n), "x")
+        shutil.copytree(src, dst, ignore=shutil.ignore_patterns(*D.COPY_IGNORE))
+        self.assertEqual(os.listdir(dst), ["printer.cfg"])
 
     def test_klipper_arguments_roundtrip_keeps_newline_and_other_options(self):
         orig = 'KLIPPER_ARGS="/k/klippy.py %s -I /c/klippy.serial -l /l/klippy.log -a /c/klippy.sock"\n' % os.path.join(D.CFG, "printer.cfg")

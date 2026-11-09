@@ -1,7 +1,6 @@
 # Dev box: a WonderMaker Klipper with no printer
 
-> **This is the `dev-box` branch.** It is for testing. Do not install it on the Pi that runs your printer.
-> The normal project is on `main`: [README.md](README.md).
+> **For testing only.** Do not switch dev mode on for the Pi that runs your printer (`devbox.py on` refuses when it sees the printer's USB bridge or an up `can0`; `--force` overrides). The normal project: [README.md](README.md).
 
 ## What it is
 
@@ -36,11 +35,11 @@ If a test passes here it means "the macros and settings run"; it does not mean "
 ## Install on a new SD card
 
 1. **Write the SD card** with Raspberry Pi Imager: *Raspberry Pi OS (Legacy, 64-bit) Lite* (Debian 12 "Bookworm"). In the Imager's settings use the user name **`t13dp`**, switch SSH on and enter your Wi-Fi if you need it. (The WonderMaker files expect that user name and the home folder `/home/t13dp`.)
-2. **Log in over SSH** and get this branch:
+2. **Log in over SSH** and get the project:
 
    ```bash
    sudo apt-get update && sudo apt-get install -y git
-   git clone -b dev-box https://github.com/ducati1198/wm-ultra-rpi.git
+   git clone https://github.com/ducati1198/wm-ultra-rpi.git
    cd wm-ultra-rpi
    chmod +x installer.sh
    ```
@@ -92,9 +91,9 @@ Start a print by uploading a G-code file in Fluidd and pressing **Print**: the s
 - **Switching on or off restarts Klipper.** It refuses while a print is running.
 - **A macro that never finishes** blocks Klipper's command queue (for example `CALIBRATE_TOOL_OFFSET`). `sudo systemctl restart klipper` frees it. `devbox.py smoke` does this by itself.
 - **After `off`** Fluidd shows `ZRU-B001: Screen–Mainboard communication error`: that is the real config looking for a printer that is not there. Normal.
-- Everything dev mode adds sits in `tools/devbox/` and `~/printer_data/devbox/`. The installers do not know about it. Apart from this README, a banner at the top of `README.md` and one test line, this branch is identical to `main`.
+- Everything dev mode adds sits in `tools/devbox/` and `~/printer_data/devbox/`. The installers never switch it on. While it is on, `./installer.sh --doctor`, `--cfg-merge` and `--pid-cfg` print a notice, because Klipper then runs on a private copy of the config: a PID result or a bed mesh saved in dev mode goes to that copy, not to your real `printer.cfg`.
 
-## What is in the branch
+## What is in the folder
 
 | File | What |
 |---|---|

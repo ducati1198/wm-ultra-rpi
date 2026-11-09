@@ -1,5 +1,3 @@
-> **Dev box branch (testing only).** This branch adds a way to run the WonderMaker Klipper on a Raspberry Pi with **no printer connected**: fake boards, simulated temperatures and a simulated tool changer. Do not install it on the Pi that runs your printer. See **[README-DEVBOX.md](README-DEVBOX.md)**. The normal project is on the `main` branch.
-
 <div align="center">
 
 # WonderMaker ZR Ultra / Ultra-S: Raspberry Pi replacement
@@ -648,6 +646,7 @@ On the Pi, `./installer.sh --screen-remove` removes KlipperScreen again (Klipper
 installer.sh            the Pi installer
 factory/ultra/          WonderMaker ZR Ultra: Klipper, Moonraker, settings, scripts, checksums
 factory/ultra-s/        WonderMaker ZR Ultra-S: same, with the chamber/air-filter/door settings on
+tools/devbox/           dev box (for testing only): run WonderMaker's Klipper on a Pi with no printer, see README-DEVBOX.md
 rpi-cfg/                the Pi's own config files (not WonderMaker's): wm_calibration.cfg (calibration macros) and wm_nozzle.cfg (Nozzle Type and Extruder Setup wizards); installed by the installer
 screen_rescue/          rescue window and USB-stick check for the screen board
 scripts/                pull_from_board.sh, stage_from_repo.sh, board_check.sh, screen_board.sh (+ _inspect, _precheck, _preflight_mac) for the screen board

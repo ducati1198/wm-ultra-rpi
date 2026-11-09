@@ -1162,4 +1162,10 @@ check "board update: waits at most 60 s for Klipper on the Pi, says it is still 
 check "board lib error message names an option that exists" "! grep -q 'screen_board.sh --get-latest' $ROOT/scripts/screen_board.sh"
 check "Pi installer: Klipper wait prints progress; the download in /tmp is removed on Ctrl-C" "grep -q 'still waiting: Klipper is' $ROOT/installer.sh && grep -q \"trap '_rmw; exit 130' INT TERM\" $ROOT/installer.sh"
 check "dev box: tool and simulation unit tests" "python3 -I -W ignore $ROOT/tests/test_devbox.py"
+check "dev box: the README has no banner and links the tool" "! head -3 $ROOT/README.md | grep -qi 'dev box branch' && grep -q 'tools/devbox/' $ROOT/README.md && [ -f $ROOT/README-DEVBOX.md ]"
+DBH="$T/dbh"; mkdir -p "$DBH/printer_data/config" "$DBH/printer_data/systemd"; cp "$ROOT/factory/ultra-s/config/printer.cfg" "$DBH/printer_data/config/"
+check "dev box: no notice from the Doctor, --cfg-merge or --pid-cfg while it is off" "! (yes n | WM_HOME=$DBH WM_INSTALLER_TEST=1 bash $ROOT/installer.sh --doctor 2>&1; WM_HOME=$DBH WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash $ROOT/installer.sh --pid-cfg 2>&1 </dev/null) | grep -q 'Dev box mode is ON'"
+echo 'KLIPPER_ARGS="/k/klippy.py '"$DBH"'/printer_data/devbox/config/printer.cfg -I /c/klippy.serial"' > "$DBH/printer_data/systemd/klipper.env"
+check "dev box: the Doctor says dev mode is on" "yes n | WM_HOME=$DBH WM_INSTALLER_TEST=1 bash $ROOT/installer.sh --doctor 2>&1 | grep -q 'Dev box mode is ON'"
+check "dev box: --pid-cfg and --cfg-merge say it too" "WM_HOME=$DBH WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash $ROOT/installer.sh --pid-cfg 2>&1 </dev/null | grep -q 'Dev box mode is ON' && WM_HOME=$DBH WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash $ROOT/installer.sh --cfg-merge 2>&1 </dev/null | grep -q 'Dev box mode is ON'"
 echo; echo "passed: $PASS  failed: $FAIL"; [ "$FAIL" = 0 ]

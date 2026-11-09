@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.23.28
+
+- The dev box (`tools/devbox/`, `README-DEVBOX.md`: run WonderMaker's Klipper on a Pi with no printer, fake boards and simulated heaters and tool changer) is part of `main`. It is not used by the installers.
+- `devbox.py on` refuses when the Pi looks connected to a real printer (the main board's USB bridge 1d50:606f, or `can0` up) unless `--force`. The private config copy no longer includes `*.wm-before-*` / `*.wm-removed-*` saved copies. `--doctor`, `--cfg-merge` and `--pid-cfg` print a notice while dev mode is on (what Klipper saves then goes to the private copy). No banner in the main README. 604 installer tests.
+
 ## 1.23.27
 
 - Anycubic ACE Pro. The install now asks "Do you have an Anycubic ACE Pro to connect?" (default no); `--acepro on|off`; Add-ons menu entry; step 12h downloads the project wm-ultra-fluidd-acepro-panel to `~/wm-ultra-fluidd-acepro-panel` (git pull on `--update`) and runs its own installer with the default answers (driver links in Klipper's extras, `wm_ace_driver.cfg`, `wm_ace.cfg`, `wm_endless.cfg`, `wm_stats.cfg` and their include lines). Checked against the project's real installer in test mode.
