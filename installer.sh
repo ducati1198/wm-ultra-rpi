@@ -14,6 +14,7 @@
 # ./installer.sh --check               report problems, change nothing
 # ./installer.sh --free-space          list what is safe to erase (sizes, warnings), erase what you pick and confirm
 # ./installer.sh --zr-tools            check the ZR Tools macros (for the screen board), install them when missing
+# ./installer.sh --rpi-cfg             install or refresh the Pi's own config files from rpi-cfg/ (calibration macros WM_BED_LEVELING, WM_CAL_ALL, ...) and their include line in printer.cfg
 # ./installer.sh --first-start         checks with the main board connected; fixes canbus_uuid; then starts Klipper and the other services
 # ./installer.sh --hw-test             read-only live test: USB bridge, can0, CAN devices, camera, services
 # ./installer.sh --doctor              find problems, explain them, offer a fix for each (asks first)
@@ -93,7 +94,7 @@ COMPILED_MODULES=(cs1237 hx711 heater_air_core heater_feng xy_offset_calibrator_
 
 pi_weight() {   # how long each install step takes, roughly (a step that is switched off counts for nothing)
     case "$1" in
-        1) echo 14 ;; 2) echo 1 ;; 3) echo 8 ;; 4) echo 5 ;; 4b) echo 1 ;; 5) echo 30 ;; 6) echo 2 ;; 7|8|9) echo 2 ;; 10) echo 4 ;;
+        1) echo 14 ;; 2) echo 1 ;; 3) echo 8 ;; 4) echo 5 ;; 4b) echo 1 ;; 4c) echo 1 ;; 5) echo 30 ;; 6) echo 2 ;; 7|8|9) echo 2 ;; 10) echo 4 ;;
         11) [ "${WANT_SCREEN:-0}" = 1 ] && echo 12 || echo 1 ;;
         12) [ "${WANT_TIMELAPSE:-0}" = 1 ] && echo 2 || echo 0 ;;
         12b) [ "${WANT_SHELLCMD:-0}" = 1 ] && echo 1 || echo 0 ;;
@@ -109,7 +110,7 @@ pi_weight() {   # how long each install step takes, roughly (a step that is swit
 }
 pi_cum() {   # percent-points finished when step KEY starts; "end" = the total
     local k s sum=0
-    for k in 1 2 3 4 4b 5 6 7 8 9 10 11 12 12b 12f 12g 12c 12d 12e 13 14; do
+    for k in 1 2 3 4 4b 4c 5 6 7 8 9 10 11 12 12b 12f 12g 12c 12d 12e 13 14; do
         [ "$k" = "$1" ] && { echo "$sum"; return; }
         sum=$((sum + $(pi_weight "$k")))
     done
@@ -193,6 +194,7 @@ while [ $# -gt 0 ]; do
         --doctor)       MODE=doctor ;;
         --free-space)   MODE=freespace ;;   # list what is safe to erase, erase what you pick and confirm
         --zr-tools)     MODE=zrtools ;;   # check the ZR Tools macros (for the screen board), install them when missing
+        --rpi-cfg)      MODE=rpicfg ;;    # the Pi's own config files (rpi-cfg/): calibration macros
         --fix-all)      FIXALL=1 ;;
         --repair)       MODE=repair ;;
         --update)       MODE=update ;;
@@ -384,6 +386,35 @@ step_unpack() {
         fi
     fi
     print_success "Unpacked"
+}
+
+rpicfg_list() { local f; for f in "$SCRIPT_DIR"/rpi-cfg/*.cfg; do [ -f "$f" ] && basename "$f"; done; }
+rpicfg_included() { grep -qE "^[[:space:]]*\[include[[:space:]]+$1[[:space:]]*\]" "$HOME_DIR/printer_data/config/printer.cfg" 2>/dev/null; }
+step_rpicfg() {   # the Pi's own config files (repo folder rpi-cfg/, not WonderMaker's): copy them and include them in printer.cfg
+    print_header "Step 4c: the Pi's calibration macros (rpi-cfg)"
+    why "WonderMaker's screen has buttons for bed leveling, vibration compensation, nozzle PID, tool offsets and probe calibration. The Pi has no such screen, so rpi-cfg/wm_calibration.cfg adds the same actions as macros you start from Fluidd (WM_BED_LEVELING, WM_CAL_ALL, ...). They are the Pi's own files, not WonderMaker's: a WonderMaker update never changes them."
+    local cd="$HOME_DIR/printer_data/config" cfg="$HOME_DIR/printer_data/config/printer.cfg" f
+    [ -n "$(rpicfg_list)" ] || { print_warning "the rpi-cfg folder is missing from this repository: calibration macros not installed"; return 0; }
+    if [ "$DRY" = 1 ] || [ ! -f "$cfg" ]; then echo -e "  ${DIM}would copy rpi-cfg/*.cfg into the config folder and add an [include] line for each to printer.cfg${NC}"; return 0; fi
+    for f in $(rpicfg_list); do
+        if [ -f "$cd/$f" ] && ! cmp -s "$SCRIPT_DIR/rpi-cfg/$f" "$cd/$f"; then   # you may have edited it: keep a copy before it is replaced
+            cp "$cd/$f" "$cd/$f.wm-before-rpicfg-$STAMP"; print_info "$f was different: your old copy is kept as $f.wm-before-rpicfg-$STAMP"
+        fi
+        cp "$SCRIPT_DIR/rpi-cfg/$f" "$cd/$f"
+        if rpicfg_included "$f"; then print_success "$f is installed (printer.cfg already includes it)"
+        else
+            cp "$cfg" "$cfg.wm-before-rpicfg-$STAMP"
+            if grep -q '^\[include ' "$cfg"; then sed -i "0,/^\[include /s//[include $f]\n&/" "$cfg"; else sed -i "1i [include $f]" "$cfg"; fi
+            print_success "$f is installed and included in printer.cfg (copy of the old one: printer.cfg.wm-before-rpicfg-$STAMP)"
+        fi
+    done
+}
+do_rpicfg() {   # ./installer.sh --rpi-cfg
+    print_header "The Pi's own config files (rpi-cfg)"
+    [ -f "$HOME_DIR/printer_data/config/printer.cfg" ] || die_with_fix "there is no printer.cfg on this Pi yet." "install first (menu 1), then run this again."
+    guard_not_printing
+    step_rpicfg
+    [ "$DRY" = 1 ] || { restart_klipper_after; print_info "In Fluidd run WM_CAL_HELP to list the calibration macros."; }
 }
 
 step_model() {
@@ -1519,7 +1550,7 @@ do_update() {
     check_system; preflight; update_notice
     [ -d "$HOME_DIR/klipper" ] || die_with_fix "~/klipper is missing." "run ./installer.sh --doctor"
     if [ -n "$ONLY_ADDON" ]; then echo "Only this add-on is installed. The system files, packages, Fluidd panel and nginx are not touched, and neither is your printer_data."
-    else echo "Your printer_data (config, calibration) is not touched. Updated: services, nginx, can0 rule, Python packages, panel, add-ons. Klipper is restarted at the end."; fi
+    else echo "Your printer_data (config, calibration) is not touched, except the Pi's own calibration macros file wm_calibration.cfg from rpi-cfg (refreshed; an edited copy is kept). Updated: services, nginx, can0 rule, Python packages, panel, add-ons. Klipper is restarted at the end."; fi
     ask_yn "Go ahead?" y || exit 0
     local UT=8
     progress_bar 0 100 "Update step 1 of $UT: backup"
@@ -1532,7 +1563,7 @@ do_update() {
         "$HOME_DIR/moonraker-env/bin/pip" install -q -r "$SCRIPT_DIR/config/moonraker-requirements.txt" || warn_later "moonraker-env packages did not update."
     fi
     progress_bar 45 100 "Update step 4 of $UT: services, nginx, CAN"
-    if [ -z "$ONLY_ADDON" ]; then step_services_files; step_nginx; step_can; fi
+    if [ -z "$ONLY_ADDON" ]; then step_services_files; step_nginx; step_can; step_rpicfg; fi
     progress_bar 50 100 "Update step 5 of $UT: Fluidd panel"
     if [ -z "$ONLY_ADDON" ] && [ "$WANT_PANEL" = 1 ]; then
         local sha=""; panel_get && sha="$(sha256sum "$PANEL_ZIP" | cut -d' ' -f1)"
@@ -1796,6 +1827,12 @@ do_doctor() {
         doc_bad "printer.cfg has $nerr problem(s) (listed above)" "A missing include stops Klipper at start. A wrong zru-s.cfg line means the chamber/air-filter settings do not match your model."
         grep -q 'zru-s.cfg' < <(validate_config 2>&1) && offer_fix "set printer.cfg for the $(model_now)" step_model
     fi
+    local rf; for rf in $(rpicfg_list); do
+        if [ ! -f "$HOME_DIR/printer_data/config/$rf" ]; then doc_bad "the Pi's calibration macros file $rf is missing" "WM_BED_LEVELING, WM_CAL_ALL and the other WM_ macros do not exist. It comes from the repository folder rpi-cfg."; offer_fix "copy $rf from rpi-cfg and include it in printer.cfg" step_rpicfg
+        elif ! rpicfg_included "$rf"; then doc_bad "printer.cfg does not include $rf" "The WM_ calibration macros are not loaded."; offer_fix "add the include line for $rf" step_rpicfg
+        elif ! cmp -s "$SCRIPT_DIR/rpi-cfg/$rf" "$HOME_DIR/printer_data/config/$rf"; then doc_bad "$rf differs from the one in rpi-cfg (edited, or an older version)" "Fixing replaces it with the repository version; your copy is kept as $rf.wm-before-rpicfg-<time>."; offer_fix "replace $rf with the version from rpi-cfg" step_rpicfg
+        else doc_ok "calibration macros $rf (included in printer.cfg, same as rpi-cfg)"; fi
+    done
     progress_bar 3 5 "Doctor 4 of 5: services"
     local s; for s in moonraker nginx; do
         [ "$(service_state $s)" = active ] && doc_ok "$s is running" || { doc_bad "$s is not running" "journalctl -u $s -n 30"; offer_fix "restart $s" bash -c "sudo systemctl restart $s"; }
@@ -2580,6 +2617,7 @@ case "$MODE" in
     firststart) do_first_start ask; exit $? ;;
     hwtest)     do_hw_test; exit 0 ;;
     zrtools)    do_zr_tools; exit $? ;;
+    rpicfg)     do_rpicfg; exit $? ;;
     freespace)  do_free_space; exit $? ;;
     doctor)     do_doctor; exit $? ;;
     repair)     do_repair; exit 0 ;;
@@ -2614,7 +2652,7 @@ show_plan
 guard_not_printing
 save_answers
 PROG_STEPS=14
-step_packages; step_groups; step_python; step_unpack; step_model; step_venvs; step_modules
+step_packages; step_groups; step_python; step_unpack; step_model; step_rpicfg; step_venvs; step_modules
 step_services; step_nginx; step_can; step_panel; step_screen; step_netmgr; step_timelapse; step_shellcmd; step_shaketune; step_spoolman; step_remote; step_crowsnest; step_start
 save_answers
 restart_klipper_after

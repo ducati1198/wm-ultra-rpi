@@ -411,6 +411,11 @@ check "ultra folder: zru-s.cfg off, ultra-s folder: on" "grep -q '^# \\[include 
 check "both folders pass their checksums" "(cd $ROOT/factory/ultra && sha256sum -c SHA256SUMS) && (cd $ROOT/factory/ultra-s && sha256sum -c SHA256SUMS)"
 check "ultra gets iso_version.txt too" "grep -q Add.System_1.1.13 $HU/iso_version.txt"
 check "ultra model leaves zru-s.cfg off" "grep -q '^# \\[include zru-s.cfg\\]' $HU/printer_data/config/printer.cfg && ! grep -q '^\\[include zru-s.cfg\\]' $HU/printer_data/config/printer.cfg"
+check "rpi-cfg: wm_calibration.cfg is installed and included, ultra-s and ultra" "cmp $ROOT/rpi-cfg/wm_calibration.cfg $HG/printer_data/config/wm_calibration.cfg && grep -q '^\\[include wm_calibration.cfg\\]' $HG/printer_data/config/printer.cfg && cmp $ROOT/rpi-cfg/wm_calibration.cfg $HU/printer_data/config/wm_calibration.cfg && grep -q '^\\[include wm_calibration.cfg\\]' $HU/printer_data/config/printer.cfg"
+check "rpi-cfg: exactly one include line, and printer.cfg was saved first" "[ \$(grep -c 'include wm_calibration.cfg' $HG/printer_data/config/printer.cfg) = 1 ] && ls $HG/printer_data/config/printer.cfg.wm-before-rpicfg-*"
+check "rpi-cfg: the include sits before the SAVE_CONFIG block, not after it" "! sed -n '/SAVE_CONFIG/,\$p' $HG/printer_data/config/printer.cfg | grep -q 'include wm_calibration'"
+check "rpi-cfg: the macros render and behave (jinja2)" "python3 $ROOT/tests/rpi_cfg_render.py; r=\$?; [ \$r = 0 ] || [ \$r = 77 ]"
+check "rpi-cfg: every WonderMaker macro it calls exists in both factory folders" "for m in G29 PROBE_CALIBRATE CALIBRATE_OFFSET_ALL_RAPID_MODE CALIBRATE_OFFSET_ALL_FINE_MODE; do for d in ultra ultra-s; do grep -q \"^\\[gcode_macro \$m\\]\" $ROOT/factory/\$d/config/*.cfg || exit 1; done; done"
 check "MCU firmware and flasher match their checksums" "cd $ROOT/factory/ultra-s/mcu && sha256sum -c binaries.sha256"
 check "model variants of printer.cfg present" "[ -f $ROOT/factory/ultra-s/config-variants/printer4.cfg ]"
 # modules: wrong files refused, right files accepted (use a copy of the repo with matching fake checksums)
@@ -518,6 +523,26 @@ check "doctor never overwrites an existing iso_version.txt" "grep -q 'KEEP ME' $
 cp "$ROOT/factory/ultra-s/iso_version.txt" "$G2/iso_version.txt"
 rm -f "$G2/iso_version.txt"; WM_HOME="$G2" WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash "$ROOT/installer.sh" --doctor --fix-all >/dev/null 2>&1 </dev/null
 check "Fix everything also restores a missing iso_version.txt" "grep -q 'Add System_1.1.13' $G2/iso_version.txt"
+check "doctor: calibration macros are ok on a good install" "eval \"$D\" 2>&1 | grep -q 'calibration macros wm_calibration.cfg (included in printer.cfg, same as rpi-cfg)'"
+rm -f "$G2/printer_data/config/wm_calibration.cfg"
+check "doctor reports a missing wm_calibration.cfg" "eval \"$D\" 2>&1 | grep -q 'calibration macros file wm_calibration.cfg is missing'"
+WM_HOME="$G2" WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash "$ROOT/installer.sh" --doctor --fix-all >/dev/null 2>&1 </dev/null
+check "Fix everything puts wm_calibration.cfg back" "cmp $ROOT/rpi-cfg/wm_calibration.cfg $G2/printer_data/config/wm_calibration.cfg"
+sed -i '/include wm_calibration.cfg/d' "$G2/printer_data/config/printer.cfg"
+check "doctor reports a missing include line" "eval \"$D\" 2>&1 | grep -q 'printer.cfg does not include wm_calibration.cfg'"
+WM_HOME="$G2" WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash "$ROOT/installer.sh" --doctor --fix-all >/dev/null 2>&1 </dev/null
+check "Fix everything adds the include line back (once)" "[ \$(grep -c 'include wm_calibration.cfg' $G2/printer_data/config/printer.cfg) = 1 ]"
+echo '# my edit' >> "$G2/printer_data/config/wm_calibration.cfg"
+check "doctor notices an edited wm_calibration.cfg" "eval \"$D\" 2>&1 | grep -q 'wm_calibration.cfg differs from the one in rpi-cfg'"
+WM_HOME="$G2" WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash "$ROOT/installer.sh" --doctor --fix-all >/dev/null 2>&1 </dev/null
+check "the fix keeps the edited copy and restores the repository one" "grep -q 'my edit' $G2/printer_data/config/wm_calibration.cfg.wm-before-rpicfg-* && cmp $ROOT/rpi-cfg/wm_calibration.cfg $G2/printer_data/config/wm_calibration.cfg"
+NB1=$(ls "$G2/printer_data/config" | grep -c "wm_calibration.cfg.wm-before")
+WM_HOME="$G2" WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash "$ROOT/installer.sh" --rpi-cfg > "$T/rc.out" 2>&1 </dev/null
+check "--rpi-cfg runs, is idempotent, adds no second include" "grep -q 'wm_calibration.cfg is installed (printer.cfg already includes it)' $T/rc.out && [ \$(grep -c 'include wm_calibration.cfg' $G2/printer_data/config/printer.cfg) = 1 ]"
+check "--rpi-cfg with nothing changed makes no extra copy of wm_calibration.cfg" "[ \$(ls $G2/printer_data/config/ | grep -c 'wm_calibration.cfg.wm-before') = $NB1 ]"
+check "--rpi-cfg dry run changes nothing" "rm -f $G2/printer_data/config/wm_calibration.cfg; WM_HOME=$G2 WM_INSTALLER_TEST=1 bash $ROOT/installer.sh --rpi-cfg --dry-run >/dev/null 2>&1 </dev/null; [ ! -f $G2/printer_data/config/wm_calibration.cfg ]"
+WM_HOME="$G2" WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash "$ROOT/installer.sh" --rpi-cfg >/dev/null 2>&1 </dev/null
+check "--rpi-cfg restores a deleted file" "cmp $ROOT/rpi-cfg/wm_calibration.cfg $G2/printer_data/config/wm_calibration.cfg"
 rm -f "$G2"/klipper/klippy/extras/cs1237.*.so
 check "doctor finds a missing module and restores it from the repo" "WM_HOME=$G2 WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash $ROOT/installer.sh --doctor; ls $G2/klipper/klippy/extras/cs1237.*.so"
 check "doctor reports bad network clock/power as problems" "! WM_TEST_THROTTLED=0x50005 WM_HOME=$G2 WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash $ROOT/installer.sh --doctor"

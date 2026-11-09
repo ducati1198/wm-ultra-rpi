@@ -1,4 +1,4 @@
-# wm_release.py - WonderMaker release tool (version 1.4.1)
+# wm_release.py - WonderMaker release tool (version 1.5.0)
 
 For bringing a new WonderMaker System release (for example 1.1.14) to your Pi **without losing your own changes**.
 It is not part of any installer and no installer runs it. It lives in the `tools/wm-release/` folder of the repo, so `git pull` brings it to the Pi (the repo is public, so this folder is public too).
@@ -239,8 +239,8 @@ python3 wm_release.py promote 1.1.14      # when you are happy: it becomes the n
 
 - **Copied and compared line by line, and applied by `apply`:** `~/klipper`, `~/moonraker`, `~/printer_data/config`, `~/mcu_update`, `~/TM_T1/scripts`.
 - **Compared by checksum, never applied:** `~/TM_T1/bin`, `~/TM_T1/other`, `~/TM_T1/access`, `~/moonraker-timelapse`, `~/fluidd-config`, `~/crowsnest`, `~/fluidd`, `~/access`, `/etc/systemd/system/*.service`, `/etc/nginx/conf.d`, `/etc/nginx/sites-enabled`, `/etc/udev/rules.d/*wm*.rules`, and the `pip freeze` of the two Python environments.
-- **Ignored:** `.git`, `__pycache__`, `*.pyc`, `*.log`, `plr*.ini*`, `client_log.txt`, `*.zrbak_*`, `*.bkp`, `KlipperScreen` (your own installation).
-- **Never changed by `apply`:** `printer.cfg`, `saved_variables.cfg`, `tmt1.ini`, and anything outside the five printer folders.
+- **Ignored:** `.git`, `__pycache__`, `*.pyc`, `*.log`, `plr*.ini*`, `client_log.txt`, `*.zrbak_*`, `*.bkp`, `*.wm-before-*` (the installer's safety copies), the Pi's own files from `rpi-cfg/`, `KlipperScreen` (your own installation).
+- **Never changed by `apply`:** `printer.cfg`, `saved_variables.cfg`, `tmt1.ini`, the Pi's own files from `rpi-cfg/` (`wm_calibration.cfg`), and anything outside the five printer folders.
 - Merging uses `git merge-file` (git must be installed). A file changed by both of you in different places merges; the same place is a conflict.
 
 ## Limits - read this
@@ -287,6 +287,7 @@ python3 tools/wm-release/wm_release.py --version
 `python3 wm_release.py --version` prints the tool's version; the menu title and `status` show it too, and every line in the history (`log`) records the version that wrote it. It is the tool's own number and has nothing to do with the installer's `VERSION` file, so changing the tool's version alone does not publish a GitHub release (the installer's `VERSION` does).
 
 Version history:
+- **1.5.0** - knows the Pi's own config files in the repo folder `rpi-cfg/` (today `wm_calibration.cfg`, the calibration macros `WM_BED_LEVELING`, `WM_CAL_ALL`, ...). They are not WonderMaker's, so no release contains them: `apply` never changes them (a release that ships a file with the same name is ignored for it), the baseline and the file lists skip them, `status` reports each one (ok, missing, not included in printer.cfg, or different from the repo copy), `apply` and `diff` warn when a release defines a macro with the same name as one of theirs, and the test list now includes "WM_CAL_HELP lists the calibration macros". Install or repair them with `./installer.sh --rpi-cfg`.
 - **1.4.1** - `flash` shows an access check (script, hid-flash, firmware file) and says what to do if the bootloader device needs permissions. It still changes nothing and makes no root change.
 - **1.4.0** - knows the machine's version from `~/iso_version.txt` (a short log with `Add System_x.y.z` lines; the newest one is the version in use, the same file the old board has in the home folder). The installer now puts it there (`factory/<model>/iso_version.txt`, System_1.1.13), `apply` adds a line `<date>: Add System_x.y.z` to it, like the factory image, keeping its header and history (rollback puts the old file back), and `status`, the menu header and option 1 (website) use it: they say "up to date" by it, warn when it differs from your baseline, and offer to record the baseline for the version it names. Without the file the tool falls back to its newest baseline, as before.
 - **1.3.0** - `clean` (menu `x`): lists and then deletes everything the tool created (`~/wm-private-data`, `~/wm-firmware`, temp files) after you type `DELETE`. It never touches the printer's live files, so updates you applied stay applied; it also removes the baseline and backups, so there is nothing left to roll back to. `--keep-firmware` and `--keep-backups` keep those.
@@ -297,7 +298,7 @@ Version history:
 
 ## Tests
 
-`bash tools/wm-release/test.sh` runs 109 checks on throwaway folders (it never touches your real files).
+`bash tools/wm-release/test.sh` runs 119 checks on throwaway folders (it never touches your real files).
 
 ## Checking for a new WonderMaker version
 

@@ -77,6 +77,36 @@ check "log has the apply" bash -c "python3 $PY log | grep -q apply"
 WMR_TEST_TYPED=ROLLBACK R rollback > "$T/o7"
 ( cd "$T/live" && find . -type f | sort | xargs sha256sum ) > "$T/after_rb"
 check "rollback restores every file exactly (and removes new.cfg)" cmp -s "$T/before" "$T/after_rb"
+
+# the Pi's own config files (repo folder rpi-cfg/): known to status, checklist and apply; never part of a WonderMaker release
+echo "[include wm_calibration.cfg]" >> "$C/printer.cfg"
+R status > "$T/rs1"
+check "status: the Pi's own file is reported missing when it is not in the config folder" grep -q "Pi's own file: wm_calibration.cfg: missing" "$T/rs1"
+cp "$REPO/rpi-cfg/wm_calibration.cfg" "$C/wm_calibration.cfg"
+R status > "$T/rs2"
+check "status: ok when it is there, included and the same as rpi-cfg" grep -q "Pi's own file: wm_calibration.cfg: ok" "$T/rs2"
+echo "# mine" >> "$C/wm_calibration.cfg"
+check "status: says when it differs from the repo copy" bash -c "python3 $PY status | grep -q 'wm_calibration.cfg: differs from the copy in rpi-cfg'"
+cp "$REPO/rpi-cfg/wm_calibration.cfg" "$C/wm_calibration.cfg"; sed -i '/include wm_calibration.cfg/d' "$C/printer.cfg"
+check "status: says when printer.cfg does not include it" bash -c "python3 $PY status | grep -q 'wm_calibration.cfg: not included in printer.cfg'"
+echo "[include wm_calibration.cfg]" >> "$C/printer.cfg"
+check "checklist mentions the Pi's calibration macros" bash -c "python3 $PY checklist 1.1.14 | grep -q 'WM_CAL_HELP'"
+# a release that ships the same file name or macro names
+cp -a "$T/rel" "$T/rel2"; RC2="$T/rel2/printer_data/config"
+echo "# from wonder" > "$RC2/wm_calibration.cfg"
+printf '[gcode_macro WM_CAL_STOP]\ngcode:\n    M118 theirs\n' > "$RC2/clash.cfg"
+echo "2026-12-01 10:00:00: Add System_1.1.15" > "$T/rel2/iso_version.txt"
+R fetch --from-dir "$T/rel2" > "$T/o20"
+R diff 1.1.15 > "$T/o21"
+check "diff warns about a macro name the release shares with the Pi's own file" grep -q "WM_CAL_STOP.*defined by the release in clash.cfg" "$T/o21"
+R apply 1.1.15 > "$T/o22"
+check "apply plan keeps the Pi's own file and warns about the clash" bash -c "grep -q 'KEEP   printer_data/config/wm_calibration.cfg' $T/o22 && grep -q 'WARNING: this release defines macros' $T/o22"
+check "apply never lists a release file with the Pi's own file name" bash -c "! grep -E '^  (TAKE|ADD|MERGE|HAND) .*wm_calibration.cfg' $T/o22"
+before=$(sha256sum "$C/wm_calibration.cfg" | cut -d' ' -f1)
+WMR_TEST_TYPED=APPLY R apply 1.1.15 --apply > "$T/o23"
+check "apply leaves the Pi's own wm_calibration.cfg exactly as it was" bash -c "[ \"\$(sha256sum $C/wm_calibration.cfg | cut -d' ' -f1)\" = $before ] && ! grep -q 'from wonder' $C/wm_calibration.cfg"
+WMR_TEST_TYPED=ROLLBACK R rollback > "$T/o24"
+rm -f "$C/wm_calibration.cfg"; sed -i '/include wm_calibration.cfg/d' "$C/printer.cfg"   # back to the state before this block
 # print guard
 cat > "$T/srv.py" <<'PY'
 import http.server, json
@@ -331,6 +361,6 @@ mkdir -p "$WMR_HOME/baseline/x" "$T/fw"; echo z > "$T/fw/a.zip"
 check "clean --keep-firmware keeps the archive" bash -c "WMR_TEST_TYPED=DELETE python3 $PY clean --run --keep-firmware >/dev/null && test -f $T/fw/a.zip && ! test -e $WMR_HOME"
 check "clean refuses a protected location" bash -c "WMR_HOME=$T/live WMR_LIVE_HOME=$T/live python3 $PY clean --run 2>&1 | grep -q refusing; test -d $T/live"
 
-check "the tool has a version: --version, the menu title, status and the history" bash -c "python3 $PY --version | grep -q 'wm_release.py [0-9]' && printf '0\n' | python3 $PY | grep -q 'WonderMaker release tool [0-9]' && python3 $PY status | grep -q 'Tool version: [0-9]' && grep -q '(version 1.4.1)' $HERE/README.md"
+check "the tool has a version: --version, the menu title, status and the history" bash -c "python3 $PY --version | grep -q 'wm_release.py [0-9]' && printf '0\n' | python3 $PY | grep -q 'WonderMaker release tool [0-9]' && python3 $PY status | grep -q 'Tool version: [0-9]' && grep -q '(version 1.5.0)' $HERE/README.md"
 
 echo; echo "passed: $pass  failed: $fail"; [ "$fail" = 0 ]

@@ -31,7 +31,7 @@ Version: see --version.  Data folder: $WMR_HOME (default ~/wm-private-data).  Li
 """
 import argparse, atexit, getpass, hashlib, io, json, os, re, shutil, subprocess, sys, tarfile, tempfile, time, urllib.request, urllib.parse, zipfile
 
-TOOL_VERSION = "1.4.1"   # this tool's own version (not the installer's VERSION file); see README "Version history"
+TOOL_VERSION = "1.5.0"   # this tool's own version (not the installer's VERSION file); see README "Version history"
 HOME = os.path.expanduser("~")
 DATA = os.environ.get("WMR_HOME", os.path.join(HOME, "wm-private-data"))
 LIVE = os.environ.get("WMR_LIVE_HOME", HOME)
@@ -46,7 +46,7 @@ REPO_MAP = {"klipper": "klipper", "moonraker": "moonraker", "printer_data/config
 PROTECTED = {"printer_data/config/printer.cfg", "printer_data/config/saved_variables.cfg", "printer_data/config/tmt1.ini"}
 SKIP_DIRS = {".git", "__pycache__", ".pytest_cache"}
 SKIP_SUFFIX = (".pyc", ".log")
-SKIP_GLOBS = ("plr*.ini*", "client_log.txt", "*.zrbak_*", "*.bkp", "*.wm-*.new")   # runtime data and leftovers, never compared
+SKIP_GLOBS = ("plr*.ini*", "client_log.txt", "*.zrbak_*", "*.bkp", "*.wm-*.new", "*.wm-before-*")   # runtime data and leftovers, never compared
 # Compared by checksum only (nothing is copied, nothing is ever applied): (folder, find filter)
 # Folders under the home folder, then absolute system folders written without the leading slash.
 REPORT_ROOTS = [("TM_T1/bin", ""), ("TM_T1/other", ""), ("TM_T1/access", ""), ("moonraker-timelapse", ""), ("fluidd-config", ""), ("crowsnest", ""),
@@ -61,7 +61,7 @@ MCU_SCRIPT = {"MCU": "mcu_update.sh", "THR": "mcu_update_THRs.sh", "EXT": "mcu_u
 import fnmatch
 def now(): return time.strftime("%Y%m%d-%H%M%S")
 def vkey(v): return tuple(int(x) for x in re.findall(r"\d+", v))
-def skipped(name): return name.endswith(SKIP_SUFFIX) or any(fnmatch.fnmatch(name, g) for g in SKIP_GLOBS)
+def skipped(name): return name.endswith(SKIP_SUFFIX) or any(fnmatch.fnmatch(name, g) for g in SKIP_GLOBS) or os.path.basename(name) in _rpi_names()
 def say(*a): print(*a, flush=True)
 def die(msg, fix=""):
     say("ERROR: " + msg + ("\n  What to do: " + fix if fix else "")); sys.exit(1)
@@ -74,6 +74,60 @@ def _repo_factory_dir():
         if os.path.isdir(p(d, "factory", "ultra-s")): return p(d, "factory", "ultra-s")
         d = os.path.dirname(d)
     return p(os.path.dirname(os.path.abspath(__file__)), "..", "..", "factory", "ultra-s")
+
+
+def _repo_rpi_cfg_dir():
+    """the repo's rpi-cfg/ folder (the Pi's own config files, such as wm_calibration.cfg), or None when the tool runs outside the repo"""
+    d = os.path.dirname(os.path.abspath(__file__))
+    for _ in range(6):
+        if os.path.isdir(p(d, "rpi-cfg")): return p(d, "rpi-cfg")
+        d = os.path.dirname(d)
+    return None
+
+
+_RPI_NAMES = None
+def _rpi_names():
+    global _RPI_NAMES
+    if _RPI_NAMES is None: _RPI_NAMES = set(rpi_cfg_files())
+    return _RPI_NAMES
+
+
+def rpi_cfg_files():
+    """names of the Pi's own config files. They are not WonderMaker's, so no release contains them and apply never changes them"""
+    d = _repo_rpi_cfg_dir()
+    names = sorted(x for x in os.listdir(d) if x.endswith(".cfg")) if d else []
+    return names or ["wm_calibration.cfg"]
+
+
+# a release that ships a file with one of these names must not replace the Pi's own copy
+PROTECTED = PROTECTED | {"printer_data/config/" + _n for _n in rpi_cfg_files()}
+
+
+def rpi_cfg_state():
+    """[(name, 'ok' | what is wrong)] for each of the Pi's own config files in the live config folder"""
+    cfgd = p(LIVE, "printer_data", "config"); d = _repo_rpi_cfg_dir(); out = []
+    try: pc = open(p(cfgd, "printer.cfg"), errors="replace").read()
+    except OSError: pc = ""
+    for n in rpi_cfg_files():
+        live = p(cfgd, n)
+        if not os.path.isfile(live): st = "missing (run ./installer.sh --rpi-cfg)"
+        elif not re.search(r"^\s*\[include\s+%s\s*\]" % re.escape(n), pc, re.M): st = "not included in printer.cfg (run ./installer.sh --rpi-cfg)"
+        elif d and os.path.isfile(p(d, n)) and not same_text(live, p(d, n)): st = "differs from the copy in rpi-cfg (edited, or older; ./installer.sh --rpi-cfg replaces it and keeps yours)"
+        else: st = "ok"
+        out.append((n, st))
+    return out
+
+
+def rpi_cfg_clash(release_cfgs):
+    """macro names that a WonderMaker release defines and the Pi's own files define too: the later include would win in Klipper.
+    release_cfgs: {file name: path} of the release's .cfg files"""
+    d = _repo_rpi_cfg_dir(); mine = {}
+    for n in rpi_cfg_files():
+        for cand in (p(LIVE, "printer_data", "config", n), p(d, n) if d else ""):
+            if cand and os.path.isfile(cand): mine[n] = cand; break
+    own = macros_of(mine); theirs = macros_of(release_cfgs)
+    return ["  %-28s defined by the release in %s and by your %s" % (m, ", ".join(sorted(theirs[m])), ", ".join(sorted(own[m])))
+            for m in sorted(set(own) & set(theirs))]
 
 
 def sha(path):
@@ -853,6 +907,8 @@ def cmd_diff(a):
     d = dup_report({os.path.basename(r): N[r] for r in N if r.startswith("printer_data/config/") and r.endswith(".cfg")})
     # macros defined twice in the NEW release (the second include wins in Klipper)
     if d: lines += ["", "== Macros defined in more than one file in this release (the later include wins)"] + d
+    clash = rpi_cfg_clash(newcfg)
+    if clash: lines += ["", "== Macros this release defines that the Pi's own files (rpi-cfg) define too (the later include wins)"] + clash; notes.append("A macro name in this release is also used by rpi-cfg/wm_calibration.cfg: rename one of them.")
     ensure(p(DATA, "reports")); rp = p(DATA, "reports", "%s-%s.txt" % (a.version, now()))
     open(rp, "w").write("\n".join(lines) + "\n")
     say("\n".join(lines)); say("\nReport saved: " + rp)
@@ -878,6 +934,9 @@ def cmd_apply(a):
     for c in ("TAKE", "ADD", "MERGE"):
         for r in sorted(x for x, (k, _) in todo.items() if k == c): say("  %-6s %s" % (c, r))
     for r in conf: say("  HAND   %s   (conflict: saved for you in %s)" % (r, p(DATA, "conflicts", a.version)))
+    for n, st in rpi_cfg_state(): say("  KEEP   printer_data/config/%s   (the Pi's own file, never changed by apply; %s)" % (n, st))
+    clash = rpi_cfg_clash({os.path.basename(r): N[r] for r in N if r.startswith("printer_data/config/") and r.endswith(".cfg")})
+    if clash: say("WARNING: this release defines macros that your Pi's own files define too (the later include wins in Klipper):"); [say(x) for x in clash]
     if not todo and not conf: say("  nothing to do."); return
     if not a.apply:
         say("\nDry run: nothing was changed. To apply: python3 wm_release.py apply %s --apply" % a.version); return
@@ -1042,13 +1101,14 @@ def cmd_status(a):
     else: say("This machine has no ~/iso_version.txt (the installer puts it there; apply writes it).")
     if bl and live_version() and live_version() != bl[-1]: say("Note: iso_version.txt (%s) differs from your newest baseline (%s)." % (live_version(), bl[-1]))
     if os.path.isdir(p(DATA, "backups")): say("Backups:       %d in %s" % (len(os.listdir(p(DATA, "backups"))), p(DATA, "backups")))
+    for n, st in rpi_cfg_state(): say("Pi's own file: %s: %s   (not from WonderMaker; updates never change it)" % (n, st))
 
 
 BASE_CHECKS = ["Klipper reaches 'ready' with no error in Fluidd", "All toolheads, hub, load cell and extruder boards show up (no 'Unable to open CAN port')",
                "Homing X Y Z", "Bed heats; every nozzle heats and the temperatures read sensible", "Fans and chamber heater respond",
                "Tool change T0 -> T1 -> T2 -> T3 and back, no crash, wipe works", "Probe / bed mesh runs; the saved mesh loads",
                "Nozzle offsets still right (a short two-colour test print)", "Pause, resume and cancel", "Power-loss recovery marker (plr) still works",
-               "Screen (KlipperScreen / ZR Tools) opens and shows temperatures", "Run: ./installer.sh --doctor and --check"]
+               "Screen (KlipperScreen / ZR Tools) opens and shows temperatures", "Pi calibration macros are still there: WM_CAL_HELP in Fluidd lists them (rpi-cfg/wm_calibration.cfg)", "Run: ./installer.sh --doctor and --check"]
 KEY_CHECKS = [("macros", "Macros changed: dry-run START_PRINT / PRINT_END with a real file; check the purge line"), ("offset", "Offset files changed: redo or at least verify XY/Z offsets for every tool"),
               ("change_", "Tool-change files changed: watch the first 3 tool changes closely, hand on the stop"), ("load_cell", "Load cell config changed: test the probe 5 times in one spot"),
               ("hub", "Hub config changed: filament load/unload on each path"), ("extruder", "Extruder config changed: check rotation distance with a 100 mm extrusion"),
