@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.23.35
+
+- CAN ids of every board are checked and can be fixed, not only the main board's: hub, extruder board, T0-T3 and load cell. New `./installer.sh --can-ids` shows which ids in the config answer on the bus and offers the unknown id on the bus to the board that does not answer (a copy of the file is saved first); `--can-ids set T2 ID` sets one by hand. The same check is in the first-start checks and in the Doctor (so also in Fix everything). Unattended it only changes an id when exactly one board is wrong and exactly one unknown id is on the bus. The warning no longer points at a script that is not on the Pi. 614 installer tests.
+
 ## 1.23.34
 
 - `factory/ultra-s/config/`: main board CAN id `aa157497ce9c` and load cell id `af2a269ae807`, as on the screen board once the right main board (ZRU firmware) was connected and every MCU answered. `factory/ultra/` unchanged.
