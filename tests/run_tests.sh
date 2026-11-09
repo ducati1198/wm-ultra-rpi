@@ -889,6 +889,50 @@ mkdir -p "$NS/.local/share/spoolman"; echo db > "$NS/.local/share/spoolman/spool
 check "--remove spoolman asks first and keeps everything on no" "M 'n\n' $NS --remove spoolman | grep -q 'Nothing changed' && [ -d $NS/Spoolman ]"
 check "--remove spoolman removes it, drops its config sections, keeps the database" "M 'y\nn\n' $NS --remove spoolman | grep -q 'Spoolman removed' && [ ! -e $NS/Spoolman ] && ! grep -q 'spoolman' $NS/printer_data/config/moonraker.conf && ! grep -qx Spoolman $NS/printer_data/moonraker.asvc && [ -f $NS/.local/share/spoolman/spoolman.db ]"
 
+echo "== ACE Pro (install question, add-on, doctor, removal)"
+STUBACE="$T/acestub"; mkdir -p "$STUBACE/extras/ace" "$STUBACE/config"; echo VERSION > /dev/null; echo 9.9.9 > "$STUBACE/VERSION"
+cat > "$STUBACE/installer.sh" <<'STUBEOF'
+#!/bin/bash
+# stands in for wm-ultra-fluidd-acepro-panel's installer.sh (same options and files, no questions beyond the uninstall one)
+echo "$1 home=$ACE_INSTALL_HOME test=$ACE_INSTALLER_TEST" >> "$ACE_INSTALL_HOME/.ace-stub.log"
+cfg="$ACE_CONFIG_DIR"; x="$ACE_KLIPPER_DIR/klippy/extras"; here="$(cd "$(dirname "$0")" && pwd)"
+case "$1" in
+  --install|--update)
+    for f in wm_ace_driver wm_ace wm_endless wm_stats; do echo "# $f" > "$cfg/$f.cfg"; grep -q "^\[include $f.cfg\]" "$cfg/printer.cfg" || sed -i "1i [include $f.cfg]" "$cfg/printer.cfg"; done
+    echo 'VERSION="9.9.9"' > "$cfg/wm-ultra-install.conf"; ln -sfn "$here/extras/ace" "$x/ace"; mkdir -p "$ACE_INSTALL_HOME/acepro-backup/wm-1" ;;
+  --uninstall)
+    read -r a; [ "$a" = y ] || exit 0
+    sed -i -E '/^\[include wm_(ace_driver|ace|endless|stats)\.cfg\]/d' "$cfg/printer.cfg"; rm -f "$cfg"/wm_ace_driver.cfg "$cfg"/wm_ace.cfg "$cfg"/wm_endless.cfg "$cfg"/wm_stats.cfg "$cfg/wm-ultra-install.conf" "$x/ace" ;;
+esac
+STUBEOF
+chmod +x "$STUBACE/installer.sh"; export WM_TEST_ACEPRO_SRC="$STUBACE"
+check "--acepro needs on or off" "! bash $ROOT/installer.sh --acepro maybe"
+check "--help mentions --acepro" "bash $ROOT/installer.sh --help | grep -q -- '--acepro'"
+OUTA="$(inst "$T/hqa" --dry-run --from-stage "$T/stage_hk" --model ultra-s --screen off)"
+check "the install plan lists the ACE Pro as not chosen (default no) and the install asks about it" "grep -q 'Do you have an Anycubic ACE Pro to connect' $ROOT/installer.sh && echo \"\$OUTA\" | grep -E 'ace pro +no \\(add later'"
+OUTA="$(inst "$T/hqa2" --dry-run --from-stage "$T/stage_hk" --model ultra-s --screen off --acepro on)"
+check "the plan says yes with --acepro on, and the step would download the project" "echo \"\$OUTA\" | grep -E 'ace pro +yes'"
+check "the question is asked in the install and a yes answer is used" "printf 'y\\ny\\ny\\ny\\ny\\ny\\ny\\ny\\ny\\ny\\n' | WM_TEST_NO_FETCH=1 WM_HOME=$T/hqa3 WM_INSTALLER_TEST=1 WM_TEST_PANEL_DIR=$T/stubpanel bash $ROOT/installer.sh --dry-run --from-stage $T/stage_hk --model ultra-s --screen off 2>&1 | grep -E 'ace pro +yes'"
+check "without --acepro the ACE project is not touched" "[ ! -e $NS/wm-ultra-fluidd-acepro-panel ] && [ ! -e $NS/.ace-stub.log ]"
+check "ACE Pro is not installed to start with, shown in the add-on list" "M '3\n0\n0\n' $NS --menu | grep -q 'Anycubic ACE Pro.*not installed'"
+inst "$NS" --update --only-addon acepro --acepro on > "$T/ace1.out"
+check "ACE Pro: the project is downloaded and its installer runs as an install, for this home, in test mode" "[ -f $NS/wm-ultra-fluidd-acepro-panel/installer.sh ] && grep -q -- '--install home=$NS test=1' $NS/.ace-stub.log"
+check "ACE Pro: config files, include lines and the Klipper link are in place" "for f in wm_ace_driver wm_ace wm_endless wm_stats; do [ -f $NS/printer_data/config/\$f.cfg ] && grep -q \"^\\[include \$f.cfg\\]\" $NS/printer_data/config/printer.cfg || exit 1; done; [ -L $NS/klipper/klippy/extras/ace ]"
+check "ACE Pro: remembered, in the plan, in --status" "grep -q 'WANT_ACEPRO=1' $NS/wm-rpi-backup/install.conf && inst $NS --status | grep -E 'acepro +installed'"
+check "ACE Pro: the next --update runs the project's installer as an update, no second include line" "inst $NS --update --only-addon acepro >/dev/null; grep -q -- '--update home=' $NS/.ace-stub.log && [ \$(grep -c 'include wm_ace.cfg' $NS/printer_data/config/printer.cfg) = 1 ]"
+check "ACE Pro: doctor is happy" "yes n | WM_HOME=$NS WM_INSTALLER_TEST=1 bash $ROOT/installer.sh --doctor 2>&1 | grep -q 'ACE Pro driver and config are in place'"
+rm -f "$NS/klipper/klippy/extras/ace"
+check "ACE Pro: doctor notices the missing link and offers the fix" "yes n | WM_HOME=$NS WM_INSTALLER_TEST=1 bash $ROOT/installer.sh --doctor 2>&1 | grep -q 'ACE Pro driver or its config is not set up'"
+WM_HOME="$NS" WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash "$ROOT/installer.sh" --doctor --fix-all >/dev/null 2>&1 </dev/null
+check "ACE Pro: Fix everything puts the link back" "[ -L $NS/klipper/klippy/extras/ace ]"
+check "--remove acepro asks first and keeps everything on no" "M 'n\n' $NS --remove acepro | grep -q 'Nothing changed' && [ -f $NS/printer_data/config/wm_ace.cfg ] && [ -d $NS/wm-ultra-fluidd-acepro-panel ]"
+check "--remove acepro removes configs, include lines, link and the project, keeps a copy of printer.cfg and the saved copies on no" "M 'y\nn\n' $NS --remove acepro | grep -q 'ACE Pro removed' && ! ls $NS/printer_data/config/wm_ace*.cfg $NS/printer_data/config/wm_endless.cfg $NS/printer_data/config/wm_stats.cfg $NS/printer_data/config/wm-ultra-install.conf 2>/dev/null && ! grep -q 'wm_ace\\|wm_endless\\|wm_stats' $NS/printer_data/config/printer.cfg && [ ! -e $NS/klipper/klippy/extras/ace ] && [ ! -e $NS/wm-ultra-fluidd-acepro-panel ] && [ -d $NS/acepro-backup ] && grep -q 'WANT_ACEPRO=0' $NS/wm-rpi-backup/install.conf"
+check "--remove acepro again says it is not installed" "M 'y\n' $NS --remove acepro | grep -q 'not installed'"
+inst "$NS" --update --only-addon acepro --acepro on >/dev/null
+rm -f "$NS/wm-ultra-fluidd-acepro-panel/installer.sh"
+check "--remove acepro still works when the project's installer is gone, and can delete the saved copies" "M 'y\ny\n' $NS --remove acepro | grep -q 'ACE Pro removed' && ! ls $NS/printer_data/config/wm_ace*.cfg 2>/dev/null && ! grep -q 'wm_ace' $NS/printer_data/config/printer.cfg && [ ! -L $NS/klipper/klippy/extras/ace ] && [ ! -e $NS/acepro-backup ] && [ ! -e $NS/wm-ultra-fluidd-acepro-panel ]"
+unset WM_TEST_ACEPRO_SRC
+
 echo "== screen board menu"
 MB="$T/mb"; mkdir -p "$MB"
 mb() { local in="$1"; shift; printf "$in" | WM_TEST_SERVICES="makerbase-client klipper moonraker nginx" WM_HOME="$MB" WM_INSTALLER_TEST=1 bash "$SB" "$@" 2>&1; }

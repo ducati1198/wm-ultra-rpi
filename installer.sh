@@ -36,11 +36,12 @@
 # ./installer.sh --shell-command on|off   the Klipper "gcode shell command" extension (RUN_SHELL_COMMAND CMD=name runs a Linux command from G-code). Installed automatically; off skips it
 # ./installer.sh --menu                numbered menu (install, update, add-ons, check and fix, backup, screen, advanced). Opens by itself when you run ./installer.sh with no options on a Pi that is already installed
 # ./installer.sh --install             the normal install (skips the menu)
-# ./installer.sh --remove NAME         remove something after asking: screen, network-manager, webcam, timelapse, shell-command, shaketune, obico, octoapp, octoeverywhere, fluidd, moonraker, klipper, data, system, cleanup (installer files: old backups, support bundles, saved copies, the installer folder), all (every program; keeps your printer data, backups and installer files) or erase (everything, including your printer data and backups; keeps only the installer folder)
+# ./installer.sh --remove NAME         remove something after asking: screen, network-manager, webcam, timelapse, shell-command, shaketune, spoolman, acepro, obico, octoapp, octoeverywhere, fluidd, moonraker, klipper, data, system, cleanup (installer files: old backups, support bundles, saved copies, the installer folder), all (every program; keeps your printer data, backups and installer files) or erase (everything, including your printer data and backups; keeps only the installer folder)
 # ./installer.sh --webcam on|off       crowsnest webcam service;  --timelapse on|off   Moonraker timelapse (both used with --update)
 # ./installer.sh --network-manager on|off   NetworkManager for KlipperScreen's Network panel (default off: it can drop the network connection until the Pi is restarted). Add it later with: ./installer.sh --update --network-manager on
 # ./installer.sh --shaketune on|off    Klippain Shake&Tune (input shaper and vibration graphs, by Frix-x). Add-on only: not asked during the install
 # ./installer.sh --spoolman on|off     Spoolman (filament spool tracking, shown in Fluidd). Add-on only: not asked during the install
+# ./installer.sh --acepro on|off       Anycubic ACE Pro (feeder and dryer): its Klipper driver and config from the project wm-ultra-fluidd-acepro-panel. Asked during the install; add it later with --update --acepro on, remove it with --remove acepro
 # ./installer.sh --status              one read-only page: services, Klipper, Pi health, CAN ids, add-ons, newest backup
 # ./installer.sh --system-info         read-only: host name, time zone, clock, addresses, Wi-Fi
 # ./installer.sh --set-timezone NAME   for example America/Toronto (asks first)
@@ -80,7 +81,7 @@ TESTING="${WM_INSTALLER_TEST:-0}"        # 1 = no sudo, no apt, no systemctl, no
 MODE="install"
 DRY=0
 SRC_KIND=""; SRC_ARG=""; MODEL="ultra-s"; MODULES_DIR=""; FROM_FACTORY=0
-WANT_PANEL=1; WANT_SCREEN=ask; WANT_TIMELAPSE=1; WANT_CROWSNEST=1; CLI_REMOTE=""; ONLY_ADDON=""; WANT_SHELLCMD=1; OBICO_SERVER=""; WANT_OBICO=ask; WANT_OCTOAPP=ask; WANT_OCTOEVERYWHERE=ask; WANT_NETMGR=ask; WANT_SHAKETUNE=0; WANT_SPOOLMAN=0; NO_BACKUP=0; FIXALL=0
+WANT_PANEL=1; WANT_SCREEN=ask; WANT_TIMELAPSE=1; WANT_CROWSNEST=1; CLI_REMOTE=""; ONLY_ADDON=""; WANT_SHELLCMD=1; OBICO_SERVER=""; WANT_OBICO=ask; WANT_OCTOAPP=ask; WANT_OCTOEVERYWHERE=ask; WANT_NETMGR=ask; WANT_SHAKETUNE=0; WANT_SPOOLMAN=0; WANT_ACEPRO=ask; NO_BACKUP=0; FIXALL=0
 SCREEN_LAYOUT=""; SCREEN_BACKEND="x11"; REPO_DIR="$SCRIPT_DIR"
 STAMP="$(date +%Y%m%d-%H%M%S)"
 BACKUP_ROOT="$HOME_DIR/wm-rpi-backup"
@@ -102,6 +103,7 @@ pi_weight() {   # how long each install step takes, roughly (a step that is swit
         12b) [ "${WANT_SHELLCMD:-0}" = 1 ] && echo 1 || echo 0 ;;
         12f) [ "${WANT_SHAKETUNE:-0}" = 1 ] && echo 4 || echo 0 ;;
         12g) [ "${WANT_SPOOLMAN:-0}" = 1 ] && echo 5 || echo 0 ;;
+        12h) [ "${WANT_ACEPRO:-0}" = 1 ] && echo 2 || echo 0 ;;
         12c) [ "${WANT_OBICO:-0}" = 1 ] && echo 3 || echo 0 ;;
         12d) [ "${WANT_OCTOAPP:-0}" = 1 ] && echo 3 || echo 0 ;;
         12e) [ "${WANT_OCTOEVERYWHERE:-0}" = 1 ] && echo 3 || echo 0 ;;
@@ -112,7 +114,7 @@ pi_weight() {   # how long each install step takes, roughly (a step that is swit
 }
 pi_cum() {   # percent-points finished when step KEY starts; "end" = the total
     local k s sum=0
-    for k in 1 2 3 4 4b 4c 4e 4d 5 6 7 8 9 10 11 12 12b 12f 12g 12c 12d 12e 13 14; do
+    for k in 1 2 3 4 4b 4c 4e 4d 5 6 7 8 9 10 11 12 12b 12f 12g 12h 12c 12d 12e 13 14; do
         [ "$k" = "$1" ] && { echo "$sum"; return; }
         sum=$((sum + $(pi_weight "$k")))
     done
@@ -214,6 +216,7 @@ while [ $# -gt 0 ]; do
         --octoapp)      case "${2:-}" in on|yes|1) WANT_OCTOAPP=1 ;; off|no|0) WANT_OCTOAPP=0 ;; *) print_error "--octoapp needs on or off"; exit 1 ;; esac; CLI_REMOTE="$CLI_REMOTE octoapp"; CLI_OCTOAPP="$WANT_OCTOAPP"; shift ;;
         --network-manager) case "${2:-}" in on|yes|1) WANT_NETMGR=1 ;; off|no|0) WANT_NETMGR=0 ;; *) print_error "--network-manager needs on or off"; exit 1 ;; esac; CLI_REMOTE="$CLI_REMOTE netmgr"; CLI_NETMGR="$WANT_NETMGR"; shift ;;
         --spoolman)     case "${2:-}" in on|yes|1) WANT_SPOOLMAN=1 ;; off|no|0) WANT_SPOOLMAN=0 ;; *) print_error "--spoolman needs on or off"; exit 1 ;; esac; CLI_REMOTE="$CLI_REMOTE spoolman"; CLI_SPOOLMAN="$WANT_SPOOLMAN"; shift ;;
+        --acepro)       case "${2:-}" in on|yes|1) WANT_ACEPRO=1 ;; off|no|0) WANT_ACEPRO=0 ;; *) print_error "--acepro needs on or off"; exit 1 ;; esac; CLI_REMOTE="$CLI_REMOTE acepro"; CLI_ACEPRO="$WANT_ACEPRO"; shift ;;
         --no-backup)    NO_BACKUP=1 ;;
         --status)       MODE=status ;;
         --system-info)  MODE=sysinfo ;;
@@ -1157,6 +1160,39 @@ step_spoolman() {
     print_success "Spoolman ${tag:+$tag }installed. Open http://$(hostname -I 2>/dev/null | awk '{print $1}'):7912 to add spools; Fluidd lists them after Moonraker restarts."
 }
 
+# ---------------------------------------------------------------------------
+# Anycubic ACE Pro (feeder and dryer). Its Klipper driver and config belong to another project, wm-ultra-fluidd-acepro-panel
+# (the same one that makes the Fluidd Toolheads panel). That project has its own installer, so this runs it with its default
+# answers (ACE Pro yes, load spools automatically, endless-spool macros, no Klipper restart: this installer does that).
+# The driver is linked into Klipper from the downloaded folder, so ~/wm-ultra-fluidd-acepro-panel must stay.
+# ---------------------------------------------------------------------------
+ACE_REPO_URL="https://github.com/ducati1198/wm-ultra-fluidd-acepro-panel"
+ace_dir() { echo "$HOME_DIR/wm-ultra-fluidd-acepro-panel"; }
+ace_cfg_files="wm_ace_driver.cfg wm_ace.cfg wm_endless.cfg wm_stats.cfg"
+ace_run_installer() {   # MODE [ANSWERS fed to its questions; none = its defaults]
+    ( cd "$(ace_dir)" && printf '%b' "${2:-}" | ACE_INSTALL_HOME="$HOME_DIR" ACE_KLIPPER_DIR="$HOME_DIR/klipper" ACE_CONFIG_DIR="$HOME_DIR/printer_data/config" ACE_INSTALLER_TEST="$TESTING" bash ./installer.sh "$1" )
+}
+ace_installed() { [ -f "$HOME_DIR/printer_data/config/wm_ace.cfg" ] && grep -qE '^[[:space:]]*\[include[[:space:]]+wm_ace\.cfg\]' "$HOME_DIR/printer_data/config/printer.cfg" 2>/dev/null; }
+step_acepro() {
+    [ "$WANT_ACEPRO" = 1 ] || return 0
+    print_header "Step 12h: Anycubic ACE Pro"
+    why "Adds the ACE Pro driver for Klipper and its config files (wm_ace_driver.cfg, wm_ace.cfg, wm_endless.cfg, wm_stats.cfg). They come from the project wm-ultra-fluidd-acepro-panel, by running its own installer. Klipper loads the driver after it restarts. The ACE Pro is only used to load, unload and dry filament (the four toolheads do the switching)."
+    local dir cfgd="$HOME_DIR/printer_data/config" mode=--install; dir="$(ace_dir)"
+    if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would run: download $ACE_REPO_URL to ~/wm-ultra-fluidd-acepro-panel (or update it), then run its installer.sh with the default answers${NC}"; return 0; fi
+    [ -d "$HOME_DIR/klipper/klippy/extras" ] && [ -f "$cfgd/printer.cfg" ] || { warn_later "ACE Pro: Klipper or printer.cfg is not there yet. Run ./installer.sh --update --acepro on once they are."; return 0; }
+    if [ "$TESTING" = 1 ]; then
+        [ -d "$dir" ] || { [ -n "${WM_TEST_ACEPRO_SRC:-}" ] && [ -d "$WM_TEST_ACEPRO_SRC" ] && cp -a "$WM_TEST_ACEPRO_SRC" "$dir"; } || { warn_later "ACE Pro: could not get the project (test)."; return 0; }
+    elif [ -d "$dir/.git" ]; then git -C "$dir" pull -q --ff-only || print_warning "Could not update ~/wm-ultra-fluidd-acepro-panel (network?). Using the copy that is there."
+    elif [ ! -e "$dir" ]; then git clone -q --depth 1 "$ACE_REPO_URL" "$dir" || { warn_later "ACE Pro: could not download $ACE_REPO_URL (network?). Run ./installer.sh --update --acepro on to retry."; return 0; }
+    else warn_later "ACE Pro: $dir exists but is not a git copy. Move it away and run ./installer.sh --update --acepro on."; return 0; fi
+    [ -f "$dir/installer.sh" ] || { warn_later "ACE Pro: $dir has no installer.sh."; return 0; }
+    record "HOMEDIR wm-ultra-fluidd-acepro-panel"
+    [ -f "$cfgd/wm-ultra-install.conf" ] && mode=--update
+    if ace_run_installer "$mode" && ace_installed; then
+        print_success "ACE Pro driver and config are installed. Klipper loads them at its next restart; plug the ACE Pro into a USB port of the Pi."
+    else warn_later "ACE Pro: the project's installer did not finish. Run it yourself and read its messages: cd ~/wm-ultra-fluidd-acepro-panel && ./installer.sh"; fi
+}
+
 step_remote() { step_obico; step_octoapp; step_octoeverywhere; }
 upd_wants() { [ -z "$ONLY_ADDON" ] || [ "$ONLY_ADDON" = "$1" ]; }   # --update --only-addon NAME runs just that add-on
 step_remote_update() {   # --update: never run the makers' installers again for something already there (Fluidd's update manager updates them)
@@ -1211,6 +1247,9 @@ questions() {
     ask_yn "Install the Fluidd with the WonderMaker Toolheads panel (recommended)?" y || WANT_PANEL=0
     ask_yn "Install webcam support (crowsnest, as WonderMaker uses)?" y || WANT_CROWSNEST=0
     ask_yn "Install timelapse support (Moonraker timelapse + ffmpeg)?" y || WANT_TIMELAPSE=0
+    if [ "$WANT_ACEPRO" = ask ]; then   # the ACE Pro driver and config come from the wm-ultra-fluidd-acepro-panel project (downloaded)
+        ask_yn "Do you have an Anycubic ACE Pro to connect (adds its Klipper driver and config)?" n && WANT_ACEPRO=1 || WANT_ACEPRO=0
+    fi
     # Remote access (Obico, OctoApp, OctoEverywhere) is not asked here: each needs an account and its own questions.
     # Add them afterwards in the menu (Add-ons), or give --obico on, --octoapp on, --octoeverywhere on to this install.
     [ "$WANT_OBICO" = ask ] && WANT_OBICO=0
@@ -1386,6 +1425,7 @@ WANT_OCTOEVERYWHERE=$WANT_OCTOEVERYWHERE
 WANT_NETMGR=$WANT_NETMGR
 WANT_SHAKETUNE=$WANT_SHAKETUNE
 WANT_SPOOLMAN=$WANT_SPOOLMAN
+WANT_ACEPRO=$WANT_ACEPRO
 CROWSNEST_PIN=$(addon_pin crowsnest | cut -d'|' -f2)
 TIMELAPSE_PIN=$(addon_pin moonraker-timelapse | cut -d'|' -f2)
 PANEL_SHA=$([ -n "$PANEL_ZIP" ] && sha256sum "$PANEL_ZIP" 2>/dev/null | cut -d' ' -f1)
@@ -1398,11 +1438,11 @@ load_answers() {
         case "$k" in
             VERSION) OLD_VERSION="$v" ;; CROWSNEST_PIN) OLD_CN_PIN="$v" ;; TIMELAPSE_PIN) OLD_TL_PIN="$v" ;; PANEL_SHA) OLD_PANEL_SHA="$v" ;;
             MODEL) [ -n "${MODEL_SET:-}" ] || MODEL="$v" ;; SRC_KIND) : ;;
-            WANT_PANEL|WANT_SCREEN|WANT_TIMELAPSE|WANT_CROWSNEST|WANT_SHELLCMD|WANT_OBICO|WANT_OCTOAPP|WANT_OCTOEVERYWHERE|WANT_NETMGR|WANT_SHAKETUNE|WANT_SPOOLMAN|OBICO_SERVER) printf -v "$k" '%s' "$v" ;;
+            WANT_PANEL|WANT_SCREEN|WANT_TIMELAPSE|WANT_CROWSNEST|WANT_SHELLCMD|WANT_OBICO|WANT_OCTOAPP|WANT_OCTOEVERYWHERE|WANT_NETMGR|WANT_SHAKETUNE|WANT_SPOOLMAN|WANT_ACEPRO|OBICO_SERVER) printf -v "$k" '%s' "$v" ;;
             SCREEN_BACKEND) printf -v "$k" '%s' "$v" ;; KS_PIN) OLD_KS_PIN="$v" ;;
         esac
     done < "$CONF"
-    local r; for r in ${CLI_REMOTE:-}; do case "$r" in obico) WANT_OBICO="$CLI_OBICO" ;; octoapp) WANT_OCTOAPP="$CLI_OCTOAPP" ;; octoeverywhere) WANT_OCTOEVERYWHERE="$CLI_OCTOEVERYWHERE" ;; netmgr) WANT_NETMGR="$CLI_NETMGR" ;; shaketune) WANT_SHAKETUNE="$CLI_SHAKETUNE" ;; spoolman) WANT_SPOOLMAN="$CLI_SPOOLMAN" ;; webcam) WANT_CROWSNEST="$CLI_WEBCAM" ;; timelapse) WANT_TIMELAPSE="$CLI_TIMELAPSE" ;; esac; done
+    local r; for r in ${CLI_REMOTE:-}; do case "$r" in obico) WANT_OBICO="$CLI_OBICO" ;; octoapp) WANT_OCTOAPP="$CLI_OCTOAPP" ;; octoeverywhere) WANT_OCTOEVERYWHERE="$CLI_OCTOEVERYWHERE" ;; netmgr) WANT_NETMGR="$CLI_NETMGR" ;; shaketune) WANT_SHAKETUNE="$CLI_SHAKETUNE" ;; spoolman) WANT_SPOOLMAN="$CLI_SPOOLMAN" ;; acepro) WANT_ACEPRO="$CLI_ACEPRO" ;; webcam) WANT_CROWSNEST="$CLI_WEBCAM" ;; timelapse) WANT_TIMELAPSE="$CLI_TIMELAPSE" ;; esac; done
     [ -n "${CLI_SHELLCMD:-}" ] && WANT_SHELLCMD="$CLI_SHELLCMD"    # --shell-command on|off given now wins over the saved answer
     return 0
 }
@@ -1420,6 +1460,7 @@ PLAN_OPTIONS=(
     "network manager|WANT_NETMGR"
     "klippain shake&tune|WANT_SHAKETUNE"
     "spoolman|WANT_SPOOLMAN"
+    "ace pro|WANT_ACEPRO"
 )
 show_plan() {
     print_header "Plan (nothing has been changed yet)"
@@ -1435,7 +1476,7 @@ show_plan() {
         case "$val" in
             1) val=yes ;; macros) val="only the ZR Tools macros" ;; ask) val="not chosen" ;; *) val=no ;;
         esac
-        case "$var:$val" in WANT_OBICO:no|WANT_OCTOAPP:no|WANT_OCTOEVERYWHERE:no|WANT_SHAKETUNE:no|WANT_SPOOLMAN:no) val="no (add later: menu, Add-ons)" ;; esac
+        case "$var:$val" in WANT_OBICO:no|WANT_OCTOAPP:no|WANT_OCTOEVERYWHERE:no|WANT_SHAKETUNE:no|WANT_SPOOLMAN:no|WANT_ACEPRO:no) val="no (add later: menu, Add-ons)" ;; esac
         printf '      %-16s %s\n' "$name" "$val"
     done
     [ "$AUTOSTART" = 1 ] && echo "  At the end:      Klipper, Moonraker, nginx and crowsnest are enabled and started (checks are shown; failures are reported)" \
@@ -1661,6 +1702,7 @@ do_update() {
     if [ "$WANT_SHELLCMD" = 1 ] && upd_wants shell-command; then step_shellcmd; fi
     if [ "$WANT_SHAKETUNE" = 1 ] && upd_wants shaketune; then step_shaketune; fi
     if [ "$WANT_SPOOLMAN" = 1 ] && upd_wants spoolman; then step_spoolman; fi
+    if [ "$WANT_ACEPRO" = 1 ] && upd_wants acepro; then step_acepro; fi
     progress_bar 80 100 "Update step 7 of $UT: remote access and webcam"
     step_remote_update
     if [ "$WANT_CROWSNEST" = 1 ] && upd_wants webcam && { [ "$(addon_pin crowsnest | cut -d'|' -f2)" != "${OLD_CN_PIN:-}" ] || [ ! -d "$HOME_DIR/crowsnest" ]; }; then step_crowsnest; fi
@@ -1890,6 +1932,11 @@ do_doctor() {
         elif [ "$TESTING" = 1 ]; then doc_ok "Spoolman is downloaded"
         elif [ "$(service_state Spoolman)" = active ]; then doc_ok "Spoolman is running"
         else doc_bad "Spoolman is downloaded but its service is not running" "journalctl -u Spoolman -n 30"; offer_fix "start Spoolman" bash -c "sudo systemctl enable --now Spoolman"; fi
+    fi
+    if [ "$WANT_ACEPRO" = 1 ]; then
+        if [ ! -d "$(ace_dir)" ]; then doc_bad "the ACE Pro project is missing (~/wm-ultra-fluidd-acepro-panel)" "Klipper's ACE driver is linked from that folder."; offer_fix "download it and install the ACE Pro driver and config" step_acepro
+        elif ! ace_installed || [ ! -L "$HOME_DIR/klipper/klippy/extras/ace" ]; then doc_bad "the ACE Pro driver or its config is not set up (wm_ace.cfg, the include line or the link in Klipper's extras)" "The ACE Pro does not work until it is."; offer_fix "run the ACE Pro installer again" step_acepro
+        else doc_ok "ACE Pro driver and config are in place"; fi
     fi
     if [ "$WANT_SHAKETUNE" = 1 ]; then
         if [ ! -d "$HOME_DIR/klippain_shaketune" ]; then doc_bad "Shake&Tune is missing" "Run ./installer.sh --update --shaketune on."
@@ -2197,6 +2244,31 @@ do_remove_addon_core() {
             [ "$name" != obico ] && moonraker_drop_update_section "$name"
             print_info "Restart Moonraker$([ "$name" = obico ] && echo " and Klipper") from Fluidd when you are ready." ;;
         screen) do_screen_remove ;;
+        acepro)
+            local adir bk; adir="$(ace_dir)"; bk="$HOME_DIR/acepro-backup"
+            if ! ace_installed && [ ! -d "$adir" ] && [ ! -L "$HOME_DIR/klipper/klippy/extras/ace" ] && ! ls "$cfgd"/wm_ace*.cfg "$cfgd"/wm_endless.cfg "$cfgd"/wm_stats.cfg >/dev/null 2>&1; then print_info "The ACE Pro is not installed."; return 0; fi
+            echo "  This removes everything that belongs to the ACE Pro: its four config files (wm_ace_driver.cfg, wm_ace.cfg, wm_endless.cfg, wm_stats.cfg) and their include lines in printer.cfg (a copy is kept), the ACE links in Klipper's extras, and the downloaded project ~/wm-ultra-fluidd-acepro-panel."
+            echo "  The Fluidd Toolheads panel stays (it works without an ACE; the ACE parts hide themselves). Klipper needs a restart afterwards."
+            ask_yn "Remove the ACE Pro?" n || { echo "Nothing changed."; return 0; }
+            guard_not_printing
+            local ok=0
+            if [ -f "$adir/installer.sh" ]; then ace_run_installer --uninstall "y\n" && ok=1; fi
+            # whatever the project's own uninstaller left (or if it could not run): the same removal by hand, printer.cfg saved first
+            if grep -qE '^[[:space:]]*\[include[[:space:]]+wm_(ace_driver|ace|endless|stats)\.cfg\]' "$cfgd/printer.cfg" 2>/dev/null; then
+                cp "$cfgd/printer.cfg" "$cfgd/printer.cfg.wm-before-acepro-removal-$STAMP"
+                sed -i -E '/^[[:space:]]*\[include[[:space:]]+wm_(ace_driver|ace|endless|stats)\.cfg\]/d' "$cfgd/printer.cfg"
+                print_info "Removed the ACE include lines from printer.cfg (copy: printer.cfg.wm-before-acepro-removal-$STAMP)"
+            fi
+            local af; for af in $ace_cfg_files wm-ultra-install.conf; do [ -e "$cfgd/$af" ] && rm_path "$cfgd/$af"; done
+            for af in ace temperature_ace.py virtual_pins.py; do [ -L "$HOME_DIR/klipper/klippy/extras/$af" ] && rm -f "$HOME_DIR/klipper/klippy/extras/$af"; done
+            rm_path "$adir"
+            if [ -d "$bk" ]; then
+                if [ "${REMOVE_DATA:-0}" = 1 ]; then rm_path "$bk"
+                elif [ "${REMOVE_CONFIRMED:-0}" != 1 ] && ask_yn "Also delete the saved copies of the files the ACE installer changed (~/acepro-backup)? They are the only way to bring the ACE install back." n; then rm_path "$bk"
+                else print_info "The saved copies were kept in ~/acepro-backup."; fi
+            fi
+            WANT_ACEPRO=0; save_answers
+            print_success "ACE Pro removed. Restart Klipper from Fluidd when you are ready." ;;
         spoolman)
             [ -d "$HOME_DIR/Spoolman" ] || [ -f /etc/systemd/system/Spoolman.service ] || { print_info "Spoolman is not installed."; return 0; }
             echo "  This removes the Spoolman service, ~/Spoolman and the [spoolman] and update entries in moonraker.conf (a copy is kept). Your spool database (usually ~/.local/share/spoolman) is kept unless you say yes to the next question."
@@ -2298,7 +2370,7 @@ PY
         all)
             local word c any=0
             echo "  This is what will be removed (what is installed now):"
-            for c in screen webcam timelapse shell-command shaketune spoolman obico octoapp octoeverywhere fluidd moonraker klipper; do
+            for c in screen webcam timelapse shell-command shaketune spoolman acepro obico octoapp octoeverywhere fluidd moonraker klipper; do
                 [ "$(addon_status "$c")" = "not installed" ] && continue
                 echo "    - $c  [$(addon_status "$c")]"; any=1
             done
@@ -2309,7 +2381,7 @@ PY
             echo "  Your printer data (~/printer_data), your backups and the installer files are NOT touched; remove them separately."
             read -r -p "  Type REMOVE (capital letters) to confirm, anything else cancels: " word || word=""
             [ "$word" = REMOVE ] || { echo "Nothing changed."; return 0; }
-            local todo=() ti=0; for c in screen webcam timelapse shell-command shaketune spoolman obico octoapp octoeverywhere fluidd moonraker klipper; do
+            local todo=() ti=0; for c in screen webcam timelapse shell-command shaketune spoolman acepro obico octoapp octoeverywhere fluidd moonraker klipper; do
                 [ "$(addon_status "$c")" = "not installed" ] || todo+=("$c"); done
             local tn=$(( ${#todo[@]} + 1 ))
             for c in "${todo[@]}"; do
@@ -2325,7 +2397,7 @@ PY
         erase)
             local word c g paths f
             echo "  ERASE EVERYTHING. This is what will be deleted:"
-            for c in screen webcam timelapse shell-command shaketune spoolman obico octoapp octoeverywhere fluidd moonraker klipper; do
+            for c in screen webcam timelapse shell-command shaketune spoolman acepro obico octoapp octoeverywhere fluidd moonraker klipper; do
                 [ "$(addon_status "$c")" = "not installed" ] && continue
                 echo "    - $c  [$(addon_status "$c")]"
             done
@@ -2341,7 +2413,7 @@ PY
             echo "  Each add-on's own uninstaller runs and may ask its own questions."
             read -r -p "  Type ERASE (capital letters) to confirm, anything else cancels: " word || word=""
             [ "$word" = ERASE ] || { echo "Nothing changed."; return 0; }
-            local todo=() ti=0; for c in screen webcam timelapse shell-command shaketune spoolman obico octoapp octoeverywhere fluidd moonraker klipper; do
+            local todo=() ti=0; for c in screen webcam timelapse shell-command shaketune spoolman acepro obico octoapp octoeverywhere fluidd moonraker klipper; do
                 [ "$(addon_status "$c")" = "not installed" ] || todo+=("$c"); done
             local tn=$(( ${#todo[@]} + 1 ))
             for c in "${todo[@]}"; do
@@ -2364,7 +2436,7 @@ PY
             done
             progress_bar "$tn" "$tn" "Done"
             print_success "Everything was erased. Kept: the installer folder ($REPO_DIR). Install again with: cd $REPO_DIR && ./installer.sh" ;;
-        *) die_with_fix "unknown name '${name}'." "use one of: screen, network-manager, webcam, timelapse, shell-command, shaketune, obico, octoapp, octoeverywhere, fluidd, moonraker, klipper, data, system, cleanup, all, erase." ;;
+        *) die_with_fix "unknown name '${name}'." "use one of: screen, network-manager, webcam, timelapse, shell-command, shaketune, spoolman, acepro, obico, octoapp, octoeverywhere, fluidd, moonraker, klipper, data, system, cleanup, all, erase." ;;
     esac
 }
 
@@ -2387,6 +2459,7 @@ addon_status() {   # name -> installed|running|not installed
         shell-command) [ -f "$HOME_DIR/klipper/klippy/extras/gcode_shell_command.py" ] && echo installed || echo "not installed" ;;
         zr-tools) [ -f "$HOME_DIR/printer_data/config/zr_tools.cfg" ] && grep -qE '^[[:space:]]*\[include[[:space:]]+zr_tools\.cfg\]' "$HOME_DIR/printer_data/config/printer.cfg" 2>/dev/null && echo installed || echo "not installed" ;;
         spoolman) [ -d "$HOME_DIR/Spoolman" ] && { [ "$(service_state Spoolman)" = active ] && echo running || echo installed; } || echo "not installed" ;;
+        acepro)   if ace_installed; then echo installed; elif [ -d "$(ace_dir)" ]; then echo "downloaded, not set up"; else echo "not installed"; fi ;;
         shaketune) [ -L "$HOME_DIR/klipper/klippy/extras/shaketune" ] && echo installed || { [ -d "$HOME_DIR/klippain_shaketune" ] && echo "downloaded, not linked" || echo "not installed"; } ;;
         fluidd)   [ -d "$HOME_DIR/fluidd" ] && echo installed || echo "not installed" ;;
         moonraker) [ -d "$HOME_DIR/moonraker" ] && echo installed || echo "not installed" ;;
@@ -2435,9 +2508,9 @@ menu_updates() {
 }
 
 menu_addons() {
-    local k items=(screen network-manager webcam timelapse shell-command shaketune spoolman obico octoapp octoeverywhere zr-tools)
-    declare -A label=([screen]="Touchscreen (KlipperScreen)" [shaketune]="Klippain Shake&Tune" [spoolman]="Spoolman (filament spools)" [network-manager]="NetworkManager (Network panel)" [webcam]="Webcam (crowsnest)" [timelapse]="Timelapse" [shell-command]="Klipper gcode shell command" [obico]="Obico for Klipper" [octoapp]="OctoApp" [octoeverywhere]="OctoEverywhere" [zr-tools]="ZR Tools macros (screen board)")
-    declare -A help=([spoolman]="Filament spool tracking, shown in Fluidd (port 7912)" [shaketune]="Input shaper and vibration graphs (by Frix-x)" [network-manager]="Wi-Fi choice on the screen. Can drop the network until a reboot" [screen]="Screen plugged into the Pi, with the ZR Tools page" [webcam]="USB camera streams for Fluidd" [timelapse]="Moonraker timelapse + ffmpeg" [shell-command]="RUN_SHELL_COMMAND: run Linux commands from G-code" [obico]="Remote view and failure detection (obico.io account)" [octoapp]="Phone app notifications and control" [octoeverywhere]="Remote access, webcam and notifications (free account)" [zr-tools]="For the WonderMaker screen board: checks, then installs what is missing")
+    local k items=(screen network-manager webcam timelapse shell-command shaketune spoolman acepro obico octoapp octoeverywhere zr-tools)
+    declare -A label=([screen]="Touchscreen (KlipperScreen)" [shaketune]="Klippain Shake&Tune" [spoolman]="Spoolman (filament spools)" [acepro]="Anycubic ACE Pro (feeder, dryer)" [network-manager]="NetworkManager (Network panel)" [webcam]="Webcam (crowsnest)" [timelapse]="Timelapse" [shell-command]="Klipper gcode shell command" [obico]="Obico for Klipper" [octoapp]="OctoApp" [octoeverywhere]="OctoEverywhere" [zr-tools]="ZR Tools macros (screen board)")
+    declare -A help=([acepro]="Klipper driver and config for the ACE Pro, from wm-ultra-fluidd-acepro-panel" [spoolman]="Filament spool tracking, shown in Fluidd (port 7912)" [shaketune]="Input shaper and vibration graphs (by Frix-x)" [network-manager]="Wi-Fi choice on the screen. Can drop the network until a reboot" [screen]="Screen plugged into the Pi, with the ZR Tools page" [webcam]="USB camera streams for Fluidd" [timelapse]="Moonraker timelapse + ffmpeg" [shell-command]="RUN_SHELL_COMMAND: run Linux commands from G-code" [obico]="Remote view and failure detection (obico.io account)" [octoapp]="Phone app notifications and control" [octoeverywhere]="Remote access, webcam and notifications (free account)" [zr-tools]="For the WonderMaker screen board: checks, then installs what is missing")
     while true; do
         echo; echo "  Add-ons"
         local n=0; for k in "${items[@]}"; do n=$((n+1)); menu_item "$n" "${label[$k]}" "[$(addon_status "$k")] ${help[$k]}"; done
@@ -2522,8 +2595,8 @@ menu_restore() {   # shows where the backups are kept and lets you choose one by
 }
 
 menu_uninstall() {
-    local k n items=(screen network-manager webcam timelapse shell-command shaketune spoolman obico octoapp octoeverywhere fluidd moonraker klipper data system cleanup all erase freespace)
-    declare -A label=([freespace]="Free up disk space" [screen]="Touchscreen (KlipperScreen)" [network-manager]="NetworkManager (switch back to dhcpcd)" [webcam]="Webcam (crowsnest)" [timelapse]="Timelapse" [shell-command]="Klipper gcode shell command" [shaketune]="Klippain Shake&Tune" [spoolman]="Spoolman (filament spools)" [obico]="Obico for Klipper" [octoapp]="OctoApp" [octoeverywhere]="OctoEverywhere" [fluidd]="Fluidd web page" [moonraker]="Moonraker" [klipper]="Klipper" [data]="My printer data" [system]="System files" [cleanup]="Clean up installer files" [all]="All programs" [erase]="Erase everything")
+    local k n items=(screen network-manager webcam timelapse shell-command shaketune spoolman acepro obico octoapp octoeverywhere fluidd moonraker klipper data system cleanup all erase freespace)
+    declare -A label=([freespace]="Free up disk space" [screen]="Touchscreen (KlipperScreen)" [network-manager]="NetworkManager (switch back to dhcpcd)" [webcam]="Webcam (crowsnest)" [timelapse]="Timelapse" [shell-command]="Klipper gcode shell command" [shaketune]="Klippain Shake&Tune" [spoolman]="Spoolman (filament spools)" [acepro]="Anycubic ACE Pro (driver, config, project)" [obico]="Obico for Klipper" [octoapp]="OctoApp" [octoeverywhere]="OctoEverywhere" [fluidd]="Fluidd web page" [moonraker]="Moonraker" [klipper]="Klipper" [data]="My printer data" [system]="System files" [cleanup]="Clean up installer files" [all]="All programs" [erase]="Erase everything")
     declare -A help=([freespace]="Shows what is safe to erase, with sizes and warnings; erases only what you pick" [network-manager]="Only if this installer switched you to it" [fluidd]="The page you open in the browser, with its nginx site" [moonraker]="The web API Fluidd and the add-ons use" [klipper]="The printer firmware host" [data]="printer.cfg, calibration, database, gcode files (a backup is made first)" [system]="Services, nginx files and the can0 rule the installer added" [cleanup]="Old backups, support bundles, moved-aside folders, saved copies, the installer folder" [all]="Every program above and the system files. Keeps my printer data, backups and installer files" [erase]="Programs, printer data, backups, logs and every installer file. Keeps only the installer folder")
     while true; do
         echo; echo "  Uninstall"; echo "  Choose what to remove. Each choice explains what goes and asks before it changes anything."
@@ -2579,7 +2652,7 @@ do_status() {   # read-only overview
     echo "  CAN ids in the config: $n   placeholders: $ph"
     echo
     echo "  Add-ons:"
-    local k; for k in screen network-manager webcam timelapse shell-command shaketune spoolman obico octoapp octoeverywhere zr-tools; do printf '    %-18s %s\n' "$k" "$(addon_status "$k")"; done
+    local k; for k in screen network-manager webcam timelapse shell-command shaketune spoolman acepro obico octoapp octoeverywhere zr-tools; do printf '    %-18s %s\n' "$k" "$(addon_status "$k")"; done
     echo
     local last; last="$(ls -1t "$HOME_DIR"/wm-backups/*.tgz 2>/dev/null | head -1)"
     echo "  Newest backup: ${last:-none yet (./installer.sh --backup)}"
@@ -2757,7 +2830,7 @@ guard_not_printing
 save_answers
 PROG_STEPS=14
 step_packages; step_groups; step_python; step_unpack; step_model; step_rpicfg; step_cfgmerge; step_pidcfg; step_venvs; step_modules
-step_services; step_nginx; step_can; step_panel; step_screen; step_netmgr; step_timelapse; step_shellcmd; step_shaketune; step_spoolman; step_remote; step_crowsnest; step_start
+step_services; step_nginx; step_can; step_panel; step_screen; step_netmgr; step_timelapse; step_shellcmd; step_shaketune; step_spoolman; step_acepro; step_remote; step_crowsnest; step_start
 save_answers
 restart_klipper_after
 self_test

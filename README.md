@@ -39,7 +39,7 @@ More:
 - [Backup before every update](#backup-before-every-update)
 - [Status page and Network and system](#status-page-and-network-and-system)
 - [Klipper gcode shell command (installed automatically)](#klipper-gcode-shell-command-installed-automatically)
-- Optional add-ons: [Spoolman](#spoolman-optional-add-on) · [Klippain Shake&Tune](#klippain-shaketune-optional-add-on) · [Remote access: Obico, OctoApp, OctoEverywhere](#remote-access-add-ons-obico-octoapp-octoeverywhere-optional)
+- Optional add-ons: [Anycubic ACE Pro](#anycubic-ace-pro-optional-add-on) · [Spoolman](#spoolman-optional-add-on) · [Klippain Shake&Tune](#klippain-shaketune-optional-add-on) · [Remote access: Obico, OctoApp, OctoEverywhere](#remote-access-add-ons-obico-octoapp-octoeverywhere-optional)
 
 ## Quick start
 
@@ -198,7 +198,7 @@ chmod +x installer.sh
 
 ![Update page](docs/img/menu-pi-update.png)
 
-**3 Add-ons**: touchscreen, webcam, timelapse, shell command, Shake&Tune, Spoolman, Obico, OctoApp, OctoEverywhere, and ZR Tools macros (for the screen board). Each shows whether it is installed.
+**3 Add-ons**: touchscreen, webcam, timelapse, shell command, Shake&Tune, Spoolman, Anycubic ACE Pro, Obico, OctoApp, OctoEverywhere, and ZR Tools macros (for the screen board). Each shows whether it is installed.
 
 ![Add-ons page](docs/img/menu-pi-addons.png)
 
@@ -701,6 +701,16 @@ Run it with `RUN_SHELL_COMMAND CMD=hello`; extra words go in `PARAMS="a b"`. Com
 - **Status** (Check and fix → Status, or `./installer.sh --status`): one read-only page with the version, address, Pi temperature, power flags, disk and memory, Klipper / Moonraker / nginx state, can0 and the CAN ids in the config (placeholders are called out), every add-on's state, the newest backup and the newest log.
 - **Network and system** (Advanced → Network and system): **Show** (`--system-info`: host name, time zone, clock, addresses, Wi-Fi, gateway), **Set the time zone** (`--set-timezone America/Toronto`) and **Change the host name** (`--set-hostname name`). Both changes ask first; the host name default is no and warns that `oldname.local` stops working. Nothing restarts.
 
+## Anycubic ACE Pro (optional add-on)
+
+If you have an Anycubic ACE Pro (feeder and dryer), the install asks **"Do you have an Anycubic ACE Pro to connect?"** (default no). Answer yes there, or add it later from the menu (Add-ons) or with `./installer.sh --update --acepro on`. The ACE Pro is only used to load, unload and dry filament; the four toolheads still do the switching.
+
+The ACE Pro driver and its config belong to the project [wm-ultra-fluidd-acepro-panel](https://github.com/ducati1198/wm-ultra-fluidd-acepro-panel). This installer downloads it to `~/wm-ultra-fluidd-acepro-panel` (updated with `git pull` on every `--update`) and runs **its own installer** with the default answers, so you get what that project's README describes: the driver linked into Klipper's `extras` (`ace`, `temperature_ace.py`, `virtual_pins.py`), the four config files `wm_ace_driver.cfg`, `wm_ace.cfg`, `wm_endless.cfg`, `wm_stats.cfg` with their include lines in `printer.cfg`, and the endless-spool macros. Keep the downloaded folder: the links point into it. Klipper loads the driver at its next restart, and the ACE Pro is plugged into a USB port of the Pi. The Fluidd Toolheads panel itself is installed by this installer in any case; the ACE parts of that panel appear once Klipper reports an ACE.
+
+Without an ACE Pro none of this is installed. The Doctor checks the folder, the config and the link, and Fix everything repairs them.
+
+**Remove it:** Uninstall → Anycubic ACE Pro, or `./installer.sh --remove acepro`. It runs the project's uninstaller and then removes anything left: the four config files and their include lines (a copy of `printer.cfg` is kept as `printer.cfg.wm-before-acepro-removal-<time>`), the links in Klipper's `extras`, the downloaded `~/wm-ultra-fluidd-acepro-panel` and its saved settings file. It asks whether to also delete `~/acepro-backup`, the saved copies the ACE installer made (they are the only way to bring the ACE install back; Erase everything deletes them). The Fluidd panel stays: it works without an ACE. Klipper needs a restart afterwards.
+
 ## Spoolman (optional add-on)
 
 [Spoolman](https://github.com/Donkie/Spoolman) by Donkie tracks your filament spools; Fluidd shows them. Add it from the menu (Add-ons) or with `./installer.sh --update --spoolman on`. It follows the steps KIAUH uses: downloads Spoolman's latest release (`spoolman.zip`) to `~/Spoolman`, runs its own `scripts/install.sh` (service `Spoolman`, port 7912), adds `[spoolman]` and an update entry to `moonraker.conf` (a copy is kept) and lets Moonraker manage the service (`moonraker.asvc`). Open `http://<Pi address>:7912` to add spools. Remove it with Uninstall → Spoolman: your spool database in `~/.local/share/spoolman` is kept unless you answer yes to its own question (Erase everything deletes it). Not yet tried on a WonderMaker printer.
@@ -746,7 +756,7 @@ WonderMaker Ultra Raspberry Pi replacement - installer 1.12.0
 
    1) Install or reinstall         Sets up Klipper, Moonraker and Fluidd; asks a few plain questions
    2) Update                       See what is new, then download the newest version and update (your printer_data is kept)
-   3) Add-ons                      Touchscreen, webcam, timelapse, shell command, Klippain Shake&Tune, Spoolman, Obico, OctoApp, OctoEverywhere
+   3) Add-ons                      Touchscreen, webcam, timelapse, shell command, Klippain Shake&Tune, Spoolman, Anycubic ACE Pro, Obico, OctoApp, OctoEverywhere
    4) Check and fix                Doctor, repair, hardware test, status page
    5) Backup and restore           Save and restore config, calibration and database
    6) Uninstall                    Remove any add-on, Fluidd, Moonraker, Klipper, your data, or erase everything
@@ -760,7 +770,7 @@ WonderMaker Ultra Raspberry Pi replacement - installer 1.12.0
 - **Progress bars:** the install shows "Step N of 14" with a percent bar, the update "Update step N of 8", and *All programs* / *Erase everything* "Removing <name> (step N of M)". Slow steps print "still working" with the elapsed time every 30 seconds.
 - **Status on top:** the version, whether Klipper, Moonraker and nginx are running, and (if the Pi is online) whether GitHub has newer changes.
 - **A print stops changes:** while a print is running the menu says so and every entry that changes something refuses, as the command line does. Looking (status, quick check) still works.
-- **Add-ons** shows `[installed]`, `[running]` or `[not installed]` for each add-on. Pick one to install it, or to remove it after a confirmation (`./installer.sh --remove obico|octoapp|octoeverywhere|shell-command|shaketune|spoolman`). Removing uses the makers' own uninstallers where they have one; your account on their website stays. Removing Obico also removes the include line it added to `printer.cfg` (a copy is saved first), because Klipper would not start with it pointing at a deleted file. Removing the shell command extension is refused while `printer.cfg` still has a `[gcode_shell_command ...]` section.
+- **Add-ons** shows `[installed]`, `[running]` or `[not installed]` for each add-on. Pick one to install it, or to remove it after a confirmation (`./installer.sh --remove obico|octoapp|octoeverywhere|shell-command|shaketune|spoolman|acepro`). Removing uses the makers' own uninstallers where they have one; your account on their website stays. Removing Obico also removes the include line it added to `printer.cfg` (a copy is saved first), because Klipper would not start with it pointing at a deleted file. Removing the shell command extension is refused while `printer.cfg` still has a `[gcode_shell_command ...]` section.
 - **Backup and restore:** *Restore a backup* shows the folder the backups are kept in (`~/wm-backups`) and lists the backup files there, newest first, with size and date. Press the number of the one you want; a safety copy of the current settings is made before anything is replaced. The last number lets you type the path of a backup file somewhere else.
 - **Uninstall** (menu entry 6) lists everything the installer puts on the Pi, each with `[installed]` or `[not installed]`. Pick a number to see what goes and confirm; nothing changes before you confirm. The same removals work from the command line with `./installer.sh --remove NAME`:
 

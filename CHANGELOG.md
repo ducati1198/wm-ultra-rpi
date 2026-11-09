@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.23.27
+
+- Anycubic ACE Pro. The install now asks "Do you have an Anycubic ACE Pro to connect?" (default no); `--acepro on|off`; Add-ons menu entry; step 12h downloads the project wm-ultra-fluidd-acepro-panel to `~/wm-ultra-fluidd-acepro-panel` (git pull on `--update`) and runs its own installer with the default answers (driver links in Klipper's extras, `wm_ace_driver.cfg`, `wm_ace.cfg`, `wm_endless.cfg`, `wm_stats.cfg` and their include lines). Checked against the project's real installer in test mode.
+- Uninstall: `--remove acepro` (also in the Uninstall menu, All programs and Erase everything) runs the project's uninstaller, then removes the config files, include lines (printer.cfg copy kept), links, the downloaded project and its settings file; asks before deleting `~/acepro-backup`. The Doctor checks the ACE install and Fix everything repairs it. 599 installer tests.
+
 ## 1.23.26
 
 - New `rpi-cfg/wm_nozzle.cfg`: `WM_NOZZLE_TYPE` (pick nozzle 1 to 4, material hardened or stainless steel, diameter 0.2 to 0.8 mm, confirm, optional Klipper restart) and `WM_EXTRUDER_SETUP` / `WM_EXTRUDER_SETUP_END` (the app's instruction, heater and temperature check, `is_nozzle_setting` on, park and unlock the tool on the carriage, Done puts it back and checks the dock sensors), as Fluidd window wizards like `WM_QUICK_START`. The calibration macros now refuse to start while `is_nozzle_setting` is 1.
