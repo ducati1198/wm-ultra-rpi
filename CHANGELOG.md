@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.23.34
+
+- `factory/ultra-s/config/`: main board CAN id `aa157497ce9c` and load cell id `af2a269ae807`, as on the screen board once the right main board (ZRU firmware) was connected and every MCU answered. `factory/ultra/` unchanged.
+
 ## 1.23.33
 
 - `factory/ultra-s/config/` is now the configuration of the new screen board after switching it to the Ultra-S setup (`model=2`, `[include zru-s.cfg]` on, screen shows ZR Ultra-S). Changes against the old folder: board's CAN ids, `saved_variables.cfg`, `offset_calibrate.cfg`, `zru-s.cfg`, `printer.cfg` (older WonderMaker version, no saved PID values for extruders 1 to 3) and `tmt1.ini` (camera, timelapse, air_filter and auxiliary_fan now 1). `factory/ultra/` unchanged.
