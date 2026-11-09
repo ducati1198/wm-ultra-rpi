@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.23.18
+
+- The Doctor (and Fix everything) now checks `~/iso_version.txt`, the System version: it shows the version when the file is there, reports it when missing, and offers to copy the factory one from this repository (never replaces an existing file). 521 installer tests.
+
 ## 1.23.17
 
 - Release tool 1.4.1: `flash` now shows an access check before it asks you to type FLASH (flash script, `hid-flash`, firmware file) and explains what to do if the bootloader device needs permissions. It changes nothing and makes no root change.

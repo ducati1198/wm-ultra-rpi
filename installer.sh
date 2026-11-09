@@ -1726,6 +1726,12 @@ offer_fix() {  # description, command...
     local d="$1"; shift
     if [ "${DOC_FIXALL:-0}" = 1 ] || ask_yn "  Fix: $d?" y; then "$@" && print_success "done" || print_warning "the fix did not work"; fi
 }
+restore_iso_version() {  # copies the factory iso_version.txt (System version) into the home folder; never replaces one that is there
+    local src="$SCRIPT_DIR/factory/$(model_now)/iso_version.txt"
+    [ -s "$src" ] || return 1
+    [ -s "$HOME_DIR/iso_version.txt" ] && return 0
+    cp "$src" "$HOME_DIR/iso_version.txt"
+}
 doc_ok()  { echo -e "  ${GREEN}[ok]${NC}      $1"; }
 doc_bad() { echo -e "  ${RED}[problem]${NC} $1"; echo -e "            ${DIM}$2${NC}"; DOC_PROBLEMS=$((DOC_PROBLEMS+1)); }
 do_doctor() {
@@ -1742,6 +1748,12 @@ do_doctor() {
     for d in $dl; do
         [ -d "$HOME_DIR/$d" ] && doc_ok "~/$d" || doc_bad "~/$d is missing" "Run ./installer.sh (or ./installer.sh --undo if a run was interrupted)."
     done
+    if [ -s "$HOME_DIR/iso_version.txt" ]; then
+        doc_ok "~/iso_version.txt (System version: $(grep -o 'System_[0-9.]*' "$HOME_DIR/iso_version.txt" | tail -n1 | sed 's/^System_//'))"
+    else
+        doc_bad "~/iso_version.txt (the System version) is missing" "tools/wm-release/wm_release.py uses it to know which WonderMaker version this machine has. The installer puts it there."
+        [ -s "$SCRIPT_DIR/factory/$(model_now)/iso_version.txt" ] && offer_fix "copy the factory iso_version.txt from this repository" restore_iso_version
+    fi
     if [ "$TESTING" != 1 ] && [ -x "$HOME_DIR/klippy-env/bin/python" ]; then
         "$HOME_DIR/klippy-env/bin/python" -c 'import can,serial,cffi,greenlet,jinja2,numpy' 2>/dev/null && doc_ok "Klipper's Python packages import" \
             || { doc_bad "Klipper's Python packages do not import" "The environment is damaged or incomplete."; offer_fix "rebuild ~/klippy-env" bash -c "rm -rf '$HOME_DIR/klippy-env'; true"; step_python; step_venvs; }
