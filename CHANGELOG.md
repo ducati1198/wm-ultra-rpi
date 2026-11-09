@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.23.23
+
+- New `WM_BED_PID` (heated bed, TARGET=60) and `WM_CHAMBER_PID` (ZR Ultra-S chamber heater, TARGET=45) in `rpi-cfg/wm_calibration.cfg`; `WM_QUICK_START` now runs 6 stages: bed leveling, tool offsets, vibration compensation, bed PID, hotend PID, chamber PID (about 55 to 80 minutes). Bed and chamber PID are skipped when the heater is not `control: pid` or absent (Ultra has no chamber heater).
+
 ## 1.23.22
 
 - `rpi-cfg/wm_calibration.cfg`: new `WM_QUICK_START`, a one-click hands-off calibration modeled on the K1's QUICK_START. A Fluidd window explains what runs (bed leveling, rapid tool offsets, vibration compensation, hotend PID where `control: pid`), the checks to make and the time, then runs everything and asks once to Save and Restart. Z height is offered at the end instead. 18 macros in the render test. Not tested on a real printer.
