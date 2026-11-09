@@ -1,3 +1,5 @@
+> **Dev box branch (testing only).** This branch adds a way to run the WonderMaker Klipper on a Raspberry Pi with **no printer connected**: fake boards, simulated temperatures and a simulated tool changer. Do not install it on the Pi that runs your printer. See **[README-DEVBOX.md](README-DEVBOX.md)**. The normal project is on the `main` branch.
+
 <div align="center">
 
 # WonderMaker ZR Ultra / Ultra-S: Raspberry Pi replacement

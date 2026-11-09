@@ -1161,4 +1161,5 @@ check "pip is told not to check for a newer pip (no warning on slow links)" "gre
 check "board update: waits at most 60 s for Klipper on the Pi, says it is still waiting, and cleans /tmp on Ctrl-C" "grep -q 'still waiting: Klipper on the Pi' $ROOT/scripts/screen_board.sh && grep -q 'rm -rf \"\${LATEST_TMP:-}\"; exit 130' $ROOT/scripts/screen_board.sh && ! grep -q 'for i in \$(seq 1 30); do' <(sed -n '/^restart_pi_klipper/,/^}/p' $ROOT/scripts/screen_board.sh)"
 check "board lib error message names an option that exists" "! grep -q 'screen_board.sh --get-latest' $ROOT/scripts/screen_board.sh"
 check "Pi installer: Klipper wait prints progress; the download in /tmp is removed on Ctrl-C" "grep -q 'still waiting: Klipper is' $ROOT/installer.sh && grep -q \"trap '_rmw; exit 130' INT TERM\" $ROOT/installer.sh"
+check "dev box: tool and simulation unit tests" "python3 -I -W ignore $ROOT/tests/test_devbox.py"
 echo; echo "passed: $PASS  failed: $FAIL"; [ "$FAIL" = 0 ]
