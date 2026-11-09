@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.23.24
+
+- PID results can be saved. Klipper's `SAVE_CONFIG` refuses when an included file sets `control` / `pid_Kp` / `pid_Ki` / `pid_Kd` for a heater it has to save: on the ZR Ultra-S `zru-s.cfg` does that for the chamber heater, which would also have blocked everything saved with it. New `scripts/wm_pidcfg.py` (check and fix): moves those lines into `printer.cfg` and gives each hotend `control: pid` where it has none (commented `#pid_*` values or the saved block supply the numbers; nothing else is touched; copies `<file>.wm-before-pidcfg-<time>`).
+- Installer: new step 4d on install and `--update`, new `./installer.sh --pid-cfg`, a Doctor check with a fix (also in Fix everything), and a warning after `--restore` when the restored config has the problem. 554 installer tests.
+- Release tool 1.6.0: new `pid-cfg [--fix]`, the same check in `status`, a warning in `apply` when a release would bring the conflict back, and a line in the test list. 126 tests.
+
 ## 1.23.23
 
 - New `WM_BED_PID` (heated bed, TARGET=60) and `WM_CHAMBER_PID` (ZR Ultra-S chamber heater, TARGET=45) in `rpi-cfg/wm_calibration.cfg`; `WM_QUICK_START` now runs 6 stages: bed leveling, tool offsets, vibration compensation, bed PID, hotend PID, chamber PID (about 55 to 80 minutes). Bed and chamber PID are skipped when the heater is not `control: pid` or absent (Ultra has no chamber heater).

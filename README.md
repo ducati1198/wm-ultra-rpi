@@ -234,6 +234,7 @@ The installer first asks **which printer you have** (ZR Ultra or ZR Ultra-S; or 
 | Checks | user is `t13dp`, 64-bit ARM, enough disk space |
 | Model | asks Ultra or Ultra-S and sets `printer.cfg` for it (the Ultra-S includes `zru-s.cfg`: chamber heater, air filter fan, door sensors). This applies to every source; your old `printer.cfg` is saved as `printer.cfg.wm-model-bak` if it had to change |
 | Pi's own config | copies [`rpi-cfg/`](rpi-cfg) (calibration macros for Fluidd that do what the screen app's Maintenance menu does) into `~/printer_data/config` and adds an `[include]` line to `printer.cfg` (a copy of the old one is kept). Not WonderMaker's files: a WonderMaker update never changes them |
+| PID settings | moves the chamber heater's `control` and `pid_*` lines from `zru-s.cfg` into `printer.cfg` and gives every hotend `control: pid`, so a PID tuning can be saved with SAVE_CONFIG (your values are kept; copies of the changed files are made) |
 | Packages | nginx, can-utils, build tools, libraries (apt) |
 | Groups | `moonraker-admin`, plus `dialout` and `plugdev` |
 | Python 3.9 | installed with `uv` into `~/.pythons` |
@@ -276,6 +277,7 @@ The installer first asks **which printer you have** (ZR Ultra or ZR Ultra-S; or 
 | `./installer.sh --doctor` | finds problems, explains them, offers a fix for each (asks first) |
 | `./installer.sh --repair` | puts back services, nginx files, can0 rule, groups; your data is untouched |
 | `./installer.sh --free-space` | lists what is safe to erase (sizes and a warning for each), erases only what you pick and confirm. The install offers it when the SD card is nearly full (about 2500 MB needed) |
+| `./installer.sh --pid-cfg` | checks that the PID settings of the hotends, the bed and the chamber heater are in `printer.cfg`, where Klipper's `SAVE_CONFIG` can store a PID result, and fixes them (the Ultra-S `zru-s.cfg` sets the chamber heater's, which makes `SAVE_CONFIG` fail). A copy of every changed file is kept as `<file>.wm-before-pidcfg-<time>`. The install, `--update` and the Doctor do this too |
 | `./installer.sh --rpi-cfg` | installs or repairs the Pi's own config files from [`rpi-cfg/`](rpi-cfg) (the calibration macros `WM_BED_LEVELING`, `WM_CAL_ALL`, ... and their include line in `printer.cfg`), then restarts Klipper (not during a print). The install, `--update` and the Doctor do this too |
 | `./installer.sh --zr-tools` | checks the ZR Tools macros on this Pi (for the screen board); says "already installed" or installs what is missing, then restarts Klipper (not during a print) |
 | `./installer.sh --check-updates` | read-only: lists what is new on GitHub since your copy, and says how to update |
