@@ -516,6 +516,8 @@ check "doctor fix puts the factory iso_version.txt back" "grep -q 'Add System_1.
 echo 'KEEP ME System_9.9.9' > "$G2/iso_version.txt"; eval "$D" >/dev/null 2>&1
 check "doctor never overwrites an existing iso_version.txt" "grep -q 'KEEP ME' $G2/iso_version.txt"
 cp "$ROOT/factory/ultra-s/iso_version.txt" "$G2/iso_version.txt"
+rm -f "$G2/iso_version.txt"; WM_HOME="$G2" WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash "$ROOT/installer.sh" --doctor --fix-all >/dev/null 2>&1 </dev/null
+check "Fix everything also restores a missing iso_version.txt" "grep -q 'Add System_1.1.13' $G2/iso_version.txt"
 rm -f "$G2"/klipper/klippy/extras/cs1237.*.so
 check "doctor finds a missing module and restores it from the repo" "WM_HOME=$G2 WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash $ROOT/installer.sh --doctor; ls $G2/klipper/klippy/extras/cs1237.*.so"
 check "doctor reports bad network clock/power as problems" "! WM_TEST_THROTTLED=0x50005 WM_HOME=$G2 WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash $ROOT/installer.sh --doctor"
