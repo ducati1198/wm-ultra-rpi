@@ -890,7 +890,7 @@ check "--remove spoolman asks first and keeps everything on no" "M 'n\n' $NS --r
 check "--remove spoolman removes it, drops its config sections, keeps the database" "M 'y\nn\n' $NS --remove spoolman | grep -q 'Spoolman removed' && [ ! -e $NS/Spoolman ] && ! grep -q 'spoolman' $NS/printer_data/config/moonraker.conf && ! grep -qx Spoolman $NS/printer_data/moonraker.asvc && [ -f $NS/.local/share/spoolman/spoolman.db ]"
 
 echo "== ACE Pro (install question, add-on, doctor, removal)"
-STUBACE="$T/acestub"; mkdir -p "$STUBACE/extras/ace" "$STUBACE/config"; echo VERSION > /dev/null; echo 9.9.9 > "$STUBACE/VERSION"
+STUBACE="$T/acestub"; mkdir -p "$STUBACE/extras/ace" "$STUBACE/config"; echo VERSION > /dev/null; echo 9.9.9 > "$STUBACE/VERSION"; mkdir -p "$STUBACE/.git"
 cat > "$STUBACE/installer.sh" <<'STUBEOF'
 #!/bin/bash
 # stands in for wm-ultra-fluidd-acepro-panel's installer.sh (same options and files, no questions beyond the uninstall one)
@@ -920,6 +920,9 @@ check "ACE Pro: the project is downloaded and its installer runs as an install, 
 check "ACE Pro: config files, include lines and the Klipper link are in place" "for f in wm_ace_driver wm_ace wm_endless wm_stats; do [ -f $NS/printer_data/config/\$f.cfg ] && grep -q \"^\\[include \$f.cfg\\]\" $NS/printer_data/config/printer.cfg || exit 1; done; [ -L $NS/klipper/klippy/extras/ace ]"
 check "ACE Pro: remembered, in the plan, in --status" "grep -q 'WANT_ACEPRO=1' $NS/wm-rpi-backup/install.conf && inst $NS --status | grep -E 'acepro +installed'"
 check "ACE Pro: the next --update runs the project's installer as an update, no second include line" "inst $NS --update --only-addon acepro >/dev/null; grep -q -- '--update home=' $NS/.ace-stub.log && [ \$(grep -c 'include wm_ace.cfg' $NS/printer_data/config/printer.cfg) = 1 ]"
+printf '[server]\nport: 7125\n\n[update_manager]\n' > "$NS/printer_data/config/moonraker.conf"
+inst "$NS" --update --only-addon acepro >/dev/null; inst "$NS" --update --only-addon acepro >/dev/null
+check "Fluidd update entries: the panel repo and this installer's repo are added to moonraker.conf once, other sections stay, a copy is kept" "grep -c '^\[update_manager wm-ultra-fluidd-acepro-panel\]' $NS/printer_data/config/moonraker.conf | grep -qx 1 && grep -c '^\[update_manager wm-ultra-rpi\]' $NS/printer_data/config/moonraker.conf | grep -qx 1 && grep -q 'origin: https://github.com/ducati1198/wm-ultra-fluidd-acepro-panel.git' $NS/printer_data/config/moonraker.conf && grep -q 'path: $NS/wm-ultra-fluidd-acepro-panel' $NS/printer_data/config/moonraker.conf && grep -q '^\[update_manager\]' $NS/printer_data/config/moonraker.conf && ls $NS/printer_data/config/moonraker.conf.wm-before-updatemgr-*"
 check "ACE Pro: doctor is happy" "yes n | WM_HOME=$NS WM_INSTALLER_TEST=1 bash $ROOT/installer.sh --doctor 2>&1 | grep -q 'ACE Pro driver and config are in place'"
 rm -f "$NS/klipper/klippy/extras/ace"
 check "ACE Pro: doctor notices the missing link and offers the fix" "yes n | WM_HOME=$NS WM_INSTALLER_TEST=1 bash $ROOT/installer.sh --doctor 2>&1 | grep -q 'ACE Pro driver or its config is not set up'"
@@ -927,6 +930,7 @@ WM_HOME="$NS" WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash "$ROOT/installer.sh" --do
 check "ACE Pro: Fix everything puts the link back" "[ -L $NS/klipper/klippy/extras/ace ]"
 check "--remove acepro asks first and keeps everything on no" "M 'n\n' $NS --remove acepro | grep -q 'Nothing changed' && [ -f $NS/printer_data/config/wm_ace.cfg ] && [ -d $NS/wm-ultra-fluidd-acepro-panel ]"
 check "--remove acepro removes configs, include lines, link and the project, keeps a copy of printer.cfg and the saved copies on no" "M 'y\nn\n' $NS --remove acepro | grep -q 'ACE Pro removed' && ! ls $NS/printer_data/config/wm_ace*.cfg $NS/printer_data/config/wm_endless.cfg $NS/printer_data/config/wm_stats.cfg $NS/printer_data/config/wm-ultra-install.conf 2>/dev/null && ! grep -q 'wm_ace\\|wm_endless\\|wm_stats' $NS/printer_data/config/printer.cfg && [ ! -e $NS/klipper/klippy/extras/ace ] && [ ! -e $NS/wm-ultra-fluidd-acepro-panel ] && [ -d $NS/acepro-backup ] && grep -q 'WANT_ACEPRO=0' $NS/wm-rpi-backup/install.conf"
+check "--remove acepro also takes its Fluidd update entry out (the installer's own entry stays)" "! grep -q 'update_manager wm-ultra-fluidd-acepro-panel' $NS/printer_data/config/moonraker.conf && grep -q '^\[update_manager wm-ultra-rpi\]' $NS/printer_data/config/moonraker.conf"
 check "--remove acepro again says it is not installed" "M 'y\n' $NS --remove acepro | grep -q 'not installed'"
 inst "$NS" --update --only-addon acepro --acepro on >/dev/null
 rm -f "$NS/wm-ultra-fluidd-acepro-panel/installer.sh"

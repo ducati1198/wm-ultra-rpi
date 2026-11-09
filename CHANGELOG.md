@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.23.31
+
+- Fluidd's update manager now lists this installer's repository (`wm-ultra-rpi`) and, when the ACE Pro is chosen, the ACE Pro project (`wm-ultra-fluidd-acepro-panel`): the installer adds `[update_manager ...]` sections to `moonraker.conf` on install and update (a copy `moonraker.conf.wm-before-updatemgr-STAMP` is kept; nothing is added twice). Updating there only downloads the files; run `./installer.sh --update` afterwards to apply them. `--remove acepro` takes the panel entry out again.
+- The update screen is now honest about what it touches: it names the ACE Pro files (rewritten by the project's own updater, settings kept), the Fluidd update entries in `moonraker.conf`, and the ACE Pro driver. While dev mode is on it prints the dev-box notice (Klipper reads a private copy of the config, so refreshed files only show after `devbox.py off` and `on`). 606 installer tests.
+
 ## 1.23.30
 
 - Dev box: no more Moonraker warning "Klipper configuration file not located in 'config' folder". `devbox.py on` adds `check_klipper_config_path: False` to `[file_manager]` in `moonraker.conf` (a copy `moonraker.conf.wm-before-devbox` is kept) and restarts Moonraker; `devbox.py off` takes it out again.

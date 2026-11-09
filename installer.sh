@@ -1197,6 +1197,23 @@ step_acepro() {
     else warn_later "ACE Pro: the project's installer did not finish. Run it yourself and read its messages: cd ~/wm-ultra-fluidd-acepro-panel && ./installer.sh"; fi
 }
 
+moonraker_add_update_entries() {   # [update_manager ...] for this installer's repo and the ACE Pro panel repo, so Fluidd shows when GitHub has a newer version
+    local conf="$HOME_DIR/printer_data/config/moonraker.conf" added=""
+    [ -f "$conf" ] || return 0
+    if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would add [update_manager wm-ultra-rpi] (and the ACE Pro panel) to moonraker.conf so Fluidd shows new versions${NC}"; return 0; fi
+    if [ -d "$REPO_DIR/.git" ] && ! grep -qiE '^\[update_manager +wm-ultra-rpi\]' "$conf"; then
+        cp "$conf" "$conf.wm-before-updatemgr-$STAMP"
+        printf '\n[update_manager wm-ultra-rpi]\ntype: git_repo\npath: %s\norigin: https://github.com/ducati1198/wm-ultra-rpi.git\nprimary_branch: main\nis_system_service: False\ninfo_tags:\n  desc=WonderMaker Ultra Pi installer (after updating, run ./installer.sh --update)\n' "$REPO_DIR" >> "$conf"
+        added="wm-ultra-rpi"
+    fi
+    if [ "$WANT_ACEPRO" = 1 ] && [ -d "$(ace_dir)/.git" ] && ! grep -qiE '^\[update_manager +wm-ultra-fluidd-acepro-panel\]' "$conf"; then
+        [ -e "$conf.wm-before-updatemgr-$STAMP" ] || cp "$conf" "$conf.wm-before-updatemgr-$STAMP"
+        printf '\n[update_manager wm-ultra-fluidd-acepro-panel]\ntype: git_repo\npath: %s\norigin: %s.git\nprimary_branch: main\nis_system_service: False\nmanaged_services: klipper\ninfo_tags:\n  desc=Anycubic ACE Pro driver and Fluidd panel (after updating, run ./installer.sh --update)\n' "$(ace_dir)" "$ACE_REPO_URL" >> "$conf"
+        added="${added:+$added, }wm-ultra-fluidd-acepro-panel"
+    fi
+    [ -z "$added" ] || print_info "Added to moonraker.conf: [update_manager $added]. Fluidd now shows when GitHub has a newer version. Updating there only downloads the files; run ./installer.sh --update afterwards to apply them (config files, services)."
+}
+
 step_remote() { step_obico; step_octoapp; step_octoeverywhere; }
 upd_wants() { [ -z "$ONLY_ADDON" ] || [ "$ONLY_ADDON" = "$1" ]; }   # --update --only-addon NAME runs just that add-on
 step_remote_update() {   # --update: never run the makers' installers again for something already there (Fluidd's update manager updates them)
@@ -1674,10 +1691,10 @@ do_update() {
     print_header "Update"
     load_answers || die_with_fix "nothing is installed by this installer yet, so there is nothing to update ($CONF is missing)." "run ./installer.sh and choose 1 (Install or reinstall). To get the newest installer files only: ./installer.sh --get-latest"
     guard_not_printing
-    check_system; preflight; update_notice
+    check_system; preflight; update_notice; devbox_notice
     [ -d "$HOME_DIR/klipper" ] || die_with_fix "~/klipper is missing." "run ./installer.sh --doctor"
     if [ -n "$ONLY_ADDON" ]; then echo "Only this add-on is installed. The system files, packages, Fluidd panel and nginx are not touched, and neither is your printer_data."
-    else echo "Your printer_data (config, calibration) is not touched, except the Pi's own calibration macros file wm_calibration.cfg from rpi-cfg (refreshed; an edited copy is kept). Updated: services, nginx, can0 rule, Python packages, panel, add-ons. Klipper is restarted at the end."; fi
+    else echo "Your printer_data (config, calibration) is not touched, except: the Pi's own calibration macros file wm_calibration.cfg from rpi-cfg (refreshed; an edited copy is kept)$([ "$WANT_ACEPRO" = 1 ] && echo ", and the ACE Pro files (wm_ace_driver.cfg, wm_ace.cfg, wm_endless.cfg, wm_stats.cfg) which the ACE Pro project's own updater rewrites (its settings are kept)"), plus the Fluidd update entries in moonraker.conf (a copy is kept). Updated: services, nginx, can0 rule, Python packages, the Fluidd panel, add-ons$([ "$WANT_ACEPRO" = 1 ] && echo ", the ACE Pro driver"). Klipper is restarted at the end."; fi
     ask_yn "Go ahead?" y || exit 0
     local UT=8
     progress_bar 0 100 "Update step 1 of $UT: backup"
@@ -1710,6 +1727,7 @@ do_update() {
     progress_bar 80 100 "Update step 7 of $UT: remote access and webcam"
     step_remote_update
     if [ "$WANT_CROWSNEST" = 1 ] && upd_wants webcam && { [ "$(addon_pin crowsnest | cut -d'|' -f2)" != "${OLD_CN_PIN:-}" ] || [ ! -d "$HOME_DIR/crowsnest" ]; }; then step_crowsnest; fi
+    moonraker_add_update_entries
     save_answers
     progress_bar 90 100 "Update step 8 of $UT: restart Klipper and self-test"
     SUDO systemctl restart moonraker; [ -n "$ONLY_ADDON" ] || SUDO systemctl restart nginx
@@ -2267,6 +2285,7 @@ do_remove_addon_core() {
             local af; for af in $ace_cfg_files wm-ultra-install.conf; do [ -e "$cfgd/$af" ] && rm_path "$cfgd/$af"; done
             for af in ace temperature_ace.py virtual_pins.py; do [ -L "$HOME_DIR/klipper/klippy/extras/$af" ] && rm -f "$HOME_DIR/klipper/klippy/extras/$af"; done
             rm_path "$adir"
+            moonraker_drop_update_section wm-ultra-fluidd-acepro-panel
             if [ -d "$bk" ]; then
                 if [ "${REMOVE_DATA:-0}" = 1 ]; then rm_path "$bk"
                 elif [ "${REMOVE_CONFIRMED:-0}" != 1 ] && ask_yn "Also delete the saved copies of the files the ACE installer changed (~/acepro-backup)? They are the only way to bring the ACE install back." n; then rm_path "$bk"
@@ -2835,7 +2854,7 @@ guard_not_printing
 save_answers
 PROG_STEPS=14
 step_packages; step_groups; step_python; step_unpack; step_model; step_rpicfg; step_cfgmerge; step_pidcfg; step_venvs; step_modules
-step_services; step_nginx; step_can; step_panel; step_screen; step_netmgr; step_timelapse; step_shellcmd; step_shaketune; step_spoolman; step_acepro; step_remote; step_crowsnest; step_start
+step_services; step_nginx; step_can; step_panel; step_screen; step_netmgr; step_timelapse; step_shellcmd; step_shaketune; step_spoolman; step_acepro; moonraker_add_update_entries; step_remote; step_crowsnest; step_start
 save_answers
 restart_klipper_after
 self_test
