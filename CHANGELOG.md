@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.23.38
+
+- New macro `WM_EXTRUDER_MATCH` (in `rpi-cfg/wm_nozzle.cfg`), the "Set Up" matching of the screen's Extruder Setup. Read from the screen app's code, not guessed: with `is_nozzle_setting = 1` it picks up T0 to T3 one after the other, and after each pick takes the first dock sensor that shows an empty dock. Tool n gets the CAN id that was stored for that dock. If every tool came out of its own dock nothing changes. If the ids would change, a window shows them and asks; Apply writes them into `wm_zru_thr0.cfg` ... `wm_zru_thr3.cfg` (a copy of each changed file is kept) and does FIRMWARE_RESTART. Two tools with the same id: nothing is written. Different from the screen: it stops at the first tool that cannot be picked up and asks before it writes. The Done window of `WM_EXTRUDER_SETUP` offers it.
+- New helper `scripts/wm_canids.py` (`show`, `apply ID0 ID1 ID2 ID3`), installed with `wm_nozzle.py` into `~/printer_data/wm-tools/`; the Doctor checks it.
+- Not tested on a real printer.
+
 ## 1.23.37
 
 - `WM_QUICK_START` is now `WM_FULL_CALIBRATION` (same one-click calibration, new name, window texts and messages say "Full calibration"). `WM_CAL_ALL` and its helper macros are removed: the single macros (`WM_BED_LEVELING`, `WM_PROBE_CALIBRATE`, `WM_TOOL_OFFSETS`, `WM_VIBRATION_COMP`, ...) can be run one at a time instead. A Pi that has the old `rpi-cfg/wm_calibration.cfg` is told by the Doctor that the file differs and gets the new one with Fix.

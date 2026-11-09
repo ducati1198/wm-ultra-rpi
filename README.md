@@ -648,7 +648,7 @@ installer.sh            the Pi installer
 factory/ultra/          WonderMaker ZR Ultra: Klipper, Moonraker, settings, scripts, checksums
 factory/ultra-s/        WonderMaker ZR Ultra-S: same, with the chamber/air-filter/door settings on
 tools/devbox/           dev box (for testing only): run WonderMaker's Klipper on a Pi with no printer, see README-DEVBOX.md
-rpi-cfg/                the Pi's own config files (not WonderMaker's): wm_calibration.cfg (calibration macros) and wm_nozzle.cfg (Nozzle Type and Extruder Setup wizards); installed by the installer
+rpi-cfg/                the Pi's own config files (not WonderMaker's): wm_calibration.cfg (calibration macros) and wm_nozzle.cfg (Nozzle Type, Extruder Setup and tool head matching wizards); installed by the installer
 screen_rescue/          rescue window and USB-stick check for the screen board
 scripts/                pull_from_board.sh, stage_from_repo.sh, board_check.sh, screen_board.sh (+ _inspect, _precheck, _preflight_mac) for the screen board
 config/                 systemd units, nginx files, can0 udev rule, pinned Python requirements, crowsnest template, addon version pins

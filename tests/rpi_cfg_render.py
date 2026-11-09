@@ -12,7 +12,7 @@ macros = {m.group(1): m.group(2) for m in re.finditer(r'^\[gcode_macro (\S+)\]\n
 HEAT = ['heater_bed', 'extruder', 'extruder1', 'extruder2', 'extruder3', 'heater_generic chamber']
 class Raise(Exception): pass
 env = jinja2.Environment(variable_start_string='{', variable_end_string='}')
-def run(name, params=None, target=None, control='pid', printing='standby', chamber=True, sv=None, temps=None, docks=None, shell=True):
+def run(name, params=None, target=None, control='pid', printing='standby', chamber=True, sv=None, temps=None, docks=None, shell=True, ids=None, actual=None, canids=True):
     svars = {'thr_number': 4, 'current_extruder': 0, 'fail_flag': 0, 'fail_tool': 99, 'is_nozzle_setting': 0}; svars.update(sv or {})
     printer = {'save_variables': {'variables': svars},
                'print_stats': {'state': printing}, 'heaters': {'available_heaters': HEAT}, 'toolhead': {'homed_axes': 'xyz'},
@@ -21,6 +21,9 @@ def run(name, params=None, target=None, control='pid', printing='standby', chamb
     cs = printer['configfile']['settings']
     for i, h in enumerate(HEAT[1:5]): cs[h]['nozzle_diameter'] = 0.4
     if shell: cs['gcode_shell_command wm_nozzle'] = {}
+    if canids: cs['gcode_shell_command wm_canids'] = {}
+    for i in range(4): cs['mcu t%d' % i] = {'canbus_uuid': (ids or ['ac8b57e80210', 'ac80ddd6ebe5', 'ac4068351d2c', 'ac6290884b96'])[i]}
+    printer['gcode_macro _WM_MATCH_STATE'] = {'actual': [0, 1, 2, 3] if actual is None else actual}
     for i in range(4):
         cs['filament_switch_sensor docked%d' % i] = {}
         printer['filament_switch_sensor docked%d' % i] = {'filament_detected': (docks or {}).get(i, True)}
@@ -100,6 +103,32 @@ want("extruder setup: unlock failure", run("_WM_EXSETUP_AFTER", sv={"fail_flag":
 want("extruder setup: failed puts the switch back", run("_WM_EXSETUP_FAILED", {"REASON": "x"}), "is_nozzle_setting VALUE=0")
 want("extruder setup end: switch off, docks fine", run("WM_EXTRUDER_SETUP_END"), "is_nozzle_setting VALUE=0", "Every tool head is seen in its dock")
 want("extruder setup end: names an empty dock", run("WM_EXTRUDER_SETUP_END", docks={1: False, 3: False}), "is_nozzle_setting VALUE=0", "tool head 2, 4 shows an empty dock")
+want("match: all macros present", sorted(macros), "WM_EXTRUDER_MATCH", "_WM_MATCH_STATE", "_WM_MATCH_CHECK", "_WM_MATCH_RUN", "_WM_MATCH_STEP", "_WM_MATCH_AFTER", "_WM_MATCH_FINISH", "_WM_MATCH_APPLY", "_WM_MATCH_STOP")
+want("match: window shows the ids, nothing moves", run("WM_EXTRUDER_MATCH"), "prompt_begin Match tool heads", "T0 ac8b57e80210", "T3 ac6290884b96", "_WM_MATCH_RUN", none=("T0\n", "SAVE_VARIABLE", "G28", "PARK_CURRENT_TOOL"))
+want("match: check runs the Extruder Setup safety check first", run("WM_EXTRUDER_MATCH")[:1], "_WM_MATCH_CHECK")
+want("match: check refuses without the wm_canids shell command", run("_WM_MATCH_CHECK", canids=False), "RAISE: The wm_canids shell command is not loaded")
+want("match: check refuses while Extruder Setup is on", run("_WM_MATCH_CHECK", sv={"is_nozzle_setting": 1}), "RAISE: Extruder Setup is still on")
+want("match: check refuses with fail_flag set", run("_WM_MATCH_CHECK", sv={"fail_flag": -3}), "RAISE: WonderMaker's tool change error flag")
+want("match: check refuses when a head is not in its dock", run("_WM_MATCH_CHECK", docks={2: False}), "RAISE: Tool head 3 is not seen in its dock")
+want("match: check refuses a missing CAN id", run("_WM_MATCH_CHECK", ids=["ac8b57e80210", "", "ac4068351d2c", "ac6290884b96"]), "RAISE: [mcu T1] has no canbus_uuid")
+want("match: check passes on a good printer", run("_WM_MATCH_CHECK"), none=("RAISE",))
+want("match: run switches on, homes if needed, parks, starts at T0", run("_WM_MATCH_RUN", sv={"current_extruder": 1}), "SET_GCODE_VARIABLE MACRO=_WM_MATCH_STATE VARIABLE=actual VALUE=\"[]\"", "is_nozzle_setting VALUE=1", "PARK_CURRENT_TOOL", "_WM_MATCH_STEP N=0")
+want("match: run does not park when no tool is on the carriage", run("_WM_MATCH_RUN", sv={"current_extruder": 99}), "_WM_MATCH_STEP N=0", none=("PARK_CURRENT_TOOL",))
+want("match: step picks the tool and checks", run("_WM_MATCH_STEP", {"N": "2"}), "T2", "M400", "_WM_MATCH_AFTER N=2")
+want("match: step stops on a stale fail_flag", run("_WM_MATCH_STEP", {"N": "1"}, sv={"fail_flag": -1}), "_WM_MATCH_STOP", none=("\nT1\n",))
+want("match: after notes the empty dock and goes on", run("_WM_MATCH_AFTER", {"N": "0"}, docks={0: False}, actual=[]), 'VALUE="[0]"', "_WM_MATCH_STEP N=1")
+want("match: after records a different dock", run("_WM_MATCH_AFTER", {"N": "1"}, docks={3: False}, actual=[0]), 'VALUE="[0, 3]"', "empty dock is tool head 4", "_WM_MATCH_STEP N=2")
+want("match: after the last tool finishes", run("_WM_MATCH_AFTER", {"N": "3"}, docks={3: False}, actual=[0, 1, 2]), 'VALUE="[0, 1, 2, 3]"', "_WM_MATCH_FINISH", none=("_WM_MATCH_STEP",))
+want("match: after stops when no dock is empty", run("_WM_MATCH_AFTER", {"N": "1"}, actual=[0]), "_WM_MATCH_STOP", "no dock sensor shows an empty dock", none=("_WM_MATCH_STEP",))
+want("match: after stops when the pick failed", run("_WM_MATCH_AFTER", {"N": "1"}, docks={1: False}, actual=[0], sv={"fail_flag": -1, "fail_tool": 1}), "_WM_MATCH_STOP", "T1 could not be picked up", none=("_WM_MATCH_STEP",))
+want("match: finish with identity changes nothing", run("_WM_MATCH_FINISH"), "PARK_CURRENT_TOOL", "is_nozzle_setting VALUE=0", "nothing was changed", none=("_WM_MATCH_APPLY", "RUN_SHELL_COMMAND", "FIRMWARE_RESTART"))
+want("match: finish with a swap offers the new ids, writes nothing", run("_WM_MATCH_FINISH", actual=[0, 2, 1, 3]), "T1: ac80ddd6ebe5 -> ac4068351d2c (from dock 3)", "T2: ac4068351d2c -> ac80ddd6ebe5 (from dock 2)", "_WM_MATCH_APPLY ID0=ac8b57e80210 ID1=ac4068351d2c ID2=ac80ddd6ebe5 ID3=ac6290884b96", none=("RUN_SHELL_COMMAND", "FIRMWARE_RESTART", "T0: ", "T3: "))
+want("match: finish with a duplicate writes nothing", run("_WM_MATCH_FINISH", actual=[0, 2, 2, 3]), "T1 and T2 would get the same CAN id", "nothing was written", "T1: dock 3", none=("_WM_MATCH_APPLY", "RUN_SHELL_COMMAND"))
+want("match: apply writes the four ids, then restarts the firmware", run("_WM_MATCH_APPLY", {"ID0": "a", "ID1": "b", "ID2": "c", "ID3": "d"}), 'RUN_SHELL_COMMAND CMD=wm_canids PARAMS="apply a b c d"', "FIRMWARE_RESTART")
+want("match: apply refuses without the shell command", run("_WM_MATCH_APPLY", {"ID0": "a"}, canids=False), "RAISE: The wm_canids shell command is not loaded")
+want("match: apply refuses while printing", run("_WM_MATCH_APPLY", {"ID0": "a"}, printing="printing"), "RAISE")
+want("match: stop switches off and writes nothing", run("_WM_MATCH_STOP", {"REASON": "x"}), "is_nozzle_setting VALUE=0", "Nothing was written", none=("RUN_SHELL_COMMAND", "SAVE_CONFIG"))
+want("extruder setup end: offers the matching", run("WM_EXTRUDER_SETUP_END"), "WM_EXTRUDER_MATCH|secondary")
 want("calibration refuses while Extruder Setup is on", run("_WM_CAL_PRECHECK", sv={"is_nozzle_setting": 1}), "RAISE: Extruder Setup is still on")
 want("z offset", run("WM_ZOFFSET_DOWN", {"STEP": "0.01"}), "SET_GCODE_OFFSET Z_ADJUST=-0.01 MOVE=1")
 # every macro the file calls that is not defined here must be a WonderMaker or Klipper command that exists in the repo's factory files
