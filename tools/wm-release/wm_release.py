@@ -8,6 +8,7 @@ Everything is read-only unless you run `apply --apply` (and type APPLY), `rollba
   all [--source board|web]     every needed step, in order; asks first: old screen board, or WonderMaker's website
   check                        ask WonderMaker's firmware page for the newest published version (downloads nothing)
   status                       what is recorded: baseline, fetched releases, log
+  pid-cfg [--fix]              check where the PID settings of the hotends, bed and chamber heater live (SAVE_CONFIG must be able to store a PID result); --fix moves them into printer.cfg
   init-baseline --from-board  record the board as it is NOW (the version before the new one); also --from-dir DIR or --src DIR (repo factory copy)
   promote VERSION              make a fetched release the baseline for the next one
   fetch --from-board [HOST]    copy the updated files from the WonderMaker screen board over SSH (read only)
@@ -31,7 +32,7 @@ Version: see --version.  Data folder: $WMR_HOME (default ~/wm-private-data).  Li
 """
 import argparse, atexit, getpass, hashlib, io, json, os, re, shutil, subprocess, sys, tarfile, tempfile, time, urllib.request, urllib.parse, zipfile
 
-TOOL_VERSION = "1.5.0"   # this tool's own version (not the installer's VERSION file); see README "Version history"
+TOOL_VERSION = "1.6.0"   # this tool's own version (not the installer's VERSION file); see README "Version history"
 HOME = os.path.expanduser("~")
 DATA = os.environ.get("WMR_HOME", os.path.join(HOME, "wm-private-data"))
 LIVE = os.environ.get("WMR_LIVE_HOME", HOME)
@@ -115,6 +116,40 @@ def rpi_cfg_state():
         elif d and os.path.isfile(p(d, n)) and not same_text(live, p(d, n)): st = "differs from the copy in rpi-cfg (edited, or older; ./installer.sh --rpi-cfg replaces it and keeps yours)"
         else: st = "ok"
         out.append((n, st))
+    return out
+
+
+def _pidcfg_script():
+    """the repo's scripts/wm_pidcfg.py (checks where the PID settings live), or None when the tool runs outside the repo"""
+    d = os.path.dirname(os.path.abspath(__file__))
+    for _ in range(6):
+        if os.path.isfile(p(d, "scripts", "wm_pidcfg.py")): return p(d, "scripts", "wm_pidcfg.py")
+        d = os.path.dirname(d)
+    return None
+
+
+def pid_cfg_run(fix=False):
+    """(exit code, output lines) of scripts/wm_pidcfg.py check|fix on the live config folder; exit code None = cannot run"""
+    sc = _pidcfg_script(); cfgd = p(LIVE, "printer_data", "config")
+    if not sc: return None, ["scripts/wm_pidcfg.py not found (run the tool from the wm-ultra-rpi repository)"]
+    if not os.path.isfile(p(cfgd, "printer.cfg")): return None, ["no printer.cfg in " + cfgd]
+    cmd = [sys.executable, sc, "fix" if fix else "check", cfgd] + ([now()] if fix else [])
+    r = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True)
+    return r.returncode, [l for l in r.stdout.splitlines() if l.strip()]
+
+
+def pid_cfg_release_conflicts(release_cfgs):
+    """a release file that sets control / pid_* for a heater would bring the SAVE_CONFIG conflict back once applied.
+    release_cfgs: {file name: path}; main printer.cfg is skipped (SAVE_CONFIG handles that one)"""
+    out = []
+    for n, path in sorted(release_cfgs.items()):
+        if n == "printer.cfg" or not is_text(path): continue
+        sec = None
+        for line in open(path, errors="replace").read().splitlines():
+            m = re.match(r"^\[(.+?)\]", line)
+            if m: sec = m.group(1).strip(); continue
+            if sec and re.match(r"^(extruder\d*|heater_bed|heater_generic .+)$", sec) and re.match(r"^(control|pid_k[pid])\s*[:=]", line, re.I):
+                out.append("  %-18s [%s] sets %s" % (n, sec, re.split(r"[:=]", line)[0].strip())); 
     return out
 
 
@@ -937,6 +972,8 @@ def cmd_apply(a):
     for n, st in rpi_cfg_state(): say("  KEEP   printer_data/config/%s   (the Pi's own file, never changed by apply; %s)" % (n, st))
     clash = rpi_cfg_clash({os.path.basename(r): N[r] for r in N if r.startswith("printer_data/config/") and r.endswith(".cfg")})
     if clash: say("WARNING: this release defines macros that your Pi's own files define too (the later include wins in Klipper):"); [say(x) for x in clash]
+    pidc = pid_cfg_release_conflicts({os.path.basename(r): N[r] for r in N if r.startswith("printer_data/config/") and r.endswith(".cfg")})
+    if pidc: say("WARNING: this release sets PID values for a heater in an included file; Klipper's SAVE_CONFIG then refuses to save a PID result.\n  After apply run: python3 wm_release.py pid-cfg --fix"); [say(x) for x in pidc]
     if not todo and not conf: say("  nothing to do."); return
     if not a.apply:
         say("\nDry run: nothing was changed. To apply: python3 wm_release.py apply %s --apply" % a.version); return
@@ -974,6 +1011,8 @@ def cmd_apply(a):
     say("Applied %d files. Backup: %s" % (len(todo), bk))
     say("~/iso_version.txt now says System_%s." % a.version)
     if conf: say("%d conflict(s) left for you: %s" % (len(conf), p(DATA, "conflicts", a.version)))
+    rc, out = pid_cfg_run()
+    if rc == 1: say("PID settings: the new files put them where SAVE_CONFIG cannot store a PID result:"); [say("  " + x) for x in out]; say("  Fix: python3 wm_release.py pid-cfg --fix   (copies of the changed files are kept)")
     say("Next: restart Klipper (sudo systemctl restart klipper), then run the checklist: python3 wm_release.py checklist %s" % a.version)
     say("When the new version works for you: python3 wm_release.py promote %s   (so the next release is compared with it)" % a.version)
     say("Undo: python3 wm_release.py rollback")
@@ -1102,13 +1141,32 @@ def cmd_status(a):
     if bl and live_version() and live_version() != bl[-1]: say("Note: iso_version.txt (%s) differs from your newest baseline (%s)." % (live_version(), bl[-1]))
     if os.path.isdir(p(DATA, "backups")): say("Backups:       %d in %s" % (len(os.listdir(p(DATA, "backups"))), p(DATA, "backups")))
     for n, st in rpi_cfg_state(): say("Pi's own file: %s: %s   (not from WonderMaker; updates never change it)" % (n, st))
+    rc, out = pid_cfg_run()
+    if rc == 0: say("PID settings:  ok (where Klipper's SAVE_CONFIG can store a PID result)")
+    elif rc == 1: say("PID settings:  PROBLEM (python3 wm_release.py pid-cfg --fix repairs it):"); [say("    " + x) for x in out]
+    else: say("PID settings:  not checked (%s)" % out[0])
+
+
+def cmd_pid_cfg(a):
+    """checks where the PID settings (control, pid_Kp, pid_Ki, pid_Kd) of the hotends, the bed and the chamber heater live; --fix moves them into printer.cfg"""
+    rc, out = pid_cfg_run()
+    if rc is None: die(out[0], "run it from the wm-ultra-rpi repository, on the Pi")
+    for x in out: say(x)
+    if rc == 0: say("Nothing to fix."); return
+    if not a.fix: say("\nTo repair: python3 wm_release.py pid-cfg --fix   (a copy of every changed file is kept as <file>.wm-before-pidcfg-<time>)"); return
+    pr, st = printing_now()
+    if pr and not a.force: die("a print is running (%s)." % st, "wait for it to finish")
+    rc, out = pid_cfg_run(fix=True)
+    for x in out: say(x)
+    log("pid-cfg", "fix", result=rc)
+    say("Restart Klipper to use it: sudo systemctl restart klipper. After that PID results can be saved.")
 
 
 BASE_CHECKS = ["Klipper reaches 'ready' with no error in Fluidd", "All toolheads, hub, load cell and extruder boards show up (no 'Unable to open CAN port')",
                "Homing X Y Z", "Bed heats; every nozzle heats and the temperatures read sensible", "Fans and chamber heater respond",
                "Tool change T0 -> T1 -> T2 -> T3 and back, no crash, wipe works", "Probe / bed mesh runs; the saved mesh loads",
                "Nozzle offsets still right (a short two-colour test print)", "Pause, resume and cancel", "Power-loss recovery marker (plr) still works",
-               "Screen (KlipperScreen / ZR Tools) opens and shows temperatures", "Pi calibration macros are still there: WM_CAL_HELP in Fluidd lists them (rpi-cfg/wm_calibration.cfg)", "Run: ./installer.sh --doctor and --check"]
+               "Screen (KlipperScreen / ZR Tools) opens and shows temperatures", "Pi calibration macros are still there: WM_CAL_HELP in Fluidd lists them (rpi-cfg/wm_calibration.cfg)", "PID settings: python3 wm_release.py pid-cfg says OK (otherwise SAVE_CONFIG cannot store a PID result)", "Run: ./installer.sh --doctor and --check"]
 KEY_CHECKS = [("macros", "Macros changed: dry-run START_PRINT / PRINT_END with a real file; check the purge line"), ("offset", "Offset files changed: redo or at least verify XY/Z offsets for every tool"),
               ("change_", "Tool-change files changed: watch the first 3 tool changes closely, hand on the stop"), ("load_cell", "Load cell config changed: test the probe 5 times in one spot"),
               ("hub", "Hub config changed: filament load/unload on each path"), ("extruder", "Extruder config changed: check rotation distance with a 100 mm extrusion"),
@@ -1430,6 +1488,7 @@ def main():
     add("status", cmd_status)
     add("menu", cmd_menu)
     add("check", cmd_check)
+    add("pid-cfg", cmd_pid_cfg, (["--fix"], {"action": "store_true"}), (["--force"], {"action": "store_true"}))
     add("all", cmd_all, (["--source"], {"choices": ["board", "web"]}))
     add("init-baseline", cmd_init_baseline, (["--src"], {}), (["--version"], {}), (["--force"], {"action": "store_true"}),
         (["--from-board"], {"nargs": "?", "const": ""}), (["--from-dir"], {}), (["--from-soc"], {}),

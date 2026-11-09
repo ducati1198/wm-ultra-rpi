@@ -1,4 +1,4 @@
-# wm_release.py - WonderMaker release tool (version 1.5.0)
+# wm_release.py - WonderMaker release tool (version 1.6.0)
 
 For bringing a new WonderMaker System release (for example 1.1.14) to your Pi **without losing your own changes**.
 It is not part of any installer and no installer runs it. It lives in the `tools/wm-release/` folder of the repo, so `git pull` brings it to the Pi (the repo is public, so this folder is public too).
@@ -225,6 +225,7 @@ python3 wm_release.py promote 1.1.14      # when you are happy: it becomes the n
 | `status` | baselines, fetched releases, backups | no |
 | `init-baseline [--from-board [HOST]] [--from-dir DIR] [--from-soc FILE] [--src DIR] [--version V] [--force]` | records a baseline | only the data folder |
 | `fetch --from-board [HOST]` / `--from-dir DIR` / `--from-soc FILE` / `--from-web [VERSION]` | copies a release for comparing | only the data folder (plus the download for `--from-web`) |
+| `pid-cfg [--fix] [--force]` | checks that the PID settings (`control`, `pid_Kp`, `pid_Ki`, `pid_Kd`) of the hotends, the bed and the chamber heater live where Klipper's `SAVE_CONFIG` can store a PID result; `--fix` moves them into printer.cfg (a copy of every changed file is kept as `<file>.wm-before-pidcfg-<time>`) | only with `--fix` |
 | `diff VERSION` | the comparison and the saved report | no |
 | `clean [--run] [--keep-firmware] [--keep-backups]` | lists, then deletes all files the tool created | only the tool's own folders, after `DELETE` |
 | `mcu ZIP_OR_FOLDER` | MCU firmware check and flashing steps | no |
@@ -287,6 +288,7 @@ python3 tools/wm-release/wm_release.py --version
 `python3 wm_release.py --version` prints the tool's version; the menu title and `status` show it too, and every line in the history (`log`) records the version that wrote it. It is the tool's own number and has nothing to do with the installer's `VERSION` file, so changing the tool's version alone does not publish a GitHub release (the installer's `VERSION` does).
 
 Version history:
+- **1.6.0** - `pid-cfg [--fix]` and the same check in `status`: `SAVE_CONFIG` refuses to store a PID result when an included file (the ZR Ultra-S `zru-s.cfg`, for the chamber heater) sets `control` / `pid_Kp` / `pid_Ki` / `pid_Kd` for it, and a hotend without `control: pid` has nothing to tune. `apply` warns when a release would bring that back and says what to run after it; the test list asks for the check. It runs the repo's `scripts/wm_pidcfg.py` (the installer, step 4d and `--pid-cfg`, and the Doctor use the same script).
 - **1.5.0** - knows the Pi's own config files in the repo folder `rpi-cfg/` (today `wm_calibration.cfg`, the calibration macros `WM_BED_LEVELING`, `WM_CAL_ALL`, ...). They are not WonderMaker's, so no release contains them: `apply` never changes them (a release that ships a file with the same name is ignored for it), the baseline and the file lists skip them, `status` reports each one (ok, missing, not included in printer.cfg, or different from the repo copy), `apply` and `diff` warn when a release defines a macro with the same name as one of theirs, and the test list now includes "WM_CAL_HELP lists the calibration macros". Install or repair them with `./installer.sh --rpi-cfg`.
 - **1.4.1** - `flash` shows an access check (script, hid-flash, firmware file) and says what to do if the bootloader device needs permissions. It still changes nothing and makes no root change.
 - **1.4.0** - knows the machine's version from `~/iso_version.txt` (a short log with `Add System_x.y.z` lines; the newest one is the version in use, the same file the old board has in the home folder). The installer now puts it there (`factory/<model>/iso_version.txt`, System_1.1.13), `apply` adds a line `<date>: Add System_x.y.z` to it, like the factory image, keeping its header and history (rollback puts the old file back), and `status`, the menu header and option 1 (website) use it: they say "up to date" by it, warn when it differs from your baseline, and offer to record the baseline for the version it names. Without the file the tool falls back to its newest baseline, as before.
@@ -298,7 +300,7 @@ Version history:
 
 ## Tests
 
-`bash tools/wm-release/test.sh` runs 119 checks on throwaway folders (it never touches your real files).
+`bash tools/wm-release/test.sh` runs 126 checks on throwaway folders (it never touches your real files).
 
 ## Checking for a new WonderMaker version
 

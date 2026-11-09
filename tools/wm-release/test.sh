@@ -107,6 +107,21 @@ WMR_TEST_TYPED=APPLY R apply 1.1.15 --apply > "$T/o23"
 check "apply leaves the Pi's own wm_calibration.cfg exactly as it was" bash -c "[ \"\$(sha256sum $C/wm_calibration.cfg | cut -d' ' -f1)\" = $before ] && ! grep -q 'from wonder' $C/wm_calibration.cfg"
 WMR_TEST_TYPED=ROLLBACK R rollback > "$T/o24"
 rm -f "$C/wm_calibration.cfg"; sed -i '/include wm_calibration.cfg/d' "$C/printer.cfg"   # back to the state before this block
+# where the PID settings live (scripts/wm_pidcfg.py): SAVE_CONFIG cannot store a result for a heater that an included file sets
+cp "$C/printer.cfg" "$T/pc.keep"; cp "$C/zru-s.cfg" "$T/zru.keep"
+R status > "$T/rp1"
+check "status: reports the chamber PID conflict of the Ultra-S zru-s.cfg" grep -q "PID settings:  PROBLEM" "$T/rp1"
+R pid-cfg > "$T/rp2"
+check "pid-cfg lists the problem and how to repair it" bash -c "grep -q 'CONFLICT zru-s.cfg' $T/rp2 && grep -q 'pid-cfg --fix' $T/rp2"
+check "pid-cfg without --fix changes nothing" bash -c "cmp $C/zru-s.cfg $T/zru.keep && ! ls $C/*.wm-before-pidcfg-*"
+R apply 1.1.15 > "$T/rp3"
+check "apply warns when a release sets PID values in an included file" grep -q "sets PID values for a heater in an included file" "$T/rp3"
+R pid-cfg --fix > "$T/rp4"
+check "pid-cfg --fix moves the chamber values into printer.cfg" bash -c "! grep -qE '^(control|pid_K)' $C/zru-s.cfg && grep -q 'pid_Kp: 63.418' $C/printer.cfg && ls $C/zru-s.cfg.wm-before-pidcfg-* $C/printer.cfg.wm-before-pidcfg-*"
+R status > "$T/rp5"
+check "status: PID settings ok after the fix" grep -q "PID settings:  ok" "$T/rp5"
+check "the checklist asks for the PID check" bash -c "python3 $PY checklist 1.1.14 | grep -q 'pid-cfg'"
+cp "$T/pc.keep" "$C/printer.cfg"; cp "$T/zru.keep" "$C/zru-s.cfg"; rm -f "$C"/*.wm-before-pidcfg-*   # back to the state before this block
 # print guard
 cat > "$T/srv.py" <<'PY'
 import http.server, json
@@ -361,6 +376,6 @@ mkdir -p "$WMR_HOME/baseline/x" "$T/fw"; echo z > "$T/fw/a.zip"
 check "clean --keep-firmware keeps the archive" bash -c "WMR_TEST_TYPED=DELETE python3 $PY clean --run --keep-firmware >/dev/null && test -f $T/fw/a.zip && ! test -e $WMR_HOME"
 check "clean refuses a protected location" bash -c "WMR_HOME=$T/live WMR_LIVE_HOME=$T/live python3 $PY clean --run 2>&1 | grep -q refusing; test -d $T/live"
 
-check "the tool has a version: --version, the menu title, status and the history" bash -c "python3 $PY --version | grep -q 'wm_release.py [0-9]' && printf '0\n' | python3 $PY | grep -q 'WonderMaker release tool [0-9]' && python3 $PY status | grep -q 'Tool version: [0-9]' && grep -q '(version 1.5.0)' $HERE/README.md"
+check "the tool has a version: --version, the menu title, status and the history" bash -c "python3 $PY --version | grep -q 'wm_release.py [0-9]' && printf '0\n' | python3 $PY | grep -q 'WonderMaker release tool [0-9]' && python3 $PY status | grep -q 'Tool version: [0-9]' && grep -q '(version 1.6.0)' $HERE/README.md"
 
 echo; echo "passed: $pass  failed: $fail"; [ "$fail" = 0 ]

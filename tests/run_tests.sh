@@ -1014,6 +1014,39 @@ EOP
 check "Pi installer: the bar is printed once and a question after it stays clean" "bar_check $ROOT/installer.sh"
 check "screen board: the bar is printed once and a question after it stays clean" "bar_check $ROOT/scripts/screen_board.sh"
 check "bars: Check, Doctor, support bundle and backup all end at 100 percent" "M '' $LG --check | grep -q '100%  Check finished' && M '' $LG --doctor | grep -q '100%  Doctor finished' && M '' $LG --support-bundle | grep -q '100%  Done' && M '' $LG --backup | grep -q '100%  Done'"
+# ---- PID settings where SAVE_CONFIG can store them (scripts/wm_pidcfg.py, installer step 4d, --pid-cfg, Doctor)
+G3="$T/g3"; rm -rf "$G3"; mkdir -p "$G3/printer_data"; cp -r "$ROOT/factory/ultra-s/config" "$G3/printer_data/config"; echo ultra-s > "$G3/printer_data/wm-model"
+P3="$G3/printer_data/config"
+check "pid-cfg: the factory Ultra-S files have the chamber conflict (what the check must find)" "python3 $ROOT/scripts/wm_pidcfg.py check $P3 | grep -q 'CONFLICT zru-s.cfg \\[heater_generic chamber\\] control pid_Kp pid_Ki pid_Kd'"
+check "pid-cfg: the factory hotends are pid (the SAVE_CONFIG block has control = pid), so no hotend problem" "! python3 $ROOT/scripts/wm_pidcfg.py check $P3 | grep -q HOTEND"
+D3="WM_HOME=$G3 WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash $ROOT/installer.sh"
+check "doctor reports the chamber PID conflict" "$D3 --doctor 2>&1 </dev/null | grep -q 'problem.*PID settings: CONFLICT zru-s.cfg'"
+WM_HOME="$G3" WM_INSTALLER_TEST=1 bash "$ROOT/installer.sh" --pid-cfg --dry-run >/dev/null 2>&1 </dev/null
+check "--pid-cfg dry run changes nothing" "grep -q '^pid_Kp=63.418' $P3/zru-s.cfg && ! ls $P3/*.wm-before-pidcfg-* "
+WM_HOME="$G3" WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash "$ROOT/installer.sh" --pid-cfg > "$T/pid.out" 2>&1 </dev/null
+check "--pid-cfg moves the chamber values into printer.cfg" "! grep -qE '^(control|pid_K)' $P3/zru-s.cfg && sed -n '1,/SAVE_CONFIG ---/p' $P3/printer.cfg | grep -A5 '^\\[heater_generic chamber\\]' | grep -q 'pid_Kp: 63.418'"
+check "--pid-cfg keeps every value and the rest of zru-s.cfg" "grep -q '^heater_pin:PA4' $P3/zru-s.cfg && grep -q 'pid_Kd: 749.125' $P3/printer.cfg && grep -q 'pid_Ki: 1.342' $P3/printer.cfg"
+check "--pid-cfg keeps a copy of each changed file" "ls $P3/zru-s.cfg.wm-before-pidcfg-* $P3/printer.cfg.wm-before-pidcfg-* && grep -q '^pid_Kp=63.418' $P3/zru-s.cfg.wm-before-pidcfg-*"
+check "--pid-cfg leaves the SAVE_CONFIG block alone" "diff <(sed -n '/SAVE_CONFIG ---/,\$p' $ROOT/factory/ultra-s/config/printer.cfg) <(sed -n '/SAVE_CONFIG ---/,\$p' $P3/printer.cfg)"
+check "the pid check is clean after the fix" "python3 $ROOT/scripts/wm_pidcfg.py check $P3 | grep -qx OK"
+NBP=$(ls $P3 | grep -c 'wm-before-pidcfg')
+WM_HOME="$G3" WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash "$ROOT/installer.sh" --pid-cfg > "$T/pid2.out" 2>&1 </dev/null
+check "--pid-cfg is idempotent: second run says fine and makes no new copy" "grep -q 'PID settings are where SAVE_CONFIG can store them' $T/pid2.out && [ \$(ls $P3 | grep -c 'wm-before-pidcfg') = $NBP ]"
+check "doctor is happy after the fix" "$D3 --doctor 2>&1 </dev/null | grep -q 'ok.*PID settings of the hotends, bed and chamber heater'"
+python3 - "$P3/printer.cfg" <<'PY'
+import re,sys
+f=sys.argv[1]; s=open(f).read()
+s=re.sub(r"#\*# \[extruder\d?\]\n(#\*# (control|pid_k.) = .*\n)+#\*#\n","",s)
+s=s.replace("[heater_generic chamber]\n# moved here from zru-s.cfg: Klipper's SAVE_CONFIG cannot save a value that an included file sets\n","[heater_generic chamber]\n")
+open(f,"w").write(s)
+PY
+check "pid-cfg: hotends without control: pid and without a saved value are found" "python3 $ROOT/scripts/wm_pidcfg.py check $P3 | grep -c '^HOTEND' | grep -qx 4"
+cp "$P3/printer.cfg" "$T/pid-before.cfg"
+WM_HOME="$G3" WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash "$ROOT/installer.sh" --doctor --fix-all >/dev/null 2>&1 </dev/null
+check "Fix everything gives the 4 hotends control: pid (6 lines with bed and chamber) and keeps their old (commented) values" "[ \$(sed -n '1,/SAVE_CONFIG ---/p' $P3/printer.cfg | grep -c '^control: pid') = 6 ] && grep -q '^pid_Kp: 25.788' $P3/printer.cfg && grep -q '^pid_Kd: 14.291' $P3/printer.cfg"
+check "pid check is clean again (hotends and chamber)" "python3 $ROOT/scripts/wm_pidcfg.py check $P3 | grep -qx OK"
+check "the hotend fix saved printer.cfg first" "ls $P3/printer.cfg.wm-before-pidcfg-* >/dev/null && grep -q '^#control: pid' $P3/printer.cfg.wm-before-pidcfg-*"
+check "the Ultra (no zru-s.cfg include, no chamber) is not touched" "R=$T/g4; rm -rf \$R; mkdir -p \$R/printer_data; cp -r $ROOT/factory/ultra/config \$R/printer_data/config; ! grep -q 'heater_generic chamber' \$R/printer_data/config/printer.cfg && python3 $ROOT/scripts/wm_pidcfg.py check \$R/printer_data/config | grep -qx OK"
 check "pip is told not to check for a newer pip (no warning on slow links)" "grep -q '^export PIP_DISABLE_PIP_VERSION_CHECK=1' $ROOT/installer.sh && grep -q '^export PIP_DISABLE_PIP_VERSION_CHECK=1' $ROOT/scripts/screen_board.sh"
 check "board update: waits at most 60 s for Klipper on the Pi, says it is still waiting, and cleans /tmp on Ctrl-C" "grep -q 'still waiting: Klipper on the Pi' $ROOT/scripts/screen_board.sh && grep -q 'rm -rf \"\${LATEST_TMP:-}\"; exit 130' $ROOT/scripts/screen_board.sh && ! grep -q 'for i in \$(seq 1 30); do' <(sed -n '/^restart_pi_klipper/,/^}/p' $ROOT/scripts/screen_board.sh)"
 check "board lib error message names an option that exists" "! grep -q 'screen_board.sh --get-latest' $ROOT/scripts/screen_board.sh"

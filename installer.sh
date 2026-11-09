@@ -14,6 +14,7 @@
 # ./installer.sh --check               report problems, change nothing
 # ./installer.sh --free-space          list what is safe to erase (sizes, warnings), erase what you pick and confirm
 # ./installer.sh --zr-tools            check the ZR Tools macros (for the screen board), install them when missing
+# ./installer.sh --pid-cfg             check that the PID settings of the hotends, bed and chamber heater are where Klipper's SAVE_CONFIG can store a PID result, and fix them (scripts/wm_pidcfg.py)
 # ./installer.sh --rpi-cfg             install or refresh the Pi's own config files from rpi-cfg/ (calibration macros WM_BED_LEVELING, WM_CAL_ALL, ...) and their include line in printer.cfg
 # ./installer.sh --first-start         checks with the main board connected; fixes canbus_uuid; then starts Klipper and the other services
 # ./installer.sh --hw-test             read-only live test: USB bridge, can0, CAN devices, camera, services
@@ -94,7 +95,7 @@ COMPILED_MODULES=(cs1237 hx711 heater_air_core heater_feng xy_offset_calibrator_
 
 pi_weight() {   # how long each install step takes, roughly (a step that is switched off counts for nothing)
     case "$1" in
-        1) echo 14 ;; 2) echo 1 ;; 3) echo 8 ;; 4) echo 5 ;; 4b) echo 1 ;; 4c) echo 1 ;; 5) echo 30 ;; 6) echo 2 ;; 7|8|9) echo 2 ;; 10) echo 4 ;;
+        1) echo 14 ;; 2) echo 1 ;; 3) echo 8 ;; 4) echo 5 ;; 4b) echo 1 ;; 4c) echo 1 ;; 4d) echo 1 ;; 5) echo 30 ;; 6) echo 2 ;; 7|8|9) echo 2 ;; 10) echo 4 ;;
         11) [ "${WANT_SCREEN:-0}" = 1 ] && echo 12 || echo 1 ;;
         12) [ "${WANT_TIMELAPSE:-0}" = 1 ] && echo 2 || echo 0 ;;
         12b) [ "${WANT_SHELLCMD:-0}" = 1 ] && echo 1 || echo 0 ;;
@@ -110,7 +111,7 @@ pi_weight() {   # how long each install step takes, roughly (a step that is swit
 }
 pi_cum() {   # percent-points finished when step KEY starts; "end" = the total
     local k s sum=0
-    for k in 1 2 3 4 4b 4c 5 6 7 8 9 10 11 12 12b 12f 12g 12c 12d 12e 13 14; do
+    for k in 1 2 3 4 4b 4c 4d 5 6 7 8 9 10 11 12 12b 12f 12g 12c 12d 12e 13 14; do
         [ "$k" = "$1" ] && { echo "$sum"; return; }
         sum=$((sum + $(pi_weight "$k")))
     done
@@ -194,6 +195,7 @@ while [ $# -gt 0 ]; do
         --doctor)       MODE=doctor ;;
         --free-space)   MODE=freespace ;;   # list what is safe to erase, erase what you pick and confirm
         --zr-tools)     MODE=zrtools ;;   # check the ZR Tools macros (for the screen board), install them when missing
+        --pid-cfg)      MODE=pidcfg ;;    # PID settings in printer.cfg, where SAVE_CONFIG can store a PID result
         --rpi-cfg)      MODE=rpicfg ;;    # the Pi's own config files (rpi-cfg/): calibration macros
         --fix-all)      FIXALL=1 ;;
         --repair)       MODE=repair ;;
@@ -415,6 +417,31 @@ do_rpicfg() {   # ./installer.sh --rpi-cfg
     guard_not_printing
     step_rpicfg
     [ "$DRY" = 1 ] || { restart_klipper_after; print_info "In Fluidd run WM_CAL_HELP to list the calibration macros."; }
+}
+
+pidcfg_py() { echo "$SCRIPT_DIR/scripts/wm_pidcfg.py"; }
+pidcfg_check() { python3 "$(pidcfg_py)" check "$HOME_DIR/printer_data/config" 2>&1; }   # exit 0 = fine, 1 = problems (listed), 2 = no printer.cfg
+step_pidcfg() {   # the PID values of the hotends, the bed and the chamber heater must live in printer.cfg itself, or Klipper cannot save a PID result
+    print_header "Step 4d: PID settings where Klipper can save them"
+    why "After a PID tuning Klipper saves the result with SAVE_CONFIG. It refuses when an included file (the ZR Ultra-S zru-s.cfg, for the chamber heater) already sets control or pid_Kp/Ki/Kd, and a hotend without control: pid has nothing to tune. This moves the chamber values into printer.cfg and gives every hotend control: pid. Your values are kept; the changed files are saved as <file>.wm-before-pidcfg-$STAMP."
+    local cd="$HOME_DIR/printer_data/config" out rc
+    if [ "$DRY" = 1 ] || [ ! -f "$cd/printer.cfg" ]; then echo -e "  ${DIM}would check the PID settings in printer.cfg and the files it includes, and move them into printer.cfg when needed${NC}"; return 0; fi
+    [ -f "$(pidcfg_py)" ] || { print_warning "scripts/wm_pidcfg.py is missing from this repository: PID settings not checked"; return 0; }
+    out="$(pidcfg_check)"; rc=$?
+    if [ "$rc" = 0 ]; then print_success "PID settings are where SAVE_CONFIG can store them"; return 0; fi
+    echo "$out" | sed 's/^/        /'
+    out="$(python3 "$(pidcfg_py)" fix "$cd" "$STAMP" 2>&1)"; rc=$?
+    echo "$out" | grep '^FIXED' | while read -r l; do print_success "${l#FIXED }"; done
+    echo "$out" | grep -E '^(HOTEND|CONFLICT)' | while read -r l; do print_warning "$l"; done
+    [ "$rc" = 0 ] || return 1
+}
+do_pidcfg() {   # ./installer.sh --pid-cfg
+    print_header "PID settings (hotends, bed, chamber heater)"
+    [ -f "$HOME_DIR/printer_data/config/printer.cfg" ] || die_with_fix "there is no printer.cfg on this Pi yet." "install first (menu 1), then run this again."
+    guard_not_printing
+    local before; before="$(pidcfg_check)"
+    step_pidcfg
+    [ "$DRY" = 1 ] || { [ "$before" = OK ] || restart_klipper_after; }
 }
 
 step_model() {
@@ -1521,6 +1548,7 @@ do_restore() {
     SUDO systemctl stop klipper; SUDO systemctl stop moonraker
     tar xzf "$f" -C "$HOME_DIR" || die_with_fix "could not unpack the backup." "the safety copy is in ~/wm-backups"
     SUDO systemctl start moonraker; [ "$was_k" = 1 ] && SUDO systemctl start klipper
+    [ -f "$(pidcfg_py)" ] && ! pidcfg_check >/dev/null && warn_later "The restored config keeps PID settings where Klipper cannot save a PID result (an included file sets them, or a hotend has no control: pid). Fix: ./installer.sh --pid-cfg"
     print_success "Restored from $f. The previous settings are in ~/wm-backups (newest file)."
 }
 
@@ -1563,7 +1591,7 @@ do_update() {
         "$HOME_DIR/moonraker-env/bin/pip" install -q -r "$SCRIPT_DIR/config/moonraker-requirements.txt" || warn_later "moonraker-env packages did not update."
     fi
     progress_bar 45 100 "Update step 4 of $UT: services, nginx, CAN"
-    if [ -z "$ONLY_ADDON" ]; then step_services_files; step_nginx; step_can; step_rpicfg; fi
+    if [ -z "$ONLY_ADDON" ]; then step_services_files; step_nginx; step_can; step_rpicfg; step_pidcfg; fi
     progress_bar 50 100 "Update step 5 of $UT: Fluidd panel"
     if [ -z "$ONLY_ADDON" ] && [ "$WANT_PANEL" = 1 ]; then
         local sha=""; panel_get && sha="$(sha256sum "$PANEL_ZIP" | cut -d' ' -f1)"
@@ -1833,6 +1861,14 @@ do_doctor() {
         elif ! cmp -s "$SCRIPT_DIR/rpi-cfg/$rf" "$HOME_DIR/printer_data/config/$rf"; then doc_bad "$rf differs from the one in rpi-cfg (edited, or an older version)" "Fixing replaces it with the repository version; your copy is kept as $rf.wm-before-rpicfg-<time>."; offer_fix "replace $rf with the version from rpi-cfg" step_rpicfg
         else doc_ok "calibration macros $rf (included in printer.cfg, same as rpi-cfg)"; fi
     done
+    if [ -f "$(pidcfg_py)" ] && [ -f "$HOME_DIR/printer_data/config/printer.cfg" ]; then
+        local pco pcr; pco="$(pidcfg_check)"; pcr=$?
+        if [ "$pcr" = 0 ]; then doc_ok "PID settings of the hotends, bed and chamber heater are where Klipper can save a PID result"
+        else
+            doc_bad "PID settings: $(echo "$pco" | head -n 3 | tr '\n' ';')" "SAVE_CONFIG cannot store a PID result while an included file (zru-s.cfg) sets the chamber heater's control and pid values, and a hotend without control: pid has nothing to tune. It also blocks every other result saved with it (bed mesh, input shaper)."
+            offer_fix "move the PID settings into printer.cfg (a copy of each changed file is kept)" step_pidcfg
+        fi
+    fi
     progress_bar 3 5 "Doctor 4 of 5: services"
     local s; for s in moonraker nginx; do
         [ "$(service_state $s)" = active ] && doc_ok "$s is running" || { doc_bad "$s is not running" "journalctl -u $s -n 30"; offer_fix "restart $s" bash -c "sudo systemctl restart $s"; }
@@ -2618,6 +2654,7 @@ case "$MODE" in
     hwtest)     do_hw_test; exit 0 ;;
     zrtools)    do_zr_tools; exit $? ;;
     rpicfg)     do_rpicfg; exit $? ;;
+    pidcfg)     do_pidcfg; exit $? ;;
     freespace)  do_free_space; exit $? ;;
     doctor)     do_doctor; exit $? ;;
     repair)     do_repair; exit 0 ;;
@@ -2652,7 +2689,7 @@ show_plan
 guard_not_printing
 save_answers
 PROG_STEPS=14
-step_packages; step_groups; step_python; step_unpack; step_model; step_rpicfg; step_venvs; step_modules
+step_packages; step_groups; step_python; step_unpack; step_model; step_rpicfg; step_pidcfg; step_venvs; step_modules
 step_services; step_nginx; step_can; step_panel; step_screen; step_netmgr; step_timelapse; step_shellcmd; step_shaketune; step_spoolman; step_remote; step_crowsnest; step_start
 save_answers
 restart_klipper_after
