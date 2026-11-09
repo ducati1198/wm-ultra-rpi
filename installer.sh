@@ -17,7 +17,7 @@
 # ./installer.sh --cfg-merge           bring WonderMaker's changes in this repository's factory printer.cfg (and saved_variables.cfg) to the Pi's printer.cfg with a 3-way merge; your own lines and the SAVE_CONFIG block stay (scripts/wm_cfgmerge.py)
 # ./installer.sh --can-ids [set NAME ID]  which CAN ids in the config answer on the bus (hub, extruder board, T0-T3, load cell, main board); offers to correct wrong ones; "set T2 ac8b57e80210" sets one by hand
 # ./installer.sh --pid-cfg             check that the PID settings of the hotends, bed and chamber heater are where Klipper's SAVE_CONFIG can store a PID result, and fix them (scripts/wm_pidcfg.py)
-# ./installer.sh --rpi-cfg             install or refresh the Pi's own config files from rpi-cfg/ (calibration macros WM_BED_LEVELING, WM_CAL_ALL, ...) and their include line in printer.cfg
+# ./installer.sh --rpi-cfg             install or refresh the Pi's own config files from rpi-cfg/ (calibration macros WM_BED_LEVELING, WM_FULL_CALIBRATION, ...) and their include line in printer.cfg
 # ./installer.sh --first-start         checks with the main board connected; fixes canbus_uuid; then starts Klipper and the other services
 # ./installer.sh --hw-test             read-only live test: USB bridge, can0, CAN devices, camera, services
 # ./installer.sh --doctor              find problems, explain them, offer a fix for each (asks first)
@@ -405,7 +405,7 @@ rpicfg_list() {   # wm_nozzle.cfg holds a [gcode_shell_command] section: Klipper
 rpicfg_included() { grep -qE "^[[:space:]]*\[include[[:space:]]+$1[[:space:]]*\]" "$HOME_DIR/printer_data/config/printer.cfg" 2>/dev/null; }
 step_rpicfg() {   # the Pi's own config files (repo folder rpi-cfg/, not WonderMaker's): copy them and include them in printer.cfg
     print_header "Step 4c: the Pi's calibration macros (rpi-cfg)"
-    why "WonderMaker's screen has buttons for bed leveling, vibration compensation, nozzle PID, tool offsets and probe calibration. The Pi has no such screen, so rpi-cfg/wm_calibration.cfg adds the same actions as macros you start from Fluidd (WM_BED_LEVELING, WM_CAL_ALL, ...). They are the Pi's own files, not WonderMaker's: a WonderMaker update never changes them."
+    why "WonderMaker's screen has buttons for bed leveling, vibration compensation, nozzle PID, tool offsets and probe calibration. The Pi has no such screen, so rpi-cfg/wm_calibration.cfg adds the same actions as macros you start from Fluidd (WM_BED_LEVELING, WM_FULL_CALIBRATION, ...). They are the Pi's own files, not WonderMaker's: a WonderMaker update never changes them."
     local cd="$HOME_DIR/printer_data/config" cfg="$HOME_DIR/printer_data/config/printer.cfg" f
     [ -n "$(rpicfg_list)" ] || { print_warning "the rpi-cfg folder is missing from this repository: calibration macros not installed"; return 0; }
     if [ "$DRY" = 1 ] || [ ! -f "$cfg" ]; then echo -e "  ${DIM}would copy rpi-cfg/*.cfg into the config folder and add an [include] line for each to printer.cfg${NC}"; return 0; fi
@@ -2075,7 +2075,7 @@ do_doctor() {
         grep -q 'zru-s.cfg' < <(validate_config 2>&1) && offer_fix "set printer.cfg for the $(model_now)" step_model
     fi
     local rf; for rf in $(rpicfg_list); do
-        if [ ! -f "$HOME_DIR/printer_data/config/$rf" ]; then doc_bad "the Pi's calibration macros file $rf is missing" "WM_BED_LEVELING, WM_CAL_ALL and the other WM_ macros do not exist. It comes from the repository folder rpi-cfg."; offer_fix "copy $rf from rpi-cfg and include it in printer.cfg" step_rpicfg
+        if [ ! -f "$HOME_DIR/printer_data/config/$rf" ]; then doc_bad "the Pi's calibration macros file $rf is missing" "WM_BED_LEVELING, WM_FULL_CALIBRATION and the other WM_ macros do not exist. It comes from the repository folder rpi-cfg."; offer_fix "copy $rf from rpi-cfg and include it in printer.cfg" step_rpicfg
         elif ! rpicfg_included "$rf"; then doc_bad "printer.cfg does not include $rf" "The WM_ calibration macros are not loaded."; offer_fix "add the include line for $rf" step_rpicfg
         elif ! cmp -s "$SCRIPT_DIR/rpi-cfg/$rf" "$HOME_DIR/printer_data/config/$rf"; then doc_bad "$rf differs from the one in rpi-cfg (edited, or an older version)" "Fixing replaces it with the repository version; your copy is kept as $rf.wm-before-rpicfg-<time>."; offer_fix "replace $rf with the version from rpi-cfg" step_rpicfg
         else doc_ok "calibration macros $rf (included in printer.cfg, same as rpi-cfg)"; fi

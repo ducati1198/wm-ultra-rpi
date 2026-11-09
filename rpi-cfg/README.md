@@ -18,8 +18,7 @@ Files in this folder are **not WonderMaker's**. They are made for the Raspberry 
 | `WM_BED_PID TARGET=60` | (no button in the app) | `PID_CALIBRATE HEATER=heater_bed` for the heated bed (40 to 110 C), `SAVE_CONFIG`. Needs `control: pid`, which the factory bed has |
 | `WM_CHAMBER_PID TARGET=45` | (no button in the app) | `PID_CALIBRATE HEATER=chamber` for the ZR Ultra-S chamber heater (30 to 60 C), `SAVE_CONFIG`. Refuses on the Ultra (no chamber heater) |
 | `WM_NOZZLE_TEMP_CAL T=0 TARGET=220` | Nozzle Temperature Calibration | `PID_CALIBRATE` for hotend T (fan full, tool head at X150 Y150), `SAVE_CONFIG`. Refuses when that heater uses `control: watermark`: PID tuning does nothing then (`./installer.sh --pid-cfg` gives every hotend `control: pid`) |
-| `WM_QUICK_START` | the K1's Quick Start | opens a Fluidd window that explains what will run, how long it takes and what to check; Start Calibration then runs bed leveling, rapid tool offsets, vibration compensation, bed PID, hotend PID (only hotends with `control: pid`) and chamber PID (Ultra-S) with no more questions, and one Save and Restart window at the end. Z height is not included (it needs you at the printer); the end window points to `WM_PROBE_CALIBRATE` |
-| `WM_CAL_ALL MODE=rapid PID=0` | the whole menu | one stage at a time: leveling, probe, tool offsets, vibration (and hotend PID with `PID=1`). Asks Run / Skip / Stop before each stage and saves once at the end |
+| `WM_FULL_CALIBRATION` | all calibrations in one go | opens a Fluidd window that explains what will run, how long it takes and what to check; Start Calibration then runs bed leveling, rapid tool offsets, vibration compensation, bed PID, hotend PID (only hotends with `control: pid`) and chamber PID (Ultra-S) with no more questions, and one Save and Restart window at the end. Z height is not included (it needs you at the printer); the end window points to `WM_PROBE_CALIBRATE` |
 | `WM_CAL_STOP` | | heaters and fan off |
 | `WM_CAL_HELP` | | lists the macros |
 | `WM_ZOFFSET_UP` / `WM_ZOFFSET_DOWN` `STEP=0.025` | the Z-Offset + and - buttons | `SET_GCODE_OFFSET Z_ADJUST=...` (live only, not saved) |
@@ -47,7 +46,7 @@ Klipper's `SAVE_CONFIG` stores a PID result in `printer.cfg`. It **refuses** whe
 
 ## `wm_nozzle.cfg`: Nozzle Type and Extruder Setup
 
-Both macros open a window in Fluidd and take you through it step by step, like `WM_QUICK_START`. They refuse to start during a print.
+Both macros open a window in Fluidd and take you through it step by step, like `WM_FULL_CALIBRATION`. They refuse to start during a print.
 
 | Macro | Same as the app's | What it does |
 |---|---|---|

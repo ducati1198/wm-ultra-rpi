@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.23.37
+
+- `WM_QUICK_START` is now `WM_FULL_CALIBRATION` (same one-click calibration, new name, window texts and messages say "Full calibration"). `WM_CAL_ALL` and its helper macros are removed: the single macros (`WM_BED_LEVELING`, `WM_PROBE_CALIBRATE`, `WM_TOOL_OFFSETS`, `WM_VIBRATION_COMP`, ...) can be run one at a time instead. A Pi that has the old `rpi-cfg/wm_calibration.cfg` is told by the Doctor that the file differs and gets the new one with Fix.
+
 ## 1.23.36
 
 - `tools/wm-release/wm_release.py` 1.8.0: `flash` shows the version each board runs now and the one in `~/mcu_update`, refuses an empty or placeholder CAN id and an id that does not answer on the bus (unless `--force`), and the new `flash [board] --verify` compares what the boards report with the package after FIRMWARE_RESTART. Still a dry run unless `--run` and FLASH is typed. The load cell has no firmware file in the repo or on the screen board, so `flash cell` cannot run yet.
