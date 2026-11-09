@@ -1,6 +1,6 @@
 # Factory files in this repository
 
-For people who do **not** have a copy of the files from their own printer. Taken from the original screen-board image of a ZR Ultra-S.
+For people who do **not** have a copy of the files from their own printer. `ultra-s/` is taken from the original screen-board image of a ZR Ultra-S; the settings in `ultra/config/` come from a new factory screen board of a ZR Ultra (image V1.0.26).
 
 ## Two folders, one per model
 
@@ -9,7 +9,7 @@ For people who do **not** have a copy of the files from their own printer. Taken
 | [`ultra/`](ultra) | WonderMaker ZR Ultra | `printer.cfg` has `# [include zru-s.cfg]` (off), as WonderMaker's default files ship |
 | [`ultra-s/`](ultra-s) | WonderMaker ZR Ultra-S | `printer.cfg` includes `zru-s.cfg` (chamber heater, air filter fan, door buttons), as on the Ultra-S |
 
-Both come from the original files of a ZR Ultra-S and are otherwise identical (WonderMaker's firmware is the same for both; its own `scripts/set_zru_include.sh` toggles that one line). Git stores the identical files only once. The Ultra folder follows from that toggle and is **untested on an Ultra**: if you own one, please report. The installer asks which printer you have and uses the matching folder.
+Both use WonderMaker's same firmware (Klipper, Moonraker, MCU files). `ultra-s/config/` is from a ZR Ultra-S. `ultra/config/` was copied unchanged from a new screen board sold for the ZR Ultra: its `tmt1.ini` has `model=1`, `printer.cfg` has `# [include zru-s.cfg]` (off) and `saved_variables.cfg` has `adaptive_mesh_enable = 0`. The CAN ids (`wm_zru_*.cfg`) and the calibration values in `saved_variables.cfg` are the ones that board came with and belong to one printer; the installer corrects the main board's id (`--doctor`). Git stores identical files only once. The installer asks which printer you have and uses the matching folder.
 
 ## What is in each folder
 

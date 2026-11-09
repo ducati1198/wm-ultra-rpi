@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.23.32
+
+- `factory/ultra/config/` now holds the configuration files of a new factory screen board for the ZR Ultra (image V1.0.26), copied unchanged: `tmt1.ini` has `model=1` (it was `model=2`, so an Ultra install showed up as an Ultra-S on the screen), `saved_variables.cfg` has `adaptive_mesh_enable = 0`, and `printer.cfg`, `offset_calibrate.cfg`, the CAN ids and `zru-s.cfg` are that board's own (older WonderMaker versions of `printer.cfg` and `offset_calibrate.cfg` than the Ultra-S folder, no saved PID values). `factory/ultra-s/` is unchanged. 606 installer tests.
+
 ## 1.23.31
 
 - Fluidd's update manager now lists this installer's repository (`wm-ultra-rpi`) and, when the ACE Pro is chosen, the ACE Pro project (`wm-ultra-fluidd-acepro-panel`): the installer adds `[update_manager ...]` sections to `moonraker.conf` on install and update (a copy `moonraker.conf.wm-before-updatemgr-STAMP` is kept; nothing is added twice). Updating there only downloads the files; run `./installer.sh --update` afterwards to apply them. `--remove acepro` takes the panel entry out again.
