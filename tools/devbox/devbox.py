@@ -265,6 +265,55 @@ def is_on():
 
 
 # ---------------------------------------------------------------------------------------------- restart
+MR_MARK = "  # devbox"                  # ends the line devbox.py added to an existing [file_manager] section
+MR_BEGIN, MR_END = "# devbox: begin", "# devbox: end"      # wrap a [file_manager] section devbox.py had to create
+MR_OPT = "check_klipper_config_path: False"
+
+
+def moonraker_conf_set(on):
+    """Moonraker warns when Klipper's printer.cfg is not in its config folder (the dev box uses a private copy).
+    While dev mode is on, moonraker.conf gets "check_klipper_config_path: False" in [file_manager]; off takes it out again.
+    Returns True when moonraker.conf changed."""
+    path = os.path.join(CFG, "moonraker.conf")
+    if not os.path.isfile(path):
+        return False
+    lines = open(path).read().split("\n")
+    new, skip = [], False
+    for l in lines:                                   # take out whatever an earlier "on" added
+        if l.strip() == MR_BEGIN:
+            skip = True
+            if new and new[-1] == "":
+                new.pop()                              # the blank line we put in front of the block
+        if not skip and MR_MARK not in l:
+            new.append(l)
+        if l.strip() == MR_END:
+            skip = False
+    if on:
+        hdr = next((i for i, l in enumerate(new) if l.strip() == "[file_manager]"), None)
+        if hdr is not None:
+            new.insert(hdr + 1, MR_OPT + MR_MARK)
+        else:
+            while new and new[-1] == "":
+                new.pop()
+            new += ["", MR_BEGIN, "[file_manager]", MR_OPT, MR_END, ""]
+    if new == lines:
+        return False
+    shutil.copyfile(path, path + ".wm-before-devbox")
+    open(path + ".wm-tmp", "w").write("\n".join(new))
+    os.replace(path + ".wm-tmp", path)
+    return True
+
+
+def restart_moonraker():
+    for cmd in (["sudo", "-n", "systemctl", "restart", "moonraker"], ["sudo", "systemctl", "restart", "moonraker"]):
+        try:
+            if subprocess.call(cmd) == 0:
+                return True
+        except OSError:
+            break
+    return False
+
+
 def restart_klipper():
     say("  Restarting Klipper (sudo may ask for the password of this user; it is never stored)...")
     for cmd in (["sudo", "-n", "systemctl", "restart", "klipper"], ["sudo", "systemctl", "restart", "klipper"]):
@@ -379,6 +428,9 @@ def cmd_on(a):
     say("  %s Klipper arguments changed: %d fake MCUs (%s)" % (OK, len(names), ", ".join(n or "main" for n in names)))
     if not restart_klipper():
         die("could not restart Klipper by itself", "run: sudo systemctl restart klipper   (then: python3 devbox.py status)")
+    if moonraker_conf_set(True):
+        say("  %s moonraker.conf: check_klipper_config_path is off while dev mode is on (no \"not located in config folder\" warning)" % OK)
+        restart_moonraker()
     if wait_ready():
         say("\nDev mode is ON. Klipper is ready with fake MCUs. Open Fluidd and try it.")
         say("Check the macros:  python3 devbox.py smoke        Back to the printer:  python3 devbox.py off")
@@ -417,6 +469,9 @@ def cmd_off(a):
     say("  %s the private copy of the config is removed (your real config was never changed)" % OK)
     if not restart_klipper():
         die("could not restart Klipper by itself", "run: sudo systemctl restart klipper")
+    if moonraker_conf_set(False):
+        say("  %s moonraker.conf is back to normal" % OK)
+        restart_moonraker()
     say("\nDev mode is OFF. Klipper restarts with the normal config (it shows an error until the real printer is connected).")
 
 

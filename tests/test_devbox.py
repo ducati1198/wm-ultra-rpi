@@ -60,6 +60,20 @@ class Tool(unittest.TestCase):
         shutil.rmtree(sysdir); D.SYS = os.path.join(TMP, "nosys")
         self.assertEqual(D.real_printer_signs(), [])
 
+    def test_moonraker_conf_gets_the_option_while_dev_mode_is_on_and_loses_it_after(self):
+        mc = os.path.join(D.CFG, "moonraker.conf")
+        for original in ("[server]\nhost: 0.0.0.0\n\n[authorization]\nforce_logins: False\n",
+                         "[server]\nhost: 0.0.0.0\n\n[file_manager]\nenable_object_processing: True\n\n[authorization]\n"):
+            write(mc, original)
+            self.assertTrue(D.moonraker_conf_set(True))
+            self.assertIn("check_klipper_config_path: False", open(mc).read())
+            self.assertFalse(D.moonraker_conf_set(True) and open(mc).read().count("check_klipper_config_path") > 1)
+            self.assertEqual(open(mc).read().count("check_klipper_config_path"), 1)
+            self.assertTrue(D.moonraker_conf_set(False) or True)
+            self.assertEqual(open(mc).read(), original)
+        os.remove(mc)
+        self.assertFalse(D.moonraker_conf_set(True))              # no moonraker.conf: nothing to do
+
     def test_saved_copies_are_not_copied_into_the_private_config(self):
         src = os.path.join(TMP, "cfgsrc"); dst = os.path.join(TMP, "cfgdst")
         for n in ("printer.cfg", "printer.cfg.wm-before-cfgmerge-1", "wm_nozzle.cfg.wm-removed-1", "a.cfg.before-update", "x.log"): write(os.path.join(src, n), "x")

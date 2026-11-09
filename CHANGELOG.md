@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.23.30
+
+- Dev box: no more Moonraker warning "Klipper configuration file not located in 'config' folder". `devbox.py on` adds `check_klipper_config_path: False` to `[file_manager]` in `moonraker.conf` (a copy `moonraker.conf.wm-before-devbox` is kept) and restarts Moonraker; `devbox.py off` takes it out again.
+
 ## 1.23.29
 
 - Dev box: the ACE Pro driver now starts in dev mode. The factory weight-cell module (cs1237) waits for its fake board and never returns from its "ready" step, so every step after it (including the ACE driver's first connection) was skipped, and the ACE rebooted itself every ~3 s because nobody talked to it. `devbox_sim` now moves the ACE driver's ready step to just before the weight-cell module.
