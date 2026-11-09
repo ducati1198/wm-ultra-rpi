@@ -31,7 +31,7 @@ Version: see --version.  Data folder: $WMR_HOME (default ~/wm-private-data).  Li
 """
 import argparse, atexit, getpass, hashlib, io, json, os, re, shutil, subprocess, sys, tarfile, tempfile, time, urllib.request, urllib.parse, zipfile
 
-TOOL_VERSION = "1.4.0"   # this tool's own version (not the installer's VERSION file); see README "Version history"
+TOOL_VERSION = "1.4.1"   # this tool's own version (not the installer's VERSION file); see README "Version history"
 HOME = os.path.expanduser("~")
 DATA = os.environ.get("WMR_HOME", os.path.join(HOME, "wm-private-data"))
 LIVE = os.environ.get("WMR_LIVE_HOME", HOME)
@@ -610,6 +610,14 @@ def cmd_flash(a):
         say("   mcu_info.ini:")
         for ln in open(info).read().splitlines()[:20]: say("     " + ln)
     say("   Would run:  bash %s" % scr)
+    say("   Access check (nothing is changed):")
+    hf = p(mdir, "hid-flash")
+    for label, path, mode in (("flash script readable", scr, os.R_OK), ("hid-flash program runnable", hf, os.X_OK), ("firmware file readable", p(mdir, "klipper.bin" if pick == "main" else "klipper_%s.bin" % pick.upper()), os.R_OK)):
+        if pick == "main" or label != "hid-flash program runnable":
+            say("     %-28s %s" % (label, "ok" if os.path.exists(path) and os.access(path, mode) else "NOT OK: " + path))
+    if hasattr(os, "geteuid") and os.geteuid() != 0:
+        say("     Running as a normal user. WonderMaker's stock app flashes as root. If the flash stops with a permission error on the")
+        say("     bootloader device (/dev/serial/by-id/usb-*_DRIVER_BOOT*), nothing was written; the device needs a udev rule for your user.")
     pr, st = printing_now()
     if pr and not getattr(a, "force", False): die("a print is running (%s)." % st, "wait for it to finish")
     if not getattr(a, "run", False):
@@ -619,6 +627,7 @@ def cmd_flash(a):
     log("flash", "-", target=pick)
     say("Flashing %s ..." % pick)
     r = subprocess.run(["bash", scr], cwd=mdir)
+    if r.returncode != 0: say("The flash script reported an error. If it said permission denied for the bootloader device, your user cannot open it: ask before changing permissions; no root change is made by this tool.")
     say("Flash script exited with %d. In Fluidd run FIRMWARE_RESTART and check the MCU comes back 'Ready'." % r.returncode)
 
 

@@ -315,6 +315,7 @@ check "apply keeps the file's header and history and adds a line" bash -c "head 
 mkdir -p "$T/live7/mcu_update"; printf '#!/bin/bash\necho flashed > "%s/flashed"\n' "$T" > "$T/live7/mcu_update/mcu_update.sh"
 R flash > "$T/f1"
 check "flash is a dry run unless --run, and names what it would run" bash -c "grep -q 'Dry run: nothing was flashed' $T/f1 && grep -q 'mcu_update.sh' $T/f1 && ! test -f $T/flashed"
+check "flash dry run shows an access check and flags a missing hid-flash" bash -c "grep -q 'Access check' $T/f1 && grep -q 'hid-flash program runnable *NOT OK' $T/f1"
 check "flash --run does nothing unless you type FLASH" bash -c "WMR_TEST_TYPED=nope python3 $PY flash --run | grep -q 'Nothing flashed' && ! test -f $T/flashed"
 check "flash --run + FLASH runs the board's own flash script" bash -c "WMR_TEST_TYPED=FLASH python3 $PY flash --run >/dev/null && test -f $T/flashed"
 check "flash refuses an unknown board name" bash -c "python3 $PY flash nosuch 2>&1 | grep -q 'unknown target'"
@@ -330,6 +331,6 @@ mkdir -p "$WMR_HOME/baseline/x" "$T/fw"; echo z > "$T/fw/a.zip"
 check "clean --keep-firmware keeps the archive" bash -c "WMR_TEST_TYPED=DELETE python3 $PY clean --run --keep-firmware >/dev/null && test -f $T/fw/a.zip && ! test -e $WMR_HOME"
 check "clean refuses a protected location" bash -c "WMR_HOME=$T/live WMR_LIVE_HOME=$T/live python3 $PY clean --run 2>&1 | grep -q refusing; test -d $T/live"
 
-check "the tool has a version: --version, the menu title, status and the history" bash -c "python3 $PY --version | grep -q 'wm_release.py [0-9]' && printf '0\n' | python3 $PY | grep -q 'WonderMaker release tool [0-9]' && python3 $PY status | grep -q 'Tool version: [0-9]' && grep -q '(version 1.4.0)' $HERE/README.md"
+check "the tool has a version: --version, the menu title, status and the history" bash -c "python3 $PY --version | grep -q 'wm_release.py [0-9]' && printf '0\n' | python3 $PY | grep -q 'WonderMaker release tool [0-9]' && python3 $PY status | grep -q 'Tool version: [0-9]' && grep -q '(version 1.4.1)' $HERE/README.md"
 
 echo; echo "passed: $pass  failed: $fail"; [ "$fail" = 0 ]

@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.23.17
+
+- Release tool 1.4.1: `flash` now shows an access check before it asks you to type FLASH (flash script, `hid-flash`, firmware file) and explains what to do if the bootloader device needs permissions. It changes nothing and makes no root change.
+
 ## 1.23.16
 
 - Support bundle: the system report now also has `lsusb -t`, the serial ports in `/dev` (`ttyACM*`, `ttyUSB*`), the list of serial ports Klipper's Python sees, and the last USB/serial kernel messages. This helps when a USB device (the CAN bridge, or an ACE Pro) shows in `lsusb` but does not work.
