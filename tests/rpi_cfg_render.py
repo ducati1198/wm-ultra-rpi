@@ -12,9 +12,9 @@ macros = {m.group(1): m.group(2) for m in re.finditer(r'^\[gcode_macro (\S+)\]\n
 HEAT = ['heater_bed', 'extruder', 'extruder1', 'extruder2', 'extruder3', 'heater_generic chamber']
 class Raise(Exception): pass
 env = jinja2.Environment(variable_start_string='{', variable_end_string='}')
-def run(name, params=None, target=None, control='pid', printing='standby'):
+def run(name, params=None, target=None, control='pid', printing='standby', chamber=True):
     printer = {'print_stats': {'state': printing}, 'heaters': {'available_heaters': HEAT}, 'toolhead': {'homed_axes': 'xyz'},
-               'configfile': {'settings': {h: {'control': control} for h in HEAT[1:5]}}}
+               'configfile': {'settings': {h: {'control': control} for h in (HEAT[:5] + (HEAT[5:] if chamber else []))}}}
     for h in HEAT: printer[h] = {'target': (target or {}).get(h, 0.0)}
     def raise_(m): raise Raise(m)
     try: out = env.from_string(macros[name]).render(printer=printer, params=params or {}, action_raise_error=raise_)
@@ -28,7 +28,7 @@ def want(label, lines, *must, none=()):
     for m in none:
         if m in j: bad.append("%s: unexpected %r in\n%s" % (label, m, j))
 for n in macros: env.from_string(macros[n])
-want("all macros present", sorted(macros), *["WM_BED_LEVELING", "WM_PROBE_CALIBRATE", "WM_PROBE_DONE", "WM_TOOL_OFFSETS", "WM_VIBRATION_COMP", "WM_NOZZLE_TEMP_CAL", "WM_CAL_ALL", "WM_CAL_STOP", "WM_CAL_HELP", "WM_ZOFFSET_UP", "WM_ZOFFSET_DOWN", "WM_QUICK_START", "_WM_QUICK_START", "_WM_QUICK_START_DONE"])
+want("all macros present", sorted(macros), *["WM_BED_LEVELING", "WM_PROBE_CALIBRATE", "WM_PROBE_DONE", "WM_TOOL_OFFSETS", "WM_VIBRATION_COMP", "WM_NOZZLE_TEMP_CAL", "WM_CAL_ALL", "WM_CAL_STOP", "WM_CAL_HELP", "WM_ZOFFSET_UP", "WM_ZOFFSET_DOWN", "WM_BED_PID", "WM_CHAMBER_PID", "WM_QUICK_START", "_WM_QUICK_START", "_WM_QUICK_START_DONE"])
 want("level asks first", run("WM_BED_LEVELING"), "_WM_CAL_ASK STAGE=level", none=("G29",))
 want("level runs", run("WM_BED_LEVELING", {"CONFIRM": "1"}), "G28", "G29", "TURN_OFF_HEATERS", "SAVE_CONFIG")
 want("level SAVE=0", run("WM_BED_LEVELING", {"CONFIRM": "1", "SAVE": "0"}), "G29", none=("SAVE_CONFIG",))
@@ -54,10 +54,26 @@ want("stage 4 with PID is a stage", run("_WM_CAL_STAGE", {"N": "4", "PID": "1"})
 want("stage 2 turns the bed off", run("_WM_CAL_STAGE", {"N": "2"}), "M140 S0")
 want("run stage 0 saves nothing", run("_WM_CAL_RUN", {"N": "0"}), "WM_BED_LEVELING CONFIRM=1 SAVE=0", "_WM_CAL_STAGE N=1")
 want("run stage 1 waits for you", run("_WM_CAL_RUN", {"N": "1"}, target={"heater_bed": 60.0}), "WM_PROBE_CALIBRATE CONFIRM=1", "prompt_button Next", none=("_WM_CAL_STAGE N=2 MODE=rapid PID=0\n",))
+want("bed pid asks first", run("WM_BED_PID"), "_WM_CAL_ASK STAGE=bedpid TARGET=60", none=("PID_CALIBRATE",))
+want("bed pid runs", run("WM_BED_PID", {"CONFIRM": "1"}), "PID_CALIBRATE HEATER=heater_bed TARGET=60", "TURN_OFF_HEATERS", "SAVE_CONFIG")
+want("bed pid SAVE=0", run("WM_BED_PID", {"CONFIRM": "1", "SAVE": "0"}), "PID_CALIBRATE", none=("SAVE_CONFIG",))
+want("bed pid refuses watermark", run("WM_BED_PID", {"CONFIRM": "1"}, control="watermark"), "RAISE: heater_bed uses control: watermark")
+want("bed pid refuses odd target", run("WM_BED_PID", {"TARGET": "200"}), "RAISE")
+want("chamber pid asks", run("WM_CHAMBER_PID"), "_WM_CAL_ASK STAGE=chamberpid TARGET=45", none=("PID_CALIBRATE",))
+want("chamber pid runs", run("WM_CHAMBER_PID", {"CONFIRM": "1", "SAVE": "0"}), "PID_CALIBRATE HEATER=chamber TARGET=45", "TURN_OFF_HEATERS", none=("SAVE_CONFIG",))
+want("chamber pid saves", run("WM_CHAMBER_PID", {"CONFIRM": "1"}), "SAVE_CONFIG")
+want("chamber pid not on Ultra", run("WM_CHAMBER_PID", chamber=False), "RAISE: This printer has no chamber heater")
+want("chamber pid refuses watermark", run("WM_CHAMBER_PID", control="watermark"), "RAISE")
+want("chamber pid refuses 80", run("WM_CHAMBER_PID", {"TARGET": "80"}), "RAISE")
+want("chamber window", run("_WM_CAL_ASK", {"STAGE": "chamberpid"}), "WM_CHAMBER_PID TARGET=45 CONFIRM=1")
+want("quick start: no chamber on Ultra", run("_WM_QUICK_START", chamber=False), "WM_BED_PID CONFIRM=1 SAVE=0", "chamber PID skipped", none=("WM_CHAMBER_PID",))
+want("quick start: with chamber", run("_WM_QUICK_START"), "WM_CHAMBER_PID CONFIRM=1 SAVE=0")
+want("quick start: window mentions chamber", run("WM_QUICK_START"), "Chamber heater PID at 45 C")
+want("quick start: window on Ultra", run("WM_QUICK_START", chamber=False), "Chamber PID: skipped")
 want("quick start: window, nothing runs", run("WM_QUICK_START"), "prompt_begin Quick Start Calibration", "_WM_QUICK_START", "Hotend PID: tunes", none=("G29", "SAVE_CONFIG\n", "PID_CALIBRATE"))
 want("quick start: watermark says skipped", run("WM_QUICK_START", control="watermark"), "Hotend PID: skipped")
 want("quick start: checks first", run("WM_QUICK_START")[:1], "_WM_CAL_PRECHECK")
-want("quick start runs 4 stages in order", run("_WM_QUICK_START"), "WM_BED_LEVELING CONFIRM=1 SAVE=0", "WM_TOOL_OFFSETS MODE=rapid CONFIRM=1", "WM_VIBRATION_COMP CONFIRM=1 SAVE=0", "WM_NOZZLE_TEMP_CAL T=0 CONFIRM=1 SAVE=0", "WM_NOZZLE_TEMP_CAL T=3 CONFIRM=1 SAVE=0", "_WM_QUICK_START_DONE", none=("SAVE_CONFIG\n",))
+want("quick start runs 5 stages in order", run("_WM_QUICK_START"), "WM_BED_LEVELING CONFIRM=1 SAVE=0", "WM_TOOL_OFFSETS MODE=rapid CONFIRM=1", "WM_VIBRATION_COMP CONFIRM=1 SAVE=0", "WM_BED_PID CONFIRM=1 SAVE=0", "WM_NOZZLE_TEMP_CAL T=0 CONFIRM=1 SAVE=0", "WM_NOZZLE_TEMP_CAL T=3 CONFIRM=1 SAVE=0", "_WM_QUICK_START_DONE", none=("SAVE_CONFIG\n",))
 want("quick start skips PID on watermark", run("_WM_QUICK_START", control="watermark"), "skipped", none=("WM_NOZZLE_TEMP_CAL",))
 want("quick start end window saves only on click", run("_WM_QUICK_START_DONE"), "Save and Restart|SAVE_CONFIG", "WM_PROBE_CALIBRATE")
 want("z offset", run("WM_ZOFFSET_DOWN", {"STEP": "0.01"}), "SET_GCODE_OFFSET Z_ADJUST=-0.01 MOVE=1")
