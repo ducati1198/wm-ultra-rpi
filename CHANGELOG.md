@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.23.46
+
+- **Z calibrate page no longer crashes on the screen board.** Starting `WM_PROBE_CALIBRATE` opened KlipperScreen's Z calibrate page, which stopped with `KeyError: 'z_offset'` because WonderMaker's `printer.cfg` has `# z_offset:0` commented out under `[probe]` (Klipper itself does not mind). `screen_board.sh` now patches `panels/zcalibrate.py` on install and update to use 0.0 when the line is missing; the original is kept as `zcalibrate.py.wm-orig`.
+
 ## 1.23.45
 
 - **ZR Tools buttons work on the current KlipperScreen.** Every button that sends G-code (chamber, tool change, ACE, ...) failed with "Connection error" because the panel called `_ws.klippy.gcode_script`, which newer KlipperScreen no longer has. It now uses `_ws.api.gcode_script`, falls back to the old call, then to a plain Moonraker request.

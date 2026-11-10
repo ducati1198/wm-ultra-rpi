@@ -53,6 +53,16 @@ klipper-mcu enabled active
 hostapd disabled inactive"
 declare -a WARNINGS=()
 
+# KlipperScreen's Z calibrate page reads [probe] z_offset from the config file and stops with KeyError when the
+# line is commented out (WonderMaker's printer.cfg has "# z_offset:0"; Klipper itself is fine without it). Use 0 then.
+patch_ks_zcalibrate() {
+    local f="$KS_DIR/panels/zcalibrate.py"
+    [ -f "$f" ] || return 0
+    grep -q 'float(self.probe\["z_offset"\])' "$f" 2>/dev/null || return 0
+    [ -f "$f.wm-orig" ] || cp "$f" "$f.wm-orig"
+    sed -i 's/float(self\.probe\["z_offset"\])/float(self.probe.get("z_offset", 0.0))/' "$f"
+}
+
 sb_cum() {   # step weight... : the percent finished when step K starts (the weights are how long each step takes, roughly)
     local k="$1" i=1 sum=0 w; shift
     for w in "$@"; do [ "$i" -lt "$k" ] && sum=$((sum+w)); i=$((i+1)); done
@@ -402,6 +412,7 @@ step_klipperscreen() {
         # The stock Network panel needs NetworkManager. This board uses wpa_supplicant (WonderMaker's setup), so use a wpa_cli panel instead.
         if [ -S /run/wpa_supplicant/wlan0 ] || systemctl is-active --quiet makerbase-wlan0 2>/dev/null; then cp "$REPO_DIR/zr_tools/wifi_panel.py" "$KS_DIR/panels/network.py"; fi
         cp "$REPO_DIR/zr_tools/pi_address_panel.py" "$KS_DIR/panels/pi_address.py"
+        patch_ks_zcalibrate
         [ -d "$KS_DIR/.git" ] && { mkdir -p "$KS_DIR/.git/info"; grep -qs '^panels/zr_' "$KS_DIR/.git/info/exclude" || echo 'panels/zr_*.py' >> "$KS_DIR/.git/info/exclude"; }
     fi
     write_ks_conf
@@ -853,6 +864,7 @@ do_update_board_core() {
     if [ "$DRY" != 1 ]; then
         mkdir -p "$KS_DIR/panels"; cp "$w"/zr_tools/{zr_tools.py,zr_views.py,zr_logic.py} "$KS_DIR/panels/"
         [ -f "$w/zr_tools/pi_address_panel.py" ] && cp "$w/zr_tools/pi_address_panel.py" "$KS_DIR/panels/pi_address.py"
+        patch_ks_zcalibrate
         [ -f "$KS_DIR/panels/network.py" ] && grep -q wpa_cli "$KS_DIR/panels/network.py" 2>/dev/null && [ -f "$w/zr_tools/wifi_panel.py" ] && cp "$w/zr_tools/wifi_panel.py" "$KS_DIR/panels/network.py"
         mkdir -p "$BK"; cp "$w/scripts/screen_board.sh" "$BK/screen_board.sh"
         # the installer folder this script runs from is refreshed too, so the menu itself is the new version (tests: only with WM_TEST_REFRESH_REPO=1, on a copy)
