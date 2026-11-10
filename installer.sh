@@ -17,6 +17,7 @@
 # ./installer.sh --cfg-merge           bring WonderMaker's changes in this repository's factory printer.cfg (and saved_variables.cfg) to the Pi's printer.cfg with a 3-way merge; your own lines and the SAVE_CONFIG block stay (scripts/wm_cfgmerge.py)
 # ./installer.sh --can-ids [set NAME ID]  which CAN ids in the config answer on the bus (hub, extruder board, T0-T3, load cell, main board); offers to correct wrong ones; "set T2 ac8b57e80210" sets one by hand
 # ./installer.sh --pid-cfg             check that the PID settings of the hotends, bed and chamber heater are where Klipper's SAVE_CONFIG can store a PID result, and fix them (scripts/wm_pidcfg.py)
+# ./installer.sh --pi-sensors          add the chip temperature of every board and the host MCU ([mcu rpi]) to Klipper; Klipper restarts, and the change is undone when it does not come back
 # ./installer.sh --rpi-cfg             install or refresh the Pi's own config files from rpi-cfg/ (calibration macros WM_BED_LEVELING, WM_FULL_CALIBRATION, ...) and their include line in printer.cfg
 # ./installer.sh --first-start         checks with the main board connected; fixes canbus_uuid; then starts Klipper and the other services
 # ./installer.sh --hw-test             read-only live test: USB bridge, can0, CAN devices, camera, services
@@ -202,6 +203,7 @@ while [ $# -gt 0 ]; do
         --cfg-merge)    MODE=cfgmerge ;;  # WonderMaker's printer.cfg changes merged into the Pi's printer.cfg
         --can-ids)      MODE=canids; if [ "${2:-}" = set ]; then CANID_NAME="${3:-}"; CANID_UUID="${4:-}"; shift $(( $# < 3 ? $# : 3 )); fi ;;   # which config ids answer on the CAN bus; fix wrong ones; set one by hand
         --pid-cfg)      MODE=pidcfg ;;    # PID settings in printer.cfg, where SAVE_CONFIG can store a PID result
+        --pi-sensors)   MODE=pisensors ;;   # board temperature sensors + the host MCU, once Klipper runs
         --rpi-cfg)      MODE=rpicfg ;;    # the Pi's own config files (rpi-cfg/): calibration macros
         --fix-all)      FIXALL=1 ;;
         --repair)       MODE=repair ;;
@@ -263,6 +265,8 @@ check_system() {
         fi
         sudo -n true 2>/dev/null || print_info "sudo will ask for your password."
     fi
+    print_success "Computer: $(pi_model_line)"
+    local pw l; pw="$(pi_model_warning)"; [ -z "$pw" ] || while IFS= read -r l; do print_warning "$l"; warn_later "$l"; done <<< "$pw"
     local free; free="$(disk_free_mb)"
     if [ "${free:-0}" -le "$FREE_NEED_MB" ] && { [ -t 0 ] || [ "${WM_TEST_FREE_OFFER:-0}" = 1 ]; } && [ "${WM_ASSUME_YES:-0}" != 1 ] && [ "$DRY" != 1 ]; then
         print_warning "Only ${free} MB free; the install needs about $FREE_NEED_MB MB."
@@ -273,6 +277,22 @@ check_system() {
     print_success "Disk space ok (${free} MB free)"
 }
 
+
+# ---------------------------------------------------------------------------
+# Which Raspberry Pi is this (read from the device tree; nothing depends on the model, but a slow one is worth a warning)
+# ---------------------------------------------------------------------------
+pi_model() { if [ "$TESTING" = 1 ]; then echo "${WM_TEST_PI_MODEL:-Raspberry Pi 4 Model B Rev 1.4}"; else tr -d '\0' < /proc/device-tree/model 2>/dev/null; fi; }
+pi_ram_mb() { if [ "$TESTING" = 1 ]; then echo "${WM_TEST_PI_RAM_MB:-4096}"; else awk '/^MemTotal:/{printf "%d", $2/1024}' /proc/meminfo 2>/dev/null; fi; }
+pi_model_line() { local m r; m="$(pi_model)"; r="$(pi_ram_mb)"; echo "${m:-unknown model (not a Raspberry Pi?)}${r:+, ${r} MB memory}"; }
+pi_model_warning() {   # prints a warning sentence for a model that is too slow for Klipper + Moonraker + Fluidd + a screen, else nothing
+    local m r; m="$(pi_model)"; r="$(pi_ram_mb)"
+    case "$m" in
+        *"Raspberry Pi Zero"*|*"Raspberry Pi 2 "*|*"Raspberry Pi 3"*|*"Raspberry Pi Model"*|*"Raspberry Pi 1 "*)
+            echo "This is a $m. It runs this printer, but slowly: the install takes much longer, the Fluidd page and the webcam can lag, and a busy print may stutter. A Raspberry Pi 4 or 5 is recommended." ;;
+    esac
+    [ -n "$r" ] && [ "$r" -lt 1800 ] && echo "Only ${r} MB of memory: Klipper, Moonraker, Fluidd and the screen need about 1.5 GB. Expect swapping and slow pages; 2 GB or more is recommended."
+    return 0
+}
 
 # ============================================================================
 # Source of the WonderMaker software
@@ -350,9 +370,9 @@ step_packages() {
 
 step_groups() {
     print_header "Step 2: groups"
-    why "Moonraker needs its own admin group; dialout/plugdev let Klipper open USB and serial devices."
+    why "Moonraker needs its own admin group; dialout/plugdev let Klipper open USB and serial devices; tty lets Klipper open the host MCU (the Klipper-Mcu service) when it is used."
     getent group moonraker-admin >/dev/null 2>&1 || { SUDO groupadd moonraker-admin; record "GROUP moonraker-admin"; }
-    SUDO usermod -aG dialout,plugdev,moonraker-admin "$WM_USER"
+    SUDO usermod -aG dialout,plugdev,moonraker-admin,tty "$WM_USER"
     print_success "Groups ready"
 }
 
@@ -401,7 +421,7 @@ nozzle_script_dst() { echo "$HOME_DIR/printer_data/wm-tools/wm_nozzle.py"; }
 canids_script_dst() { echo "$HOME_DIR/printer_data/wm-tools/wm_canids.py"; }
 rpicfg_shell_ok() { [ -f "$HOME_DIR/klipper/klippy/extras/gcode_shell_command.py" ] || [ "${WANT_SHELLCMD:-0}" = 1 ]; }
 rpicfg_list() {   # wm_nozzle.cfg holds a [gcode_shell_command] section: Klipper would not start without that extension, so it is only used where the extension is or will be installed
-    local f b; for f in "$SCRIPT_DIR"/rpi-cfg/*.cfg; do [ -f "$f" ] || continue; b="$(basename "$f")"; [ "$b" = wm_nozzle.cfg ] && ! rpicfg_shell_ok && continue; echo "$b"; done
+    local f b; for f in "$SCRIPT_DIR"/rpi-cfg/*.cfg; do [ -f "$f" ] || continue; b="$(basename "$f")"; [ "$b" = wm_nozzle.cfg ] && ! rpicfg_shell_ok && continue; [ "$b" = wm_pi.cfg ] && [ -d "$HOME_DIR/klipper/klippy/extras" ] && [ ! -f "$HOME_DIR/klipper/klippy/extras/temperature_host.py" ] && continue; echo "$b"; done
 }
 rpicfg_included() { grep -qE "^[[:space:]]*\[include[[:space:]]+$1[[:space:]]*\]" "$HOME_DIR/printer_data/config/printer.cfg" 2>/dev/null; }
 step_rpicfg() {   # the Pi's own config files (repo folder rpi-cfg/, not WonderMaker's): copy them and include them in printer.cfg
@@ -638,7 +658,7 @@ step_services() {
 # Klipper's Linux host MCU: a small Klipper program that runs on the Pi itself (service klipper-mcu, socket /tmp/klipper_host_mcu).
 # It is what Klipper uses for sensors wired straight to the Pi (an ADXL345 on the SPI pins, GPIO pins). WonderMaker's ~/klipper has no
 # MCU source folder, so it is built from the official Klipper source, pinned in config/pins/addons.txt. Installing it changes nothing in
-# printer.cfg: Klipper only talks to it once printer.cfg has an [mcu host] section (see docs/HOST_MCU.md).
+# printer.cfg here: step_pi_sensors adds the [mcu rpi] section later, once Klipper runs, and undoes it when Klipper does not come back (docs/HOST_MCU.md).
 # ---------------------------------------------------------------------------
 step_hostmcu() {
     print_header "Step 7b: Klipper host MCU"
@@ -665,7 +685,80 @@ step_hostmcu() {
     SUDO systemctl daemon-reload
     SUDO systemctl enable klipper-mcu >/dev/null 2>&1; SUDO systemctl start klipper-mcu
     SUDO systemctl restart moonraker 2>/dev/null   # Moonraker looks for the services it may control only when it starts
-    print_success "Klipper host MCU installed (service klipper-mcu). Use it by adding [mcu host] with serial: /tmp/klipper_host_mcu to printer.cfg: docs/HOST_MCU.md"
+    print_success "Klipper host MCU installed (service klipper-mcu). The installer adds it to Klipper (as [mcu rpi]) once Klipper is running: docs/HOST_MCU.md"
+}
+
+# ---------------------------------------------------------------------------
+# Sensors that need Klipper to be running: the temperature of every printer board's chip, and the host MCU as [mcu rpi].
+# Each goes into its own file that printer.cfg includes. After adding one Klipper is restarted; if it does not come back to "ready"
+# the file and its include line are removed again, so a sensor can never leave the printer stuck.
+# ---------------------------------------------------------------------------
+pisens_mcu_names() {   # the board names in the config folder, one per line ("mcu" for the main board); never the host MCU
+    local cd="$HOME_DIR/printer_data/config"
+    grep -hE '^\[mcu( [A-Za-z0-9_]+)?\][[:space:]]*$' "$cd"/*.cfg 2>/dev/null | sed -E 's/^\[mcu ?//; s/\][[:space:]]*$//' | grep -vxE 'rpi|host' | sort -u
+}
+pisens_sensor_name() { case "$1" in "") echo mcu_main ;; EX_T) echo mcu_extruder ;; CELL) echo mcu_loadcell ;; *) echo "mcu_$(echo "$1" | tr 'A-Z' 'a-z')" ;; esac; }
+pisens_mcutemps_content() {
+    local n any=0 sn
+    echo "# Chip temperature of every printer board (main board, hub, extruder board, toolheads, load cell), written by the installer."
+    echo "# Each is the temperature of the processor chip: a few degrees above the air around the board. -20 to 110 C is wide on purpose."
+    echo "# If a reading ever leaves it Klipper stops the printer, so a wide range keeps a cold room or one bad reading from doing that."
+    while IFS= read -r n; do
+        [ -n "$n" ] || n=""
+        sn="$(pisens_sensor_name "$n")"; any=1
+        printf '\n[temperature_sensor %s]\nsensor_type: temperature_mcu\nsensor_mcu: %s\nmin_temp: -20\nmax_temp: 110\n' "$sn" "${n:-mcu}"
+    done < <(pisens_mcu_names | sed 's/^mcu$//')
+    [ "$any" = 1 ]
+}
+cfg_include_last() {   # file : add [include file] to printer.cfg after the other includes, just above the SAVE_CONFIG block (a later section may use the boards defined by earlier includes)
+    local cfg="$HOME_DIR/printer_data/config/printer.cfg"
+    rpicfg_included "$1" && return 0
+    if grep -q '^#\*# <-* SAVE_CONFIG' "$cfg"; then
+        python3 - "$cfg" "$1" <<'PYEOF'
+import sys,re
+p,f=sys.argv[1],sys.argv[2]; t=open(p).read().split("\n")
+i=next(k for k,l in enumerate(t) if re.match(r"^#\*# <-* SAVE_CONFIG",l))
+t[i:i]=["[include %s]"%f,""]
+open(p,"w").write("\n".join(t))
+PYEOF
+    else printf '\n[include %s]\n' "$1" >> "$cfg"; fi
+}
+cfg_include_remove() { sed -i -E "/^[[:space:]]*\[include[[:space:]]+${1//./\\.}[[:space:]]*\][[:space:]]*$/d" "$HOME_DIR/printer_data/config/printer.cfg"; }
+pisens_add() {   # file label : the file is already in the config folder; include it, restart Klipper, undo everything if Klipper does not become ready. Returns 0 = in use, 1 = undone
+    local f="$1" label="$2" cd="$HOME_DIR/printer_data/config" cfg="$HOME_DIR/printer_data/config/printer.cfg" ok=0
+    cp "$cfg" "$cfg.wm-before-${f%.cfg}-$STAMP"
+    cfg_include_last "$f"
+    SUDO systemctl restart klipper
+    if [ "$TESTING" = 1 ]; then [ "${WM_TEST_KLIPPER_AFTER:-ready}" = ready ] && ok=1
+    else wait_klipper_ready && ok=1; fi
+    if [ "$ok" = 1 ]; then print_success "$label: Klipper restarted and is ready (copy of the old printer.cfg: printer.cfg.wm-before-${f%.cfg}-$STAMP)"; return 0; fi
+    print_warning "$label: Klipper did not become ready (${WAIT_ST:-error}). Taking it out again."
+    cp "$cfg.wm-before-${f%.cfg}-$STAMP" "$cfg"; mv -f "$cd/$f" "$cd/$f.wm-failed-$STAMP"
+    SUDO systemctl restart klipper
+    if [ "$TESTING" != 1 ]; then wait_klipper_ready && print_success "Klipper is ready again without it." || print_warning "Klipper is still '${WAIT_ST:-not answering}'. Look at the message in Fluidd, or: ./installer.sh --doctor"; fi
+    warn_later "$label was not added: Klipper did not start with it. The file is kept as $f.wm-failed-$STAMP in the config folder; the reason is in ~/printer_data/logs/klippy.log."
+    return 1
+}
+pi_sensors_in_flow() { [ "$TESTING" != 1 ] || [ "${WM_TEST_PI_SENSORS_FLOW:-0}" = 1 ] && step_pi_sensors; return 0; }   # (the install tests count Klipper restarts, so under test it only runs when a test asks for it)
+step_pi_sensors() {   # ./installer.sh --pi-sensors, and at the end of an install or update
+    local cd="$HOME_DIR/printer_data/config" cfg="$HOME_DIR/printer_data/config/printer.cfg" content
+    [ "$DRY" = 1 ] && { echo -e "  ${DIM}would add the board temperature sensors and [mcu rpi] once Klipper is running${NC}"; return 0; }
+    [ -f "$cfg" ] || return 0
+    if [ "$(service_state klipper)" != active ]; then print_info "Klipper is not running, so the board temperature sensors and the host MCU were not added. Run ./installer.sh --pi-sensors after Klipper has started."; return 0; fi
+    case "$(print_state)" in printing|paused) print_info "A print is running: the board temperature sensors and the host MCU were not added. Run ./installer.sh --pi-sensors after the print."; return 0 ;; esac
+    print_header "Board temperatures and the host MCU"
+    why "Shows the chip temperature of every board in Fluidd, and connects Klipper to the host MCU service (sensors wired to the Pi's own pins). Klipper restarts after each; it is undone again if Klipper does not come back."
+    if rpicfg_included wm_mcu_temps.cfg; then print_success "board temperature sensors are already in use"
+    elif content="$(pisens_mcutemps_content)"; then
+        printf '%s\n' "$content" > "$cd/wm_mcu_temps.cfg"; pisens_add wm_mcu_temps.cfg "Board temperature sensors" || true
+    else print_info "No [mcu] boards found in the config: board temperature sensors skipped."; fi
+    if rpicfg_included wm_rpi_mcu.cfg; then print_success "host MCU ([mcu rpi]) is already in use"
+    elif [ "$(service_state klipper-mcu)" != active ] || { [ "$TESTING" != 1 ] && [ ! -e /tmp/klipper_host_mcu ]; }; then
+        print_info "The klipper-mcu service is not running, so [mcu rpi] was not added. Run ./installer.sh --update, then ./installer.sh --pi-sensors."
+    else
+        printf '# The host MCU (service klipper-mcu): lets Klipper use sensors wired to the Pi'"'"'s own pins, as pins rpi:gpioN or rpi:None. See docs/HOST_MCU.md.\n[mcu rpi]\nserial: /tmp/klipper_host_mcu\n' > "$cd/wm_rpi_mcu.cfg"
+        pisens_add wm_rpi_mcu.cfg "Host MCU" || true
+    fi
 }
 
 step_nginx() {
@@ -1524,6 +1617,7 @@ PLAN_OPTIONS=(
 show_plan() {
     print_header "Plan (nothing has been changed yet)"
     echo "  Printer model:   $MODEL"
+    echo "  This computer:   $(pi_model_line)"
     echo "  Software from:   $SRC_KIND ${SRC_ARG:+($SRC_ARG)}"
     local d moved=""; for d in klipper moonraker printer_data fluidd TM_T1; do [ -e "$HOME_DIR/$d" ] && moved="$moved ~/$d"; done
     [ -n "$moved" ] && echo "  Moved to backup (~/wm-rpi-backup/old-*):$moved"
@@ -1863,6 +1957,7 @@ do_update() {
     progress_bar 90 100 "Update step 8 of $UT: restart Klipper and self-test"
     SUDO systemctl restart moonraker; [ -n "$ONLY_ADDON" ] || SUDO systemctl restart nginx
     restart_klipper_after
+    pi_sensors_in_flow
     self_test
     progress_bar 100 100 "Update finished"
     print_success "Update finished (installer $VERSION)."
@@ -2139,6 +2234,10 @@ do_doctor() {
         [ "$(service_state $s)" = active ] && doc_ok "$s is running" || { doc_bad "$s is not running" "journalctl -u $s -n 30"; offer_fix "restart $s" bash -c "sudo systemctl restart $s"; }
         [ "$(service_enabled $s)" = enabled ] && doc_ok "$s starts at boot" || { doc_bad "$s will not start at boot" "The Pi would come up without the web page."; offer_fix "enable $s" bash -c "sudo systemctl enable $s"; }
     done
+    if [ -f /etc/systemd/system/klipper-mcu.service ] || [ "$TESTING" != 1 ] && [ -x /usr/local/bin/klipper_mcu ]; then
+        [ "$(service_state klipper-mcu)" = active ] && doc_ok "klipper-mcu (the host MCU) is running" || { doc_bad "klipper-mcu (the host MCU) is not running" "$(rpicfg_included wm_rpi_mcu.cfg && echo "printer.cfg uses [mcu rpi], so Klipper cannot start without it." || echo "Nothing uses it yet, but Fluidd lists it as stopped.")"; offer_fix "start klipper-mcu and enable it at boot" bash -c "sudo systemctl enable --now klipper-mcu"; }
+    elif rpicfg_included wm_rpi_mcu.cfg; then doc_bad "printer.cfg uses [mcu rpi] but the klipper-mcu service is not installed" "Klipper cannot start without it. Run ./installer.sh --update to build it."; fi
+    id -nG "$WM_USER" 2>/dev/null | tr ' ' '\n' | grep -qx tty || [ "$TESTING" = 1 ] && doc_ok "user $WM_USER is in the tty group (Klipper can open the host MCU)" || { doc_bad "user $WM_USER is not in the tty group" "Klipper could not open the host MCU ([mcu rpi]): 'Permission denied' on /tmp/klipper_host_mcu."; offer_fix "add $WM_USER to the tty group (Klipper must be restarted afterwards)" bash -c "sudo usermod -aG tty $WM_USER"; }
     if [ "$TESTING" != 1 ]; then sudo nginx -t >/dev/null 2>&1 && doc_ok "nginx configuration is valid" || { doc_bad "nginx configuration is invalid" "sudo nginx -t shows why."; offer_fix "reinstall the nginx files" step_nginx; }; fi
     [ -f /etc/udev/rules.d/99-wm-can0.rules ] || [ "$TESTING" = 1 ] && doc_ok "can0 rule installed" || { doc_bad "can0 rule missing" "can0 would not come up by itself."; offer_fix "install it" step_can; }
     if usb_bridge_present; then doc_ok "main board on USB"; else doc_bad "no main board (1d50:606f) on USB" "Cable (docs/WIRING.md), printer power, D+/D- not swapped."; fi
@@ -2196,7 +2295,7 @@ do_support_bundle() {
     local w; w="$(mktemp -d)"; local out="$HOME_DIR/wm-support-$STAMP.tgz" b="$w/wm-support"; mkdir -p "$b"
     {
         echo "wm-ultra-rpi installer $VERSION   model: $(model_now)   date: $(date -u +%FT%TZ)"
-        uname -a; [ -r /etc/os-release ] && grep PRETTY /etc/os-release
+        echo "computer: $(pi_model_line)"; uname -a; [ -r /etc/os-release ] && grep PRETTY /etc/os-release
         echo "python3: $(python3 --version 2>&1)"; [ -x "$HOME_DIR/klippy-env/bin/python" ] && echo "klippy-env: $("$HOME_DIR/klippy-env/bin/python" --version 2>&1)"
         echo "power flags: $(power_flags)"; df -h "$HOME_DIR" | tail -1; free -m | sed -n 2p
         echo "--- services"; local s; for s in klipper moonraker nginx crowsnest; do printf '%-10s active=%s enabled=%s\n' $s "$(service_state $s)" "$(service_enabled $s)"; done
@@ -2804,6 +2903,7 @@ do_status() {   # read-only overview
     local ip t mem
     ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
     echo "  Installer $VERSION   printer: $(model_now)   host: $(hostname)${ip:+   address: http://$ip}"
+    echo "  Computer: $(pi_model_line)"
     echo "  Uptime: $(uptime -p 2>/dev/null | sed 's/^up //')"
     t="$(vcgencmd measure_temp 2>/dev/null | sed 's/temp=//')"
     [ -z "$t" ] && [ -r /sys/class/thermal/thermal_zone0/temp ] && t="$(awk '{printf "%.1f C", $1/1000}' /sys/class/thermal/thermal_zone0/temp)"
@@ -2961,6 +3061,7 @@ case "$MODE" in
     firststart) do_first_start ask; exit $? ;;
     hwtest)     do_hw_test; exit 0 ;;
     zrtools)    do_zr_tools; exit $? ;;
+    pisensors)  guard_not_printing; step_pi_sensors; for w in "${WARNINGS[@]}"; do print_warning "$w"; done; exit 0 ;;
     rpicfg)     do_rpicfg; exit $? ;;
     pidcfg)     do_pidcfg; exit $? ;;
     canids)     do_can_ids; exit $? ;;
@@ -3005,6 +3106,7 @@ save_answers
 restart_klipper_after
 self_test
 if [ "$AUTOSTART" = 1 ] && [ "$DRY" != 1 ]; then do_first_start auto || true; fi
+pi_sensors_in_flow
 
 print_header "Done"
 [ "$PROG_STEPS" -gt 0 ] && progress_bar 100 100 "All $PROG_STEPS steps finished"
