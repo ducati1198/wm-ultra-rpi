@@ -575,6 +575,7 @@ step_restore_button() {   # root-owned copy + sudoers line for the one command t
 }
 
 CL_BIN=/usr/local/sbin/wm-chamber-light; CL_UNIT=/etc/systemd/system/wm-chamber-light.service
+CL_HTTP=/usr/local/sbin/wm-chamber-light-http; CL_HTTP_UNIT=/etc/systemd/system/wm-chamber-light-http.service
 step_chamber_light() {   # root helper + one sudoers line for the Chamber light button; a boot unit puts the light back to its last state
     print_header "Chamber light button"
     if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would install $CL_BIN, a sudoers entry and a boot unit${NC}"; return 0; fi
@@ -583,8 +584,10 @@ step_chamber_light() {   # root helper + one sudoers line for the Chamber light 
     printf '%s ALL=(root) NOPASSWD: %s on, %s off, %s toggle, %s status\n' "$WM_USER" "$CL_BIN" "$CL_BIN" "$CL_BIN" "$CL_BIN" | sudo tee /etc/sudoers.d/wm-chamber-light >/dev/null
     sudo chmod 440 /etc/sudoers.d/wm-chamber-light; sudo visudo -cf /etc/sudoers.d/wm-chamber-light >/dev/null || { sudo rm -f /etc/sudoers.d/wm-chamber-light; warn_later "The Chamber light button was not enabled (sudoers check failed)."; return 0; }
     printf '[Unit]\nDescription=Chamber light: restore last state\n[Service]\nType=oneshot\nExecStart=%s restore\n[Install]\nWantedBy=multi-user.target\n' "$CL_BIN" | sudo tee "$CL_UNIT" >/dev/null
-    sudo systemctl daemon-reload; sudo systemctl enable wm-chamber-light.service >/dev/null 2>&1
-    print_success "Chamber light button installed (main page, next to ZR Tools)."
+    sudo install -o root -g root -m 755 "$REPO_DIR/zr_tools/wm-chamber-light-http" "$CL_HTTP"   # the Fluidd panel's Chamber light button talks to this (port 8765)
+    printf '[Unit]\nDescription=Chamber light network service (Fluidd button)\nAfter=network-online.target\n[Service]\nExecStart=%s --conf %s/KlipperScreen.conf\nRestart=always\nRestartSec=5\n[Install]\nWantedBy=multi-user.target\n' "$CL_HTTP" "$CFG_DIR" | sudo tee "$CL_HTTP_UNIT" >/dev/null
+    sudo systemctl daemon-reload; sudo systemctl enable wm-chamber-light.service >/dev/null 2>&1; sudo systemctl enable --now wm-chamber-light-http.service >/dev/null 2>&1
+    print_success "Chamber light button installed (main page, next to ZR Tools; the Fluidd panel button uses port 8765)."
 }
 
 # ---------------------------------------------------------------- rescue tool (window after 3 failed starts, USB flag at boot)
@@ -705,7 +708,7 @@ remove_klipperscreen() {
             [ -f "$XDIR/10-wm-fbdev.conf" ] && sudo rm -f "$XDIR/10-wm-fbdev.conf"
             [ -f "$XDIR/20-modesetting.conf.wm-disabled" ] && sudo mv "$XDIR/20-modesetting.conf.wm-disabled" "$XDIR/20-modesetting.conf"
             sudo rm -f /etc/sudoers.d/wm-factory-restore /usr/local/sbin/wm-factory-restore
-            sudo systemctl disable wm-chamber-light.service >/dev/null 2>&1; sudo rm -f /etc/sudoers.d/wm-chamber-light "$CL_BIN" "$CL_UNIT"
+            sudo systemctl disable --now wm-chamber-light-http.service >/dev/null 2>&1; sudo systemctl disable wm-chamber-light.service >/dev/null 2>&1; sudo rm -f /etc/sudoers.d/wm-chamber-light "$CL_BIN" "$CL_UNIT" "$CL_HTTP" "$CL_HTTP_UNIT"
         else echo "[test] remove seat rules, X conf, sudoers" >> "$HOME_DIR/.sudo.log"; rm -f "$HOME_DIR/.fbdev" "$BK/udev_rules.created"; fi
         rm -rf "$KS_DIR" "$KS_ENV"; rm -f "$BK/board_mode"
         [ -f "$BK/KlipperScreen.conf.orig" ] && cp "$BK/KlipperScreen.conf.orig" "$CFG_DIR/KlipperScreen.conf" || rm -f "$CFG_DIR/KlipperScreen.conf"
@@ -909,7 +912,7 @@ do_update_board_core() {
             else cp -a "$w"/. "$REPO_DIR"/ 2>/dev/null || warn_later "Could not refresh $REPO_DIR."; fi
         fi
         if [ "$TESTING" != 1 ] && [ -f "$w/zr_tools/wm-chamber-light" ]; then
-            if [ -f "$CL_BIN" ]; then sudo install -o root -g root -m 755 "$w/zr_tools/wm-chamber-light" "$CL_BIN"
+            if [ -f "$CL_BIN" ] && [ -f "$CL_HTTP_UNIT" ]; then sudo install -o root -g root -m 755 "$w/zr_tools/wm-chamber-light" "$CL_BIN"; sudo install -o root -g root -m 755 "$w/zr_tools/wm-chamber-light-http" "$CL_HTTP"; sudo systemctl restart wm-chamber-light-http.service
             else REPO_DIR="$w" step_chamber_light; fi
             grep -q '^\[menu __main chamber_light\]' "$CFG_DIR/KlipperScreen.conf" 2>/dev/null || python3 - "$CFG_DIR/KlipperScreen.conf" <<'PYE'
 import sys

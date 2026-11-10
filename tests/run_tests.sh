@@ -381,6 +381,7 @@ HOME="$ZH" ZR_NO_RESTART=1 bash "$ROOT/zr_tools/install_zr_tools.sh" >/dev/null 
 check "no extra backup when zr_tools.cfg is unchanged" "[ \$(ls $ZH/printer_data/config/zr_tools.cfg.zrbak_* | wc -l) = 1 ]"
 check "bad --screen-layout value fails" "! bash $ROOT/installer.sh --screen-layout round"
 check "screen python tests" "python3 -I -W ignore $ROOT/tests/test_screen.py"
+check "chamber light python tests" "python3 -I -W ignore $ROOT/tests/test_chamber_light.py"
 check "python files compile" "for f in $ROOT/zr_tools/*.py; do python3 -I -m py_compile \$f || exit 1; done"
 
 echo "== dry run changes nothing"
