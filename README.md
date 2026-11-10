@@ -445,6 +445,12 @@ The `grid` layout shows the same pages as cards instead of tabs;.
 
 ## 7. KlipperScreen on the WonderMaker screen board (optional)
 
+### Power the screen board first (24 V and ground)
+
+The screen board needs **24 V and ground** from the printer's power supply. Connect them to the two power pins only (picture and pin names: *to be added*).
+
+> **WARNING: connect 24 V only to the 24 V power pin. Never put 24 V on any other pin of the board (signal, data, UART, USB, display or GPIO pins).** Those pins are not made for 24 V and **you will burn the screen board**. Check the pins twice with the printer switched off and unplugged before you power it on. A wrong wire cannot be undone.
+
 Run `bash scripts/screen_board.sh` on the board to get this menu:
 
 ![Screen board menu](docs/img/menu-board-main.png)

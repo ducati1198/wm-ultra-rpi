@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.23.55
+
+- README section 7 (screen board): new "Power the screen board first" with the 24 V and ground connection and a warning not to put 24 V on any other pin (it burns the board). Picture and pin names follow.
+
 ## 1.23.54
 
 - **Moonraker settings and the Jobs page fix are now part of the installer** (new Step 4f, also run by `--update` and `--rpi-cfg`; new script `scripts/wm_moonraker_conf.py`). Everything was tried on the Pi first.
