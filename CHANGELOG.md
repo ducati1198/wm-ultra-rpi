@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.23.39
+
+- `WM_EXTRUDER_SETUP` is now the screen's Extruder Setup page: the app's instructions and a **Set Up** button that does the matching (what `WM_EXTRUDER_MATCH` did in 1.23.38; that macro is gone, it is this one now). The earlier "release the tool heads so you can change nozzles" workflow was not something the app does, so it moved to its own name: `WM_NOZZLE_CHANGE` and `WM_NOZZLE_CHANGE_END` (was `WM_EXTRUDER_SETUP_END`). Its Done window has an Extruder Setup button for the matching. The README said the old workflow was the app's; it now says it is Pi only. If a nozzle change is left on, `WM_NOZZLE_CHANGE_END` clears it.
+
 ## 1.23.38
 
 - New macro `WM_EXTRUDER_MATCH` (in `rpi-cfg/wm_nozzle.cfg`), the "Set Up" matching of the screen's Extruder Setup. Read from the screen app's code, not guessed: with `is_nozzle_setting = 1` it picks up T0 to T3 one after the other, and after each pick takes the first dock sensor that shows an empty dock. Tool n gets the CAN id that was stored for that dock. If every tool came out of its own dock nothing changes. If the ids would change, a window shows them and asks; Apply writes them into `wm_zru_thr0.cfg` ... `wm_zru_thr3.cfg` (a copy of each changed file is kept) and does FIRMWARE_RESTART. Two tools with the same id: nothing is written. Different from the screen: it stops at the first tool that cannot be picked up and asks before it writes. The Done window of `WM_EXTRUDER_SETUP` offers it.

@@ -568,7 +568,7 @@ check "nozzle: doctor notices a missing helper script" "yes n | WM_HOME=$G2 WM_I
 WM_HOME="$G2" WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash "$ROOT/installer.sh" --rpi-cfg >/dev/null 2>&1 </dev/null
 check "nozzle: --rpi-cfg puts the helper script back" "cmp $ROOT/scripts/wm_nozzle.py $G2/printer_data/wm-tools/wm_nozzle.py"
 check "match: the helper script wm_canids.py is installed next to wm_nozzle.py" "cmp $ROOT/scripts/wm_canids.py $G2/printer_data/wm-tools/wm_canids.py && [ -x $G2/printer_data/wm-tools/wm_canids.py ]"
-check "match: doctor is happy with wm_canids.py" "eval \"$D\" 2>&1 | grep -q 'wm_canids.py (the helper behind WM_EXTRUDER_MATCH) is in place'"
+check "match: doctor is happy with wm_canids.py" "eval \"$D\" 2>&1 | grep -q 'wm_canids.py (the helper behind WM_EXTRUDER_SETUP) is in place'"
 rm -f "$G2/printer_data/wm-tools/wm_canids.py"
 check "match: doctor notices a missing wm_canids.py" "yes n | WM_HOME=$G2 WM_INSTALLER_TEST=1 bash $ROOT/installer.sh --doctor 2>&1 | grep -q 'wm_canids.py is missing or different'"
 WM_HOME="$G2" WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash "$ROOT/installer.sh" --rpi-cfg >/dev/null 2>&1 </dev/null

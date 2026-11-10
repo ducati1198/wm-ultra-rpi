@@ -417,7 +417,7 @@ step_rpicfg() {   # the Pi's own config files (repo folder rpi-cfg/, not WonderM
         cp "$SCRIPT_DIR/rpi-cfg/$f" "$cd/$f"
         if [ "$f" = wm_nozzle.cfg ]; then   # its shell command runs this script; it is kept outside the config folder, which WonderMaker updates merge
             mkdir -p "$(dirname "$(nozzle_script_dst)")" && cp "$SCRIPT_DIR/scripts/wm_nozzle.py" "$(nozzle_script_dst)" && chmod +x "$(nozzle_script_dst)"
-            cp "$SCRIPT_DIR/scripts/wm_canids.py" "$(canids_script_dst)" && chmod +x "$(canids_script_dst)"   # behind WM_EXTRUDER_MATCH
+            cp "$SCRIPT_DIR/scripts/wm_canids.py" "$(canids_script_dst)" && chmod +x "$(canids_script_dst)"   # behind WM_EXTRUDER_SETUP (Set Up)
         fi
         if rpicfg_included "$f"; then print_success "$f is installed (printer.cfg already includes it)"
         else
@@ -2084,8 +2084,8 @@ do_doctor() {
         if [ "$rf" = wm_nozzle.cfg ] && [ -f "$HOME_DIR/printer_data/config/$rf" ]; then
             if cmp -s "$SCRIPT_DIR/scripts/wm_nozzle.py" "$(nozzle_script_dst)" 2>/dev/null; then doc_ok "wm_nozzle.py (the helper behind WM_NOZZLE_TYPE) is in place"
             else doc_bad "wm_nozzle.py is missing or different in ~/printer_data/wm-tools" "WM_NOZZLE_TYPE could not write the nozzle diameter."; offer_fix "copy wm_nozzle.py again" step_rpicfg; fi
-            if cmp -s "$SCRIPT_DIR/scripts/wm_canids.py" "$(canids_script_dst)" 2>/dev/null; then doc_ok "wm_canids.py (the helper behind WM_EXTRUDER_MATCH) is in place"
-            else doc_bad "wm_canids.py is missing or different in ~/printer_data/wm-tools" "WM_EXTRUDER_MATCH could not write the CAN ids."; offer_fix "copy wm_canids.py again" step_rpicfg; fi
+            if cmp -s "$SCRIPT_DIR/scripts/wm_canids.py" "$(canids_script_dst)" 2>/dev/null; then doc_ok "wm_canids.py (the helper behind WM_EXTRUDER_SETUP) is in place"
+            else doc_bad "wm_canids.py is missing or different in ~/printer_data/wm-tools" "WM_EXTRUDER_SETUP could not write the CAN ids."; offer_fix "copy wm_canids.py again" step_rpicfg; fi
         fi
     done
     if [ -f "$(cfgmerge_py)" ] && [ -f "$HOME_DIR/printer_data/config/printer.cfg" ] && [ -f "$(cfgmerge_new_dir)/printer.cfg" ]; then
