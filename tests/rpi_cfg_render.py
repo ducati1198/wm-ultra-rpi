@@ -28,8 +28,10 @@ def run(name, params=None, target=None, control='pid', printing='standby', chamb
         cs['filament_switch_sensor docked%d' % i] = {}
         printer['filament_switch_sensor docked%d' % i] = {'filament_detected': (docks or {}).get(i, True)}
     def raise_(m): raise Raise(m)
-    try: out = env.from_string(macros[name]).render(printer=printer, params=params or {}, action_raise_error=raise_)
-    except Raise as e: return ["RAISE: " + str(e)]
+    info = []
+    def respond_info(m): info.append(m); return ''
+    try: out = env.from_string(macros[name]).render(printer=printer, params=params or {}, action_raise_error=raise_, action_respond_info=respond_info)
+    except Raise as e: return ["INFO: " + x for x in info] + ["RAISE: " + str(e)]
     return [l.strip() for l in out.splitlines() if l.strip()]
 bad = []
 def want(label, lines, *must, none=()):
@@ -101,6 +103,8 @@ want("nozzle type: apply refuses without the shell command", run("_WM_NOZZLE_APP
 want("nozzle type: apply refuses while printing", run("_WM_NOZZLE_APPLY", {"T": "0"}, printing="paused"), "RAISE")
 want("nozzle change: window explains and nothing moves", run("WM_NOZZLE_CHANGE"), "hang the extruders on the rear support", "_WM_NCHANGE_RUN", none=("_UNLOCK_TOOL", "SAVE_VARIABLE", "G28"))
 want("nozzle change: refuses while printing", run("_WM_NCHANGE_CHECK", printing="printing"), "RAISE")
+want("nozzle change: the refusal also opens a Fluidd window", run("_WM_NCHANGE_CHECK", printing="printing"), "INFO: action:prompt_begin Cannot start", "INFO: action:prompt_text A print is running", "INFO: action:prompt_footer_button Close", "INFO: action:prompt_show", "RAISE")
+want("matching: a tool head out of its dock opens a Fluidd window naming it", run("_WM_MATCH_CHECK", docks={0: False}), "INFO: action:prompt_text Tool head 1 is not seen in its dock", "INFO: action:prompt_show", "RAISE")
 want("nozzle change: refuses with a heater on", run("_WM_NCHANGE_CHECK", target={"heater_bed": 60.0}), "RAISE: heater_bed")
 want("nozzle change: refuses with a hot nozzle", run("_WM_NCHANGE_CHECK", temps={"extruder2": 120.0}), "RAISE: extruder2 is still at 120")
 want("nozzle change: cold printer passes", run("_WM_NCHANGE_CHECK"), none=("RAISE",))
@@ -125,8 +129,8 @@ want("match: run switches on, homes if needed, parks, starts at T0", run("_WM_MA
 want("match: run does not park when no tool is on the carriage", run("_WM_MATCH_RUN", sv={"current_extruder": 99}), "_WM_MATCH_STEP N=0", none=("PARK_CURRENT_TOOL",))
 want("match: step picks the tool and checks", run("_WM_MATCH_STEP", {"N": "2"}), "T2", "M400", "_WM_MATCH_AFTER N=2")
 want("match: step stops on a stale fail_flag", run("_WM_MATCH_STEP", {"N": "1"}, sv={"fail_flag": -1}), "_WM_MATCH_STOP", none=("\nT1\n",))
-want("match: after notes the empty dock and goes on", run("_WM_MATCH_AFTER", {"N": "0"}, docks={0: False}, actual=[]), 'VALUE="[0]"', "_WM_MATCH_STEP N=1")
-want("match: after records a different dock", run("_WM_MATCH_AFTER", {"N": "1"}, docks={3: False}, actual=[0]), 'VALUE="[0, 3]"', "empty dock is tool head 4", "_WM_MATCH_STEP N=2")
+want("match: after notes the empty dock and goes on", run("_WM_MATCH_AFTER", {"N": "0"}, docks={0: False}, actual=[]), 'VALUE="[0]"', "VARIABLE=next VALUE=1", "UPDATE_DELAYED_GCODE ID=_WM_MATCH_NEXT DURATION=0.5", none=("_WM_MATCH_STEP N=",))
+want("match: after records a different dock", run("_WM_MATCH_AFTER", {"N": "1"}, docks={3: False}, actual=[0]), 'VALUE="[0, 3]"', "empty dock is tool head 4", "VARIABLE=next VALUE=2", "UPDATE_DELAYED_GCODE ID=_WM_MATCH_NEXT")
 want("match: after the last tool finishes", run("_WM_MATCH_AFTER", {"N": "3"}, docks={3: False}, actual=[0, 1, 2]), 'VALUE="[0, 1, 2, 3]"', "_WM_MATCH_FINISH", none=("_WM_MATCH_STEP",))
 want("match: after stops when no dock is empty", run("_WM_MATCH_AFTER", {"N": "1"}, actual=[0]), "_WM_MATCH_STOP", "no dock sensor shows an empty dock", none=("_WM_MATCH_STEP",))
 want("match: after stops when the pick failed", run("_WM_MATCH_AFTER", {"N": "1"}, docks={1: False}, actual=[0], sv={"fail_flag": -1, "fail_tool": 1}), "_WM_MATCH_STOP", "T1 could not be picked up", none=("_WM_MATCH_STEP",))

@@ -594,6 +594,33 @@ check "nozzle: and the doctor does not ask for it" "! yes n | WM_HOME=$HNZ WM_IN
 inst "$HNZ" --update --shell-command on >/dev/null
 check "nozzle: turning the extension on installs wm_nozzle.cfg and includes it" "[ -f $HNZ/printer_data/config/wm_nozzle.cfg ] && grep -q '^\\[include wm_nozzle.cfg\\]' $HNZ/printer_data/config/printer.cfg && [ -f $HNZ/klipper/klippy/extras/gcode_shell_command.py ]"
 check "nozzle: removing the shell command extension takes wm_nozzle.cfg out of printer.cfg first" "M 'y\n' $HNZ --remove shell-command | grep -q 'Removed' && ! grep -q 'wm_nozzle.cfg' $HNZ/printer_data/config/printer.cfg && ls $HNZ/printer_data/config/wm_nozzle.cfg.wm-removed-* && [ ! -e $HNZ/klipper/klippy/extras/gcode_shell_command.py ]"
+
+# Fluidd window macros (wm_nozzle.cfg / wm_calibration.cfg): mistakes found on a real printer
+cat > "$T/macro_cycle.py" <<'PY'
+import re, sys
+macros = {}
+for f in sys.argv[1:]:
+    cur = None
+    for line in open(f):
+        m = re.match(r'\[gcode_macro\s+(\S+)\]', line)
+        if m: cur = m.group(1); macros[cur] = set(); continue
+        if line.startswith('['): cur = None; continue
+        if cur and re.match(r'\s+[A-Za-z_][A-Za-z0-9_]*(\s|$)', line) and not line.lstrip().startswith(('#', 'RESPOND', 'SET_', 'SAVE_')):
+            macros[cur].add(line.split()[0])
+bad = []
+def walk(n, path):
+    for c in macros.get(n, ()):
+        if c in path: bad.append(' -> '.join(path + [c])); continue
+        if c in macros: walk(c, path + [c])
+for n in macros: walk(n, [n])
+print('\n'.join(bad)); sys.exit(1 if bad else 0)
+PY
+check "windows: no ';' inside a RESPOND message (Klipper cuts the line there: Malformed command)" "! grep -n 'RESPOND.*MSG=.*;' $ROOT/rpi-cfg/*.cfg"
+check "windows: no macro of ours calls itself, directly or through others (Klipper: called recursively)" "python3 -I $T/macro_cycle.py $ROOT/rpi-cfg/wm_nozzle.cfg $ROOT/rpi-cfg/wm_calibration.cfg"
+check "windows: the cycle test really catches a loop" "printf '[gcode_macro A]\ngcode:\n    B\n[gcode_macro B]\ngcode:\n    A\n' > $T/loop.cfg; ! python3 -I $T/macro_cycle.py $T/loop.cfg"
+check "windows: Extruder Setup matching goes from tool to tool through a delayed gcode" "grep -q '^\\[delayed_gcode _WM_MATCH_NEXT\\]' $ROOT/rpi-cfg/wm_nozzle.cfg && grep -q 'UPDATE_DELAYED_GCODE ID=_WM_MATCH_NEXT' $ROOT/rpi-cfg/wm_nozzle.cfg && grep -q '^variable_next: 0' $ROOT/rpi-cfg/wm_nozzle.cfg"
+check "windows: both start checks show a Fluidd window before they stop" "python3 -I $ROOT/tests/check_windows.py checks"
+check "windows: Restart Klipper now closes the window first" "grep -q 'Restart Klipper now|_WM_RESTART_KLIPPER|primary' $ROOT/rpi-cfg/wm_nozzle.cfg && python3 -I $ROOT/tests/check_windows.py restart"
 rm -f "$G2"/klipper/klippy/extras/cs1237.*.so
 check "doctor finds a missing module and restores it from the repo" "WM_HOME=$G2 WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash $ROOT/installer.sh --doctor; ls $G2/klipper/klippy/extras/cs1237.*.so"
 check "doctor reports bad network clock/power as problems" "! WM_TEST_THROTTLED=0x50005 WM_HOME=$G2 WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash $ROOT/installer.sh --doctor"

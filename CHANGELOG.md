@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.23.47
+
+Found while testing Extruder Setup and the nozzle windows on a real printer.
+
+- **Extruder Setup no longer stops with "Malformed command".** A `;` inside a `RESPOND` message starts a comment in Klipper's G-code, which cut the CAN ids line in half. The same mistake was in three lines of the macro list in `wm_calibration.cfg` (`WM_PROBE_CALIBRATE`, `WM_NOZZLE_TYPE`, `WM_NOZZLE_CHANGE`). All four now use a full stop or a comma.
+- **Extruder Setup no longer stops with "Macro _WM_MATCH_STEP called recursively".** The step macro and the "look at the docks" macro called each other. The next tool is now started through a delayed G-code (`_WM_MATCH_NEXT`, 0.5 s later), so no macro calls itself. The order and the result are the same.
+- **Errors at the start of Extruder Setup and the nozzle change show a Fluidd window.** Before, a hot hotend, a heater target, a print running, a tool head not in its dock, an error flag, a missing dock sensor or missing CAN ids only appeared in the console. Both start checks now open a "Cannot start" window with the reason and a Close button, then stop as before.
+- **Restart Klipper now closes its window.** In the Nozzle Type window the button ran `RESTART` and left the window open. It now runs `_WM_RESTART_KLIPPER`, which closes the window and then restarts.
+- New tests: no `;` in a `RESPOND` message, no macro that calls itself (including through other macros), the delayed hand-over, the error window and the restart button.
+
 ## 1.23.46
 
 - **Z calibrate page no longer crashes on the screen board.** Starting `WM_PROBE_CALIBRATE` opened KlipperScreen's Z calibrate page, which stopped with `KeyError: 'z_offset'` because WonderMaker's `printer.cfg` has `# z_offset:0` commented out under `[probe]` (Klipper itself does not mind). `screen_board.sh` now patches `panels/zcalibrate.py` on install and update to use 0.0 when the line is missing; the original is kept as `zcalibrate.py.wm-orig`.
