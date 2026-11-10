@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.23.51
+
+- README: new section 3.2b for `--import-settings`; the clean-up table no longer says the staged software comes from the old board.
+
 ## 1.23.50
 
 - **The installer no longer pulls software from the old board.** It always installs from the factory files in this repository (`--from-board` and `scripts/pull_from_board.sh` are gone; `--from-github` is the default). The release tool in `tools/wm-release` still reads the old board, read-only, for comparing versions.

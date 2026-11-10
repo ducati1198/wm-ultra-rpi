@@ -6,7 +6,7 @@
 
 **Related projects:** [wm-ultra-fluidd-acepro-panel](https://github.com/ducati1198/wm-ultra-fluidd-acepro-panel) (Fluidd Toolheads card, ACE Pro, [OrcaSlicer plugin](https://github.com/ducati1198/wm-ultra-fluidd-acepro-panel/tree/main/orca_plugin)) · [acepro-any-klipper](https://github.com/ducati1198/acepro-any-klipper) (ACE Pro on any Klipper printer)
 
-[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE) ![Status: untested on hardware](https://img.shields.io/badge/status-untested%20on%20hardware-orange)
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE) ![Status: running on a ZR Ultra-S](https://img.shields.io/badge/status-running%20on%20a%20ZR%20Ultra--S-green)
 
 </div>
 
@@ -250,6 +250,16 @@ The installer first asks **which printer you have** (ZR Ultra or ZR Ultra-S; or 
 | Klipper gcode shell command (installed automatically; `--shell-command off` skips it) | `config/gcode_shell_command.py`, copied into `~/klipper/klippy/extras/`. It is the module by Arksine (GPLv3, the same one KIAUH installs) and is kept in this repository, so no download is needed |
 | Obico, OctoApp, OctoEverywhere (optional add-ons, not asked during the install; menu → Add-ons) | the makers' own projects, cloned from GitHub into `~/moonraker-obico`, `~/octoapp`, `~/octoeverywhere` and installed with their own installers, pointed at this Pi's Moonraker. See "Remote access add-ons" below |
 | Webcams | `crowsnest` at a pinned commit (see `config/pins/addons.txt`), installed unattended (builds `ustreamer`); your camera goes in `~/printer_data/config/crowsnest.conf` |
+
+### 3.2b Bring your own calibration over: `--import-settings`
+
+`./installer.sh --import-settings OLD_BOARD_IP` copies your calibration from the old WonderMaker board to the Pi, after the install. The old board is only read (two files with `cat` over SSH; default login `t13dp` / `TM88888`), nothing is written to it.
+
+- **Copied:** the `SAVE_CONFIG` block at the end of the old `printer.cfg` (PID, input shaper, bed meshes, probe `z_offset`, ...) and, from `saved_variables.cfg`, only the calibration keys (tool offsets, centres, positions, pressure advance, flow). Keys the Pi does not have are not added.
+- **Never copied:** `[mcu ...]` sections (the Pi has its own `canbus_uuid`) and state keys such as the current tool or fail flags.
+- **Commented out:** options in the Pi's `printer.cfg` that the imported block overrides, so Klipper's next `SAVE_CONFIG` does not complain about duplicates.
+- It prints a summary first and asks before writing. Backups: `printer.cfg.wm-before-import-STAMP` and `saved_variables.cfg.wm-before-import-STAMP`. Script: `scripts/wm_import_settings.py`.
+- The values belong to the old board's version; if the Pi runs another WonderMaker version, check the first print.
 
 ### 3.3 Safety checks
 
@@ -679,7 +689,7 @@ python3 tools/wm-release/wm_release.py        # menu; option 1 asks: old screen 
 - **Also:** open a `TM_T1_SOC` file you already have, keep downloaded versions for offline reinstall or downgrade, compare two versions, settings, and a guarded MCU flash step that only runs after you type `FLASH`.
 - **First time:** let option 1 (web) record the version you run now as the baseline. When WonderMaker publishes a newer one, run option 1 again.
 
-Full guide: [tools/wm-release/README.md](tools/wm-release/README.md). Like the rest of this project it is **not tested with a running printer yet**.
+Full guide: [tools/wm-release/README.md](tools/wm-release/README.md). It has been run against the Pi that now runs the printer; the comparison against a real WonderMaker update is not tested yet.
 
 ## Klipper gcode shell command (installed automatically)
 
@@ -801,7 +811,7 @@ WonderMaker Ultra Raspberry Pi replacement - installer 1.12.0
   | Settings backups | `~/wm-backups` (backups and the safety copies made before a restore or a data delete) | type `DELETE` |
   | Support bundles | `~/wm-support-*.tgz` | y/n |
   | Installer logs | `~/wm-install-logs`, the log of each run that changed something | y/n |
-  | Software copied from the old board | `~/wm-stage`, the copy of klipper, moonraker and data an install made from the old board (pull it again if you need it) | type `DELETE` |
+  | Staged software | `~/wm-stage`, the copy of klipper, moonraker and data an install unpacked from (rebuilt on the next install) | type `DELETE` |
   | Folders moved aside | `~/wm-rpi-backup/old-*`, the old klipper, moonraker and printer_data folders an install moved out of the way | type `DELETE` |
   | Old Fluidd copies | `~/wm-rpi-backup/fluidd-*` | type `DELETE` |
   | Config safety copies | files like `printer.cfg.wm-model-bak` in your config folder | y/n |
