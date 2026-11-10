@@ -287,7 +287,7 @@ class Smoke(unittest.TestCase):
         p._pick_material(1); p._pick_color(0xE01010); p._step("temp", 5); p._step("pa", 0.002); p._toggle_rgb()
         self.assertEqual((p.edit["mat"], p.edit["color"]), (1, 0xE01010))
         p._save_tool()
-        sent = [c.args[0] for c in screen._ws.klippy.gcode_script.call_args_list]
+        sent = [c.args[0] for c in screen._ws.api.gcode_script.call_args_list]
         self.assertTrue(any(x.startswith("ZR_SET_TOOL_INFO T=1 COLOR=%d MAT=1" % 0xE01010) for x in sent), sent)
         self.assertEqual(p.view, "tool")          # saving returns to the toolhead page
         p.show_tool_edit(1)
@@ -319,7 +319,7 @@ class Smoke(unittest.TestCase):
         for fn in (p._ace_assist, p._ace_stop, p._ace_dry_start, p._ace_dry_stop, p._ace_endless_toggle):
             fn()
         p._ace_select(2); p._ace_preset(55, 6); p._ace_step("ace_len", 10); p._ace_step("dry_temp", 5)
-        sent = [c.args[0] for c in screen._ws.klippy.gcode_script.call_args_list]
+        sent = [c.args[0] for c in screen._ws.api.gcode_script.call_args_list]
         self.assertIn("ACE_WM_DRY_START TEMP=55 DURATION=360".replace("55", "60"), [s for s in sent] + ["ACE_WM_DRY_START TEMP=60 DURATION=360"]) \
             if False else None
         self.assertTrue(any(s.startswith("ACE_ENABLE_FEED_ASSIST T=0") for s in sent), sent)

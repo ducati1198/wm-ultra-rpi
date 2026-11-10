@@ -287,7 +287,14 @@ class Panel(ViewsMixin, ScreenPanel):
 
     def _gcode(self, script, message=None):
         try:
-            self._screen._ws.klippy.gcode_script(script)
+            ws = self._screen._ws
+            api = getattr(ws, "api", None)           # current KlipperScreen
+            if api is None or not callable(getattr(api, "gcode_script", None)):
+                api = getattr(ws, "klippy", None)    # older KlipperScreen
+            if api is not None and callable(getattr(api, "gcode_script", None)):
+                api.gcode_script(script)
+            elif ws.send_method("printer.gcode.script", {"script": script}) is False:
+                raise RuntimeError("not connected to Moonraker")
             if message:
                 self._screen.show_popup_message(message, 1)
             GLib.timeout_add(800, self._query_once)
