@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.23.61
+
+- **`PRINT_END` and `CANCEL_PRINT` (`macros.cfg`, both models): lift Z by 100 mm, wipe the nozzle, park the tool in its dock.** Z now lifts by `current_z + 100` (was +10), still capped at the Z endstop. The separate move to Y240 / X-13 is replaced by `WIPE_NOZZLE` (it goes to the saved wipe position itself, default Y240 X-13) followed by `PARK_CURRENT_TOOL`, after the heaters, fan and bed mesh are off. In `CANCEL_PRINT` the old commented-out `# PARK_CURRENT_TOOL` is now active. Tested on the Pi: `PRINT_END` with T0 on the carriage ran in 15 s without errors, the tool was docked and the heaters were off; the +100 lift and `CANCEL_PRINT` were not run on the printer. New installs get these files; for an installed Pi, `./installer.sh --cfg-merge` shows the difference.
+
 ## 1.23.60
 
 - **Fluidd no longer asks to "save and restart" after every print start.** WonderMaker's `START_PRINT` ends with `SAVE_CONFIG_NO_RESTART`: it writes `printer.cfg` but left Klipper's "save config pending" flag on, so Fluidd showed the save-and-restart banner. `SAVE_CONFIG_NO_RESTART` (`klippy/configfile.py`, both models, `SHA256SUMS`) now clears the flag at its end, since the values are saved and nothing needs to restart. The installer (step 4f) patches an installed copy once (copy `configfile.py.wm-before-pending-clear-STAMP`) and restarts Klipper at the end. Tested on the Pi: the print after the patch finished with no banner pending.
