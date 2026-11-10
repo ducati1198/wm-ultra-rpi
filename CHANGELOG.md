@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.23.50
+
+- **The installer no longer pulls software from the old board.** It always installs from the factory files in this repository (`--from-board` and `scripts/pull_from_board.sh` are gone; `--from-github` is the default). The release tool in `tools/wm-release` still reads the old board, read-only, for comparing versions.
+- **New `./installer.sh --import-settings IP`** brings your own calibration over from the old board (read-only, two files are read with `cat`): the SAVE_CONFIG block of printer.cfg (PID, input shaper, bed meshes, probe z_offset; `[mcu ...]` sections are never copied), options in the Pi's printer.cfg that the block overrides are commented out, and only the calibration keys of saved_variables.cfg (tool offsets, centres, positions, pressure advance, flow). It shows a summary first, asks, and keeps `*.wm-before-import-STAMP` copies. Script: `scripts/wm_import_settings.py`.
+- **New `rpi-cfg/wm_tool_leds.cfg`**: the tool head LED is blue when the tool head sensor sees filament and red when it does not. Installed with the other rpi-cfg files.
+- Tests: board-pull checks removed, import and LED checks added.
+
 ## 1.23.49
 
 - **`WM_CHAMBER_PID` is removed**, and `WM_FULL_CALIBRATION` no longer has a chamber stage (now 5 stages: bed leveling, extruder offsets, vibration compensation, bed PID, hotend PID). WonderMaker's heaters.py scales the chamber reading by 1.18 while heating, so the tune gives wrong values.

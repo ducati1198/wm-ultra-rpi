@@ -220,10 +220,9 @@ chmod +x installer.sh
 
 ### 3.1 The questions
 
-The installer first asks **which printer you have** (ZR Ultra or ZR Ultra-S; or give `--model ultra|ultra-s`) and then **where the WonderMaker software is**:
+The installer first asks **which printer you have** (ZR Ultra or ZR Ultra-S; or give `--model ultra|ultra-s`). It always installs from the factory files in this repository. To bring your own calibration over from the old board afterwards, see `--import-settings` (section 3.3).
 
-1. **The original screen board is reachable (SSH). Recommended.** If your WonderMaker screen board starts and is on your network, use this one: the installer fetches `printer_data` (config, calibration, saved variables), `klipper`, `moonraker`, `fluidd` and the factory settings from it, so the Pi gets exactly what your printer ran, with your own settings and the original compiled modules. Find its IP in your router, then `./installer.sh --from-board <IP>`. The default WonderMaker login is user `t13dp`, password `TM88888`. The password is typed **once**: the installer opens one SSH connection and reuses it for klipper, moonraker and your data. Only `tar` is run there, nothing is written.
-2. **Nothing at all: the factory files inside this repository** (`--from-github`). The repo carries the original Klipper and Moonraker (both GPL v3, license included) and the factory settings, with SHA256 checksums that are verified first. There is a folder for each model: [`factory/ultra/`](factory/ultra) and [`factory/ultra-s/`](factory/ultra-s). See [factory/README.md](factory/README.md).
+**The software comes from the factory files inside this repository** (`--from-github`, the default; the old board is not needed). The repo carries the original Klipper and Moonraker (both GPL v3, license included) and the factory settings, with SHA256 checksums that are verified first. There is a folder for each model: [`factory/ultra/`](factory/ultra) and [`factory/ultra-s/`](factory/ultra-s). See [factory/README.md](factory/README.md).
 
    WonderMaker's **5 compiled modules** (`cs1237`, `hx711`, `heater_air_core`, `heater_feng`, `xy_offset_calibrator_core`: heaters, load cells, calibration) are bundled in the repo too, copied unchanged from an Ultra-S and checked against their factory checksums. They are WonderMaker's binaries (no published license): see the takedown note in [factory/README.md](factory/README.md). `--modules DIR` uses your own copies instead.
 
@@ -266,7 +265,7 @@ The installer first asks **which printer you have** (ZR Ultra or ZR Ultra-S; or 
 | Command | What it does |
 |---|---|
 | `./installer.sh` | install (asks first) |
-| `./installer.sh --from-board IP` / `--from-github` | choose the source without being asked |
+| `./installer.sh --import-settings IP` | copy your calibration (SAVE_CONFIG block, calibration saved variables) from the old board, read-only |
 | `./installer.sh --from-github --model ultra --modules DIR` | use the factory files in this repo; modules from your printer |
 | `./installer.sh --check` | report problems, change nothing |
 | `./installer.sh --dry-run` | show the plan and what would change. The plan lists every optional program (panel, webcam, timelapse, shell command, touchscreen, Obico, OctoApp, OctoEverywhere) as yes or no |
@@ -649,9 +648,9 @@ installer.sh            the Pi installer
 factory/ultra/          WonderMaker ZR Ultra: Klipper, Moonraker, settings, scripts, checksums
 factory/ultra-s/        WonderMaker ZR Ultra-S: same, with the chamber/air-filter/door settings on
 tools/devbox/           dev box (for testing only): run WonderMaker's Klipper on a Pi with no printer, see README-DEVBOX.md
-rpi-cfg/                the Pi's own config files (not WonderMaker's): wm_calibration.cfg (calibration macros) and wm_nozzle.cfg (Nozzle Type, Extruder Setup and tool head matching wizards); installed by the installer
+rpi-cfg/                the Pi's own config files (not WonderMaker's): wm_calibration.cfg (calibration macros) and wm_nozzle.cfg (Nozzle Type, Extruder Setup and tool head matching wizards) and wm_tool_leds.cfg (tool head LEDs: blue filament, red none); installed by the installer
 screen_rescue/          rescue window and USB-stick check for the screen board
-scripts/                pull_from_board.sh, stage_from_repo.sh, board_check.sh, screen_board.sh (+ _inspect, _precheck, _preflight_mac) for the screen board
+scripts/                stage_from_repo.sh, wm_import_settings.py, board_check.sh, screen_board.sh (+ _inspect, _precheck, _preflight_mac) for the screen board
 config/                 systemd units, nginx files, can0 udev rule, pinned Python requirements, crowsnest template, addon version pins
 zr_tools/               ZR Tools KlipperScreen panel (copied by the installer)
 tools/wm-release/       release tool: takes a new WonderMaker System version (from their website, a TM_T1_SOC file or the screen board) and keeps your changes; not used by the installer

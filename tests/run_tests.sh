@@ -28,7 +28,7 @@ echo "== basics"
 check "bash syntax installer" "bash -n $ROOT/installer.sh"
 check "bash syntax scripts" "for f in $ROOT/scripts/*.sh $ROOT/zr_tools/install_zr_tools.sh; do bash -n \$f || exit 1; done"
 check "--version prints" "bash $ROOT/installer.sh --version | grep -q wm-ultra-rpi"
-check "--help prints" "bash $ROOT/installer.sh --help | grep -q from-board"
+check "--help prints" "bash $ROOT/installer.sh --help | grep -q import-settings"
 check "unknown option fails" "! bash $ROOT/installer.sh --nope"
 check "no Fluidd zip kept in the repo" "[ ! -e $ROOT/fluidd ]"
 check "no Claude mention in repo files" "! grep -rIl -i 'claude' $ROOT --exclude-dir=.git --exclude=tests --exclude=run_tests.sh --exclude=*.patch --exclude=*.zip"
@@ -334,19 +334,34 @@ PY
 check "at a terminal the run is recorded through script, shown normally, and the log path is printed" "grep -q 'Log of this run' $LG/pty.out && ls $LG/wm-install-logs/installer-backup-*.log && grep -q 'Backup of your printer settings' \$(ls $LG/wm-install-logs/installer-backup-*.log | head -1) && ! grep -q \$'\\x1b' \$(ls $LG/wm-install-logs/installer-backup-*.log | head -1)"
 check "clean-up lists the logs with a y/n" "mkdir -p $LG/wm-install-logs && echo x > $LG/wm-install-logs/installer-x.log && M '3\nn\n0\n' $LG --remove cleanup | grep -q 'Installer logs' && M '3\ny\n0\n' $LG --remove cleanup | grep -q 'Deleted: Installer logs' && [ ! -e $LG/wm-install-logs ]"
 
-echo "== one SSH password"
-# one SSH connection for the whole pull from the old board (a fake ssh records its options)
-mkdir -p "$T/fakebin"; cat > "$T/fakebin/ssh" <<'FAKE'
-#!/bin/bash
-echo "$*" >> "$FAKE_SSH_LOG"
-case "$*" in *"-O exit"*) exit 0 ;; *"test -d"*) exit 0 ;; *"tar czf"*) printf 'x' ; exit 0 ;; esac
-exit 0
-FAKE
-chmod +x "$T/fakebin/ssh"; : > "$T/ssh.log"
-PATH="$T/fakebin:$PATH" FAKE_SSH_LOG="$T/ssh.log" bash "$ROOT/scripts/pull_from_board.sh" 192.0.2.5 "$T/pulled" >/dev/null 2>&1
-check "board pull: every ssh call reuses one connection (ControlMaster/ControlPath)" "[ \$(grep -c 'ControlMaster=auto' $T/ssh.log) -ge 4 ] && ! grep -v 'ControlPath=' $T/ssh.log | grep -q ."
-check "board pull: the shared connection is closed at the end" "grep -q -- '-O exit' $T/ssh.log"
-check "board pull: still produces the three archives" "[ -f $T/pulled/klipper.tgz ] && [ -f $T/pulled/moonraker.tgz ] && [ -f $T/pulled/data.tgz ]"
+echo "== settings import from the old board"
+IM="$T/imp"; mkdir -p "$IM/old" "$IM/home/printer_data/config"
+cat > "$IM/old/printer.cfg" <<'CFG'
+[mcu]
+canbus_uuid: OLD
+[extruder]
+pid_Kp: 1.0
+
+#*# <---------------------- SAVE_CONFIG ---------------------->
+#*# DO NOT EDIT THIS BLOCK OR BELOW. The contents are auto-generated.
+#*#
+#*# [extruder]
+#*# control = pid
+#*# pid_kp = 31.5
+#*#
+#*# [probe]
+#*# z_offset = -0.130
+#*#
+#*# [mcu rpi]
+#*# serial = nope
+CFG
+printf '[Variables]\nt0_offset = (0.1, 0.2, 0.3)\ncurrent_extruder = 3\n' > "$IM/old/saved_variables.cfg"
+printf '[mcu]\ncanbus_uuid: NEW\n[extruder]\npid_Kp: 22.0\ncontrol: pid\n' > "$IM/home/printer_data/config/printer.cfg"
+printf '[Variables]\nt0_offset = (0.0, 0.0, 0.0)\ncurrent_extruder = 0\n' > "$IM/home/printer_data/config/saved_variables.cfg"
+check "import: --dry-run changes nothing" "WM_HOME=$IM/home WM_INSTALLER_TEST=1 WM_IMPORT_FROM_DIR=$IM/old bash $ROOT/installer.sh --import-settings 192.0.2.9 --dry-run | grep -q 'dry run' && ! grep -q SAVE_CONFIG $IM/home/printer_data/config/printer.cfg"
+check "import: applies the SAVE_CONFIG block, comments the override, keeps canbus_uuid, no mcu section" "echo y | WM_HOME=$IM/home WM_INSTALLER_TEST=1 WM_IMPORT_FROM_DIR=$IM/old bash $ROOT/installer.sh --import-settings 192.0.2.9 >/dev/null 2>&1; f=$IM/home/printer_data/config/printer.cfg; grep -q 'pid_kp = 31.5' \$f && grep -q 'z_offset = -0.130' \$f && grep -q '^#pid_Kp: 22.0' \$f && grep -q 'canbus_uuid: NEW' \$f && ! grep -q 'mcu rpi' \$f && ls \$f.wm-before-import-* >/dev/null"
+check "import: only calibration variables are copied" "grep -q 't0_offset = (0.1, 0.2, 0.3)' $IM/home/printer_data/config/saved_variables.cfg && grep -q 'current_extruder = 0' $IM/home/printer_data/config/saved_variables.cfg"
+check "import: --from-board is refused" "! bash $ROOT/installer.sh --from-board 1.2.3.4 >/dev/null 2>&1"
 
 echo "== check-updates and zr_tools.cfg backup"
 mkdir -p "$T/cu"; ( cd "$T/cu" && git init -q --bare origin.git && git clone -q origin.git work 2>/dev/null && cd work && git config user.email t@t && git config user.name t && echo 1.0.0 > VERSION && git add -A && git commit -q -m first && git push -q origin HEAD:main 2>/dev/null; git branch -q -M main; git push -q -u origin main 2>/dev/null; cd .. && git clone -q origin.git copy && cd copy && git checkout -q main 2>/dev/null; cd ../work && echo 1.1.0 > VERSION && git commit -q -am "new thing" && git push -q origin main )
@@ -412,6 +427,7 @@ check "both folders pass their checksums" "(cd $ROOT/factory/ultra && sha256sum 
 check "ultra gets iso_version.txt too" "grep -q Add.System_1.1.13 $HU/iso_version.txt"
 check "ultra model leaves zru-s.cfg off" "grep -q '^# \\[include zru-s.cfg\\]' $HU/printer_data/config/printer.cfg && ! grep -q '^\\[include zru-s.cfg\\]' $HU/printer_data/config/printer.cfg"
 check "rpi-cfg: wm_calibration.cfg is installed and included, ultra-s and ultra" "cmp $ROOT/rpi-cfg/wm_calibration.cfg $HG/printer_data/config/wm_calibration.cfg && grep -q '^\\[include wm_calibration.cfg\\]' $HG/printer_data/config/printer.cfg && cmp $ROOT/rpi-cfg/wm_calibration.cfg $HU/printer_data/config/wm_calibration.cfg && grep -q '^\\[include wm_calibration.cfg\\]' $HU/printer_data/config/printer.cfg"
+check "rpi-cfg: wm_tool_leds.cfg is installed and included, ultra-s and ultra" "cmp $ROOT/rpi-cfg/wm_tool_leds.cfg $HG/printer_data/config/wm_tool_leds.cfg && grep -q '^\\[include wm_tool_leds.cfg\\]' $HG/printer_data/config/printer.cfg && cmp $ROOT/rpi-cfg/wm_tool_leds.cfg $HU/printer_data/config/wm_tool_leds.cfg && grep -q '^\\[include wm_tool_leds.cfg\\]' $HU/printer_data/config/printer.cfg"
 check "rpi-cfg: calibration windows close on the screen too (prompt_end in the start, stop, save and cancel paths)" "W=$ROOT/rpi-cfg/wm_calibration.cfg; sed -n '/^\\[gcode_macro _WM_CAL_PRECHECK\\]/,/^\\[gcode_macro _WM_CAL_ASK\\]/p' \$W | grep -q prompt_end && sed -n '/^\\[gcode_macro WM_CAL_STOP\\]/,/^\\[gcode_macro _WM_PROMPT_CLOSE\\]/p' \$W | grep -q prompt_end && grep -q 'Save and Restart|_WM_SAVE|' \$W && grep -q 'Cancel|_WM_PROMPT_CLOSE' \$W && ! grep -q 'Cancel|M118' \$W"
 check "rpi-cfg: exactly one include line, and printer.cfg was saved first" "[ \$(grep -c 'include wm_calibration.cfg' $HG/printer_data/config/printer.cfg) = 1 ] && ls $HG/printer_data/config/printer.cfg.wm-before-rpicfg-*"
 check "rpi-cfg: the include sits before the SAVE_CONFIG block, not after it" "! sed -n '/SAVE_CONFIG/,\$p' $HG/printer_data/config/printer.cfg | grep -q 'include wm_calibration'"

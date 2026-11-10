@@ -6,6 +6,7 @@ Files in this folder are **not WonderMaker's**. They are made for the Raspberry 
 |---|---|
 | [`wm_calibration.cfg`](wm_calibration.cfg) | The calibration items of the WonderMaker screen app (General > Maintenance) as macros you start from Fluidd |
 | [`wm_nozzle.cfg`](wm_nozzle.cfg) | The screen app's General > Nozzle Type and Extruder Setup pages as Fluidd window wizards (`WM_NOZZLE_TYPE`, `WM_EXTRUDER_SETUP`) and `WM_NOZZLE_CHANGE`, which only the Pi has. Needs Klipper's gcode shell command extension, so the installer only adds it where that is installed |
+| [`wm_tool_leds.cfg`](wm_tool_leds.cfg) | The tool head LEDs: blue while the tool head's filament sensor sees filament, red when it does not (checked every 2 seconds). The factory screen set these colours; on the Pi nothing did |
 
 ## `wm_calibration.cfg`: macros
 

@@ -7,7 +7,7 @@
 # Klipper / Moonraker / Fluidd in place of the failed screen/host board.
 #
 # ./installer.sh                       install (asks a few plain questions first)
-# ./installer.sh --from-board IP       take the software from the old board over SSH
+# ./installer.sh --import-settings IP  after installing, copy your calibration (SAVE_CONFIG block, saved variables) from the old board, read-only
 # ./installer.sh --from-github         take the factory files that are inside this repository (no printer needed)
 # ./installer.sh --model ultra|ultra-s your printer (asked if not given; sets up printer.cfg for it)
 # ./installer.sh --modules DIR         optional: your own copies of the 5 compiled modules (replace the bundled ones)
@@ -82,7 +82,7 @@ HOME_DIR="${WM_HOME:-$HOME}"
 TESTING="${WM_INSTALLER_TEST:-0}"        # 1 = no sudo, no apt, no systemctl, no network, no Python download
 MODE="install"
 DRY=0
-SRC_KIND=""; SRC_ARG=""; MODEL="ultra-s"; MODULES_DIR=""; FROM_FACTORY=0
+IMPORT_HOST=""; SRC_KIND=""; SRC_ARG=""; MODEL="ultra-s"; MODULES_DIR=""; FROM_FACTORY=0
 WANT_PANEL=1; WANT_SCREEN=ask; WANT_TIMELAPSE=1; WANT_CROWSNEST=1; CLI_REMOTE=""; ONLY_ADDON=""; WANT_SHELLCMD=1; OBICO_SERVER=""; WANT_OBICO=ask; WANT_OCTOAPP=ask; WANT_OCTOEVERYWHERE=ask; WANT_NETMGR=ask; WANT_SHAKETUNE=0; WANT_SPOOLMAN=0; WANT_ACEPRO=ask; NO_BACKUP=0; FIXALL=0
 SCREEN_LAYOUT=""; SCREEN_BACKEND="x11"; REPO_DIR="$SCRIPT_DIR"
 STAMP="$(date +%Y%m%d-%H%M%S)"
@@ -184,7 +184,7 @@ usage() { sed -n '4,/^# What this/p' "$0" | sed '$d' | sed 's/^# \{0,1\}//'; }
 ORIG_ARGC=$#; ORIG_ARGS=("$@"); EXPLICIT_INSTALL=0
 while [ $# -gt 0 ]; do
     case "$1" in
-        --from-board)   SRC_KIND=board; SRC_ARG="${2:-}"; shift ;;
+        --from-board)   die_with_fix "--from-board was removed: the installer always uses the factory files of this repository." "to bring your calibration over use: ./installer.sh --import-settings BOARD_IP" ;;
         --from-stage)   SRC_KIND=stage; SRC_ARG="${2:-}"; shift ;;
         --from-github|--from-repo) SRC_KIND=repo; SRC_ARG="repo" ;;
         --model)        MODEL="${2:-}"; MODEL_SET=1; shift ;;
@@ -202,6 +202,7 @@ while [ $# -gt 0 ]; do
         --zr-tools)     MODE=zrtools ;;   # check the ZR Tools macros (for the screen board), install them when missing
         --cfg-merge)    MODE=cfgmerge ;;  # WonderMaker's printer.cfg changes merged into the Pi's printer.cfg
         --can-ids)      MODE=canids; if [ "${2:-}" = set ]; then CANID_NAME="${3:-}"; CANID_UUID="${4:-}"; shift $(( $# < 3 ? $# : 3 )); fi ;;   # which config ids answer on the CAN bus; fix wrong ones; set one by hand
+        --import-settings) MODE=importset; IMPORT_HOST="${2:-}"; [ $# -gt 1 ] && shift ;;
         --pid-cfg)      MODE=pidcfg ;;    # PID settings in printer.cfg, where SAVE_CONFIG can store a PID result
         --pi-sensors)   MODE=pisensors ;;   # board temperature sensors + the host MCU, once Klipper runs
         --rpi-cfg)      MODE=rpicfg ;;    # the Pi's own config files (rpi-cfg/): calibration macros
@@ -310,28 +311,12 @@ ask_model() {
 
 choose_source() {
     print_header "Where is the WonderMaker software?"
-    echo "The Pi runs WonderMaker's own Klipper, Moonraker and your settings."
-    echo -e "${GREEN}Recommended: option 1.${NC} If the old WonderMaker screen board still starts and is on your network, copy everything from it over SSH:"
-    echo "  your printer_data (config, calibration, saved variables), klipper, moonraker, fluidd and the factory settings."
-    echo "  That is exactly what your printer ran, with your own settings. The old board is only read, nothing is written to it."
-    echo "  Use the other options only if the old board will not start."
-    if [ -z "$SRC_KIND" ]; then
-        echo -e "  1) The old board is still reachable on the network (SSH)  ${GREEN}<- recommended${NC}"
-        echo "  2) I have nothing: use the factory files inside this repository (factory defaults, not your own settings)"
-        local c; read -r -p "$(echo -e "${YELLOW}?${NC} Choose 1 or 2: ")" c || c=""
-        case "$c" in
-            1) SRC_KIND=board; read -r -p "  Old board IP address: " SRC_ARG ;;
-            2) SRC_KIND=repo; SRC_ARG=repo ;;
-            *) die_with_fix "no source chosen." "run again and pick 1 or 2 (or use --from-board / --from-github)." ;;
-        esac
-    fi
+    echo "The Pi runs WonderMaker's own Klipper, Moonraker and factory settings, taken from the factory files inside this repository."
+    echo "  Your own calibration (PID, offsets, bed mesh) is not copied by default: use --import-settings BOARD_IP to bring it over (read-only)."
+    [ -n "$SRC_KIND" ] || { SRC_KIND=repo; SRC_ARG=repo; }
     [ -n "$SRC_ARG" ] || die_with_fix "no value given for the source." "see ./installer.sh --help"
     STAGE="$HOME_DIR/wm-stage"
     case "$SRC_KIND" in
-        board)
-            print_info "Reading from $SRC_ARG over SSH (read-only). The default WonderMaker login is user t13dp, password TM88888."
-            why "the board's Klipper, Moonraker, config and calibration are copied once, then the Pi is on its own."
-            run bash "$SCRIPT_DIR/scripts/pull_from_board.sh" "$SRC_ARG" "$STAGE" || die_with_fix "could not read the old board." "check the IP, that it is on, and the password. Or use --from-github." ;;
         repo)
             FROM_FACTORY=1
             case "$MODEL" in ultra|ultra-s) ;; *) die_with_fix "unknown model '$MODEL'." "use --model ultra or --model ultra-s." ;; esac
@@ -502,6 +487,35 @@ do_cfgmerge() {   # ./installer.sh --cfg-merge
     step_cfgmerge
     step_pidcfg
     [ "$DRY" = 1 ] || { [ "$before" = "$(cksum < "$HOME_DIR/printer_data/config/printer.cfg")" ] || restart_klipper_after; }
+}
+importset_py() { echo "$SCRIPT_DIR/scripts/wm_import_settings.py"; }
+do_import_settings() {   # ./installer.sh --import-settings IP : calibration from the old board, read-only (two files are read with cat)
+    print_header "Import your settings from the old board"
+    why "Your PID, input shaper, bed mesh, probe offset and tool offsets were saved on the old board. This copies them to the Pi. The old board is only read (two files with cat), nothing is written to it."
+    local cd="$HOME_DIR/printer_data/config" tmp host="$IMPORT_HOST" u="${WM_BOARD_USER:-$WM_USER}" a=()
+    [ -f "$cd/printer.cfg" ] || die_with_fix "there is no printer.cfg on this Pi yet." "install first, then run this again."
+    [ -f "$(importset_py)" ] || die_with_fix "scripts/wm_import_settings.py is missing." "download the installer folder again."
+    [ -n "$host" ] || read -r -p "  Old board IP address: " host
+    [ -n "$host" ] || die_with_fix "no address given." "./installer.sh --import-settings 192.168.x.x"
+    guard_not_printing
+    tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' RETURN
+    if [ -n "${WM_IMPORT_FROM_DIR:-}" ]; then   # tests: files already local
+        cp "$WM_IMPORT_FROM_DIR/printer.cfg" "$tmp/old-printer.cfg"; cp "$WM_IMPORT_FROM_DIR/saved_variables.cfg" "$tmp/old-vars.cfg" 2>/dev/null
+    else
+        print_info "Reading printer.cfg and saved_variables.cfg from $u@$host (read-only; the default password is TM88888)."
+        ssh -o ConnectTimeout=10 "$u@$host" 'cat ~/printer_data/config/printer.cfg' > "$tmp/old-printer.cfg" || die_with_fix "could not read the old board." "check the IP, that it is on, and the password."
+        ssh -o ConnectTimeout=10 "$u@$host" 'cat ~/printer_data/config/saved_variables.cfg' > "$tmp/old-vars.cfg" 2>/dev/null || : > "$tmp/old-vars.cfg"
+    fi
+    [ -s "$tmp/old-printer.cfg" ] || die_with_fix "the old printer.cfg is empty." "check the address."
+    a=(--old-printer "$tmp/old-printer.cfg" --printer "$cd/printer.cfg")
+    [ -s "$tmp/old-vars.cfg" ] && [ -f "$cd/saved_variables.cfg" ] && a+=(--old-vars "$tmp/old-vars.cfg" --vars "$cd/saved_variables.cfg")
+    python3 "$(importset_py)" plan "${a[@]}" || die_with_fix "could not read the settings." "see the message above."
+    print_warning "These values belong to the klipper/firmware version of the old board. If this Pi runs another WonderMaker version, check the first print."
+    [ "$DRY" = 1 ] && { echo -e "  ${DIM}dry run: nothing written${NC}"; return 0; }
+    ask_yn "  Copy these settings into this Pi (a copy of each changed file is kept)?" n || { print_info "Nothing changed."; return 0; }
+    python3 "$(importset_py)" apply "${a[@]}" --stamp "$STAMP" || die_with_fix "import failed." "your files are unchanged or can be restored from *.wm-before-import-$STAMP."
+    restart_klipper_after
+    print_success "Settings imported."
 }
 pidcfg_py() { echo "$SCRIPT_DIR/scripts/wm_pidcfg.py"; }
 pidcfg_check() { python3 "$(pidcfg_py)" check "$HOME_DIR/printer_data/config" 2>&1; }   # exit 0 = fine, 1 = problems (listed), 2 = no printer.cfg
@@ -3064,6 +3078,7 @@ case "$MODE" in
     pisensors)  guard_not_printing; step_pi_sensors; for w in "${WARNINGS[@]}"; do print_warning "$w"; done; exit 0 ;;
     rpicfg)     do_rpicfg; exit $? ;;
     pidcfg)     do_pidcfg; exit $? ;;
+    importset)  do_import_settings; exit $? ;;
     canids)     do_can_ids; exit $? ;;
     cfgmerge)   do_cfgmerge; exit $? ;;
     freespace)  do_free_space; exit $? ;;
