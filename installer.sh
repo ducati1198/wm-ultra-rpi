@@ -82,7 +82,7 @@ HOME_DIR="${WM_HOME:-$HOME}"
 TESTING="${WM_INSTALLER_TEST:-0}"        # 1 = no sudo, no apt, no systemctl, no network, no Python download
 MODE="install"
 DRY=0
-IMPORT_HOST=""; SRC_KIND=""; SRC_ARG=""; MODEL="ultra-s"; MODULES_DIR=""; FROM_FACTORY=0
+MOONRAKER_CHANGED=0; IMPORT_HOST=""; SRC_KIND=""; SRC_ARG=""; MODEL="ultra-s"; MODULES_DIR=""; FROM_FACTORY=0
 WANT_PANEL=1; WANT_SCREEN=ask; WANT_TIMELAPSE=1; WANT_CROWSNEST=1; CLI_REMOTE=""; ONLY_ADDON=""; WANT_SHELLCMD=1; OBICO_SERVER=""; WANT_OBICO=ask; WANT_OCTOAPP=ask; WANT_OCTOEVERYWHERE=ask; WANT_NETMGR=ask; WANT_SHAKETUNE=0; WANT_SPOOLMAN=0; WANT_ACEPRO=ask; NO_BACKUP=0; FIXALL=0
 SCREEN_LAYOUT=""; SCREEN_BACKEND="x11"; REPO_DIR="$SCRIPT_DIR"
 STAMP="$(date +%Y%m%d-%H%M%S)"
@@ -99,7 +99,7 @@ COMPILED_MODULES=(cs1237 hx711 heater_air_core heater_feng xy_offset_calibrator_
 
 pi_weight() {   # how long each install step takes, roughly (a step that is switched off counts for nothing)
     case "$1" in
-        1) echo 14 ;; 2) echo 1 ;; 3) echo 8 ;; 4) echo 5 ;; 4b) echo 1 ;; 4c) echo 1 ;; 4d) echo 1 ;; 4e) echo 2 ;; 5) echo 30 ;; 6) echo 2 ;; 7) echo 2 ;; 7b) echo 3 ;; 8|9) echo 2 ;; 10) echo 4 ;;
+        1) echo 14 ;; 2) echo 1 ;; 3) echo 8 ;; 4) echo 5 ;; 4b) echo 1 ;; 4c) echo 1 ;; 4d) echo 1 ;; 4e) echo 2 ;; 4f) echo 1 ;; 5) echo 30 ;; 6) echo 2 ;; 7) echo 2 ;; 7b) echo 3 ;; 8|9) echo 2 ;; 10) echo 4 ;;
         11) [ "${WANT_SCREEN:-0}" = 1 ] && echo 12 || echo 1 ;;
         12) [ "${WANT_TIMELAPSE:-0}" = 1 ] && echo 2 || echo 0 ;;
         12b) [ "${WANT_SHELLCMD:-0}" = 1 ] && echo 1 || echo 0 ;;
@@ -116,7 +116,7 @@ pi_weight() {   # how long each install step takes, roughly (a step that is swit
 }
 pi_cum() {   # percent-points finished when step KEY starts; "end" = the total
     local k s sum=0
-    for k in 1 2 3 4 4b 4c 4e 4d 5 6 7 7b 8 9 10 11 12 12b 12f 12g 12h 12c 12d 12e 13 14; do
+    for k in 1 2 3 4 4b 4c 4e 4f 4d 5 6 7 7b 8 9 10 11 12 12b 12f 12g 12h 12c 12d 12e 13 14; do
         [ "$k" = "$1" ] && { echo "$sum"; return; }
         sum=$((sum + $(pi_weight "$k")))
     done
@@ -432,6 +432,28 @@ step_rpicfg() {   # the Pi's own config files (repo folder rpi-cfg/, not WonderM
         fi
     done
 }
+moonraker_py() { echo "$SCRIPT_DIR/scripts/wm_moonraker_conf.py"; }
+step_moonraker_tune() {   # moonraker.conf sections (file_manager, machine, ...), no timelapse paths that only repeat the defaults, and the filament_type fix in Moonraker's metadata.py (Fluidd's Jobs page stays on "Loading items" without it)
+    print_header "Step 4f: Moonraker settings and the Jobs page fix"
+    why "Fluidd's Jobs page stays empty ('Loading items') because WonderMaker's Moonraker returns filament_type as a list; upstream Moonraker (and Fluidd) use a string. This also adds the [file_manager], [machine], [database] and [secrets] sections and removes the timelapse paths that only repeat Moonraker's defaults. Your own values are never changed; a copy of each changed file is kept."
+    local conf="$HOME_DIR/printer_data/config/moonraker.conf" meta="$HOME_DIR/moonraker/moonraker/components/file_manager/metadata.py" rc out
+    if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would add the missing Moonraker sections to moonraker.conf and make filament_type a string in Moonraker's metadata.py${NC}"; return 0; fi
+    [ -f "$(moonraker_py)" ] || { print_warning "scripts/wm_moonraker_conf.py is missing from this repository: Moonraker settings not checked"; return 0; }
+    if [ -f "$conf" ]; then
+        out="$(python3 -I "$(moonraker_py)" conf "$conf")"; rc=$?
+        if [ "$rc" = 10 ]; then
+            cp -p "$conf" "$conf.wm-before-moonraker-tune-$STAMP"
+            python3 -I "$(moonraker_py)" conf "$conf" --write >/dev/null && { echo "$out" | sed 's/^/        /'; print_success "moonraker.conf updated (copy: moonraker.conf.wm-before-moonraker-tune-$STAMP)"; MOONRAKER_CHANGED=1; }
+        else print_success "moonraker.conf already has these settings"; fi
+    fi
+    if [ -f "$meta" ]; then
+        python3 -I "$(moonraker_py)" metadata "$meta" >/dev/null; rc=$?
+        if [ "$rc" = 10 ]; then
+            cp -p "$meta" "$meta.wm-before-filament-type-$STAMP"
+            python3 -I "$(moonraker_py)" metadata "$meta" --write >/dev/null && { print_success "Moonraker's metadata.py: filament_type is a string now (copy: metadata.py.wm-before-filament-type-$STAMP). Files uploaded before need a re-scan: it happens when you upload them again."; MOONRAKER_CHANGED=1; }
+        else print_success "Moonraker's metadata.py already returns filament_type as a string"; fi
+    fi
+}
 do_rpicfg() {   # ./installer.sh --rpi-cfg
     print_header "The Pi's own config files (rpi-cfg)"
     [ -f "$HOME_DIR/printer_data/config/printer.cfg" ] || die_with_fix "there is no printer.cfg on this Pi yet." "install first (menu 1), then run this again."
@@ -439,7 +461,8 @@ do_rpicfg() {   # ./installer.sh --rpi-cfg
     # wm_nozzle.cfg needs Klipper's gcode shell command extension: put it in first (an install or update does that in its own step)
     [ -f "$HOME_DIR/klipper/klippy/extras/gcode_shell_command.py" ] || [ ! -d "$HOME_DIR/klipper/klippy/extras" ] || [ "$WANT_SHELLCMD" != 1 ] || step_shellcmd
     step_rpicfg
-    [ "$DRY" = 1 ] || { restart_klipper_after; print_info "In Fluidd run WM_CAL_HELP to list the calibration macros."; }
+    step_moonraker_tune
+    [ "$DRY" = 1 ] || { [ "$MOONRAKER_CHANGED" = 1 ] && [ "$TESTING" != 1 ] && SUDO systemctl restart moonraker; restart_klipper_after; print_info "In Fluidd run WM_CAL_HELP to list the calibration macros."; }
 }
 
 cfgmerge_py() { echo "$SCRIPT_DIR/scripts/wm_cfgmerge.py"; }
@@ -1093,7 +1116,14 @@ step_timelapse() {
     SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y ffmpeg
     local pin url sha; pin="$(addon_pin moonraker-timelapse)"; url="${pin%|*}"; sha="${pin#*|}"
     fetch_addon "$url" "$sha" "$HOME_DIR/moonraker-timelapse" || { warn_later "Could not download moonraker-timelapse (network?)."; return 0; }
-    run mkdir -p "$HOME_DIR/printer_data/timelapse" "$HOME_DIR/moonraker/moonraker/components"
+    run mkdir -p "$HOME_DIR/printer_data/timelapse" "$HOME_DIR/printer_data/frames" "$HOME_DIR/moonraker/moonraker/components"
+    [ "$DRY" = 1 ] || [ "$TESTING" = 1 ] || [ ! -d "$HOME_DIR/moonraker-timelapse/.git" ] || git -C "$HOME_DIR/moonraker-timelapse" checkout -q -B main "$sha"   # on branch main (not detached) so Moonraker's update manager can read the repo
+    local mc="$HOME_DIR/printer_data/config/moonraker.conf"
+    if [ "$DRY" != 1 ] && [ -f "$mc" ] && ! grep -qiE '^\[update_manager +timelapse\]' "$mc"; then
+        cp "$mc" "$mc.wm-before-timelapse-updatemgr-$STAMP"
+        printf '\n[update_manager timelapse]\ntype: git_repo\nprimary_branch: main\npath: ~/moonraker-timelapse\norigin: https://github.com/mainsail-crew/moonraker-timelapse.git\nmanaged_services: klipper moonraker\n' >> "$mc"
+        print_info "Added [update_manager timelapse] to moonraker.conf"
+    fi
     [ -f "$HOME_DIR/moonraker/moonraker/components/timelapse.py" ] || run ln -sf "$HOME_DIR/moonraker-timelapse/component/timelapse.py" "$HOME_DIR/moonraker/moonraker/components/timelapse.py"
     [ -f "$HOME_DIR/printer_data/config/timelapse.cfg" ] || run cp "$HOME_DIR/moonraker-timelapse/klipper_macro/timelapse.cfg" "$HOME_DIR/printer_data/config/timelapse.cfg"
     record "HOMEDIR moonraker-timelapse"
@@ -1946,7 +1976,7 @@ do_update() {
         "$HOME_DIR/moonraker-env/bin/pip" install -q -r "$SCRIPT_DIR/config/moonraker-requirements.txt" || warn_later "moonraker-env packages did not update."
     fi
     progress_bar 45 100 "Update step 4 of $UT: services, nginx, CAN"
-    if [ -z "$ONLY_ADDON" ]; then step_services_files; step_hostmcu; step_nginx; step_can; step_rpicfg; step_cfgmerge; step_pidcfg; fi
+    if [ -z "$ONLY_ADDON" ]; then step_services_files; step_hostmcu; step_nginx; step_can; step_rpicfg; step_moonraker_tune; step_cfgmerge; step_pidcfg; fi
     progress_bar 50 100 "Update step 5 of $UT: Fluidd panel"
     if [ -z "$ONLY_ADDON" ] && [ "$WANT_PANEL" = 1 ]; then
         local sha=""; panel_get && sha="$(sha256sum "$PANEL_ZIP" | cut -d' ' -f1)"
@@ -3115,7 +3145,7 @@ show_plan
 guard_not_printing
 save_answers
 PROG_STEPS=14
-step_packages; step_groups; step_python; step_unpack; step_model; step_rpicfg; step_cfgmerge; step_pidcfg; step_venvs; step_modules
+step_packages; step_groups; step_python; step_unpack; step_model; step_rpicfg; step_moonraker_tune; step_cfgmerge; step_pidcfg; step_venvs; step_modules
 step_services; step_hostmcu; step_nginx; step_can; step_panel; step_screen; step_netmgr; step_timelapse; step_shellcmd; step_shaketune; step_spoolman; step_acepro; moonraker_add_update_entries; step_remote; step_crowsnest; step_start
 save_answers
 restart_klipper_after

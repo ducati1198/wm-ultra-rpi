@@ -500,14 +500,15 @@ class PrusaSlicer(BaseSlicer):
             self.footer_data
         )
 
-    def parse_filament_type(self) -> Optional[List[str]]:
+    def parse_filament_type(self) -> Optional[str]:
         # 修正正则：匹配 "; filament_type = " 之后的所有非换行字符
         material_data = regex_find_string(r";\sfilament_type\s=\s(.*)", self.footer_data)
         if material_data:
             try:
                 # 按分号分割，去除每个元素首尾空白，并过滤空字符串
                 materials = [str(c.strip()) for c in material_data.split(";") if c.strip()]
-                return materials if materials else None
+                # a string like upstream Moonraker (Fluidd cannot show a list here); one entry per extruder, joined with ";"
+                return ";".join(materials) if materials else None
             except Exception as e:   # 捕获潜在异常（如非字符串数据）
                 print(f"Error parsing filament material: {e}")
                 return None

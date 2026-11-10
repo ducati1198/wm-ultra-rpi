@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.23.54
+
+- **Moonraker settings and the Jobs page fix are now part of the installer** (new Step 4f, also run by `--update` and `--rpi-cfg`; new script `scripts/wm_moonraker_conf.py`). Everything was tried on the Pi first.
+  - **Fluidd's Jobs page no longer stays on "Loading items".** WonderMaker's Moonraker returned `filament_type` of an OrcaSlicer file as a list; Fluidd needs a string like upstream Moonraker (`PLA;PLA;PLA;PLA`). Fixed in `metadata.py` for both models (shipped files and `SHA256SUMS`), and the installer fixes an already installed copy (a copy `metadata.py.wm-before-filament-type-STAMP` is kept). Files uploaded before need a new upload (re-scan).
+  - **moonraker.conf** gets the K1 sections when missing: `[database]`, `[file_manager]` (`queue_gcode_uploads: False`, `enable_object_processing: True`), `[machine]` (`provider: systemd_dbus`, `validate_service: False`, `validate_config: False`), `[secrets]`. Your own values are never changed; a copy `moonraker.conf.wm-before-moonraker-tune-STAMP` is kept. Moonraker is restarted when something changed.
+  - **Timelapse like on the K1:** frames go to `~/printer_data/frames/` instead of `/tmp/timelapse/` (lost at reboot), `camera: default`, `parkpos: back_right`, park/retract/extrude speeds and distances, `extraoutputparams: -preset superfast`. Only options that are missing are added; the old WonderMaker `/tmp/timelapse/` value is the only one replaced.
+  - **`[update_manager timelapse]`** is added by the timelapse step and the timelapse repo is put on branch `main`. On the Pi the entry was INVALID in Fluidd ("Failed to detect git branch / repo url") because the repo was on a detached HEAD.
+- Still needed for a real timelapse: a USB camera (crowsnest) and OrcaSlicer's `;TIMELAPSE_TAKE_FRAME` without the semicolon (Klipper ignores comments).
+- Includes 1.23.53 (`PRINT_END` watcher).
+
 ## 1.23.53
 
 - **New `rpi-cfg/wm_print_end.cfg`: `PRINT_END` runs when a print finishes.** OrcaSlicer's end G-code for WonderMaker is only the comment `;PRINT_END`; the original screen board saw the print finish and ran `PRINT_END` itself (seen in its client log). On the Pi nothing did, so the tool head stayed over the print, the heaters stayed on and the motors stayed locked. A watcher now runs `PRINT_END` once when the print state is `complete` and `START_PRINT.print_body_ready` is still True; a G-code file that calls `PRINT_END` itself is not run twice. Installed with the other rpi-cfg files. Tested on the Pi: the file loads and Klipper starts; the first real print end is the live test.
