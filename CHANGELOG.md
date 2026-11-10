@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.23.42
+
+- The tool offsets are now two macros, one for each button of the screen: `WM_OFFSETS_RAPID` and `WM_OFFSETS_ACCURATE` (option `TEMP`, default 220). `WM_TOOL_OFFSETS` (with `MODE=`) and its four helper macros (`_WM_TO_PREP`, `_WM_TO_CLEAN`, `_WM_TO_RAPID`, `_WM_TO_END`) from 1.23.41 are gone. Same order as the screen as in 1.23.41. Klipper does not let a macro call itself and has no "wait for a button", so `WM_OFFSETS_ACCURATE` ends after each tool is prepared and shows the debris window; its OK button starts the same macro again with `STEP=clean N=<tool>`, which wipes that tool and prepares the next one (or, after the last tool, measures all tools, parks and turns the heaters off). `WM_FULL_CALIBRATION` calls `WM_OFFSETS_RAPID`. A Pi that has the old `wm_calibration.cfg` gets the new one with Doctor Fix. Not tested on a real printer.
+
 ## 1.23.41
 
 - `WM_TOOL_OFFSETS MODE=accurate` now follows the order the screen app uses (read from its code and from the log of a real run on a screen board): `G28`; for every tool `NOZZLE_PREPARE S=220 T=n`, then a window with the app's text ("ensure the button-like purged debris has been manually removed from the nozzle tip") and an OK button, then `NOZZLE_CALIBRATE_TOOL_OFFSET T=n`; after the last tool `RAPID_MODE T=n` for every tool; `PARK_CURRENT_TOOL`. Before it called WonderMaker's `CALIBRATE_OFFSET_ALL_FINE_MODE`, which does one tool after the other and which the screen never calls. New option `TEMP` (default 220, the app uses the filament's extrude temperature). `MODE=rapid` is as before and now also parks the tool at the end, like the screen. New helper macros `_WM_TO_PREP`, `_WM_TO_CLEAN`, `_WM_TO_RAPID`, `_WM_TO_END`. If Klipper stops with an error the chain stops; WM_CAL_STOP turns the heaters off (the screen skips the failed tool instead). Tested with mocks only, not on a real printer.
