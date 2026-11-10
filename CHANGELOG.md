@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.23.45
+
+- **ZR Tools buttons work on the current KlipperScreen.** Every button that sends G-code (chamber, tool change, ACE, ...) failed with "Connection error" because the panel called `_ws.klippy.gcode_script`, which newer KlipperScreen no longer has. It now uses `_ws.api.gcode_script`, falls back to the old call, then to a plain Moonraker request.
+- **Park tool button** on each toolhead page (next to Edit filament): asks first, then runs `PARK_CURRENT_TOOL`.
+- **Tool colours are shared with Fluidd and the touchscreen.** The panel reads and writes the `[slot]` section of `tmt1.ini` (through Moonraker), the same file the Fluidd panel and the factory touchscreen use. The colour dots are now the touchscreen's own 21 swatches, same order as Fluidd. A custom colour snaps to the closest swatch when saved. The factory touchscreen app re-reads `tmt1.ini` only after it restarts.
+
 ## 1.23.44
 
 - **The host MCU is now connected to Klipper by the installer.** New step `step_pi_sensors` (also `./installer.sh --pi-sensors`), run after Klipper is running at the end of an install and an update. It writes `wm_rpi_mcu.cfg` (`[mcu rpi]` with `serial: /tmp/klipper_host_mcu`), includes it from `printer.cfg` after the other includes and above the `SAVE_CONFIG` block, restarts Klipper and waits for "ready". If Klipper does not come back, the include and the file are taken out again, `printer.cfg` is restored and Klipper is restarted once more (the refused file is kept as `*.wm-failed-<time>`). Not done during a print, while Klipper is stopped, or when `klipper-mcu` is not running. A copy of `printer.cfg` is kept each time.
