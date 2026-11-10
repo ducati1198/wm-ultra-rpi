@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.23.69
+
+- **Chamber light button on the KlipperScreen print screen.** While printing or paused, a Light button appears next to Pause, Cancel, Fine Tuning and Settings and toggles the chamber light. It shows only when the Chamber light helper is installed (1.23.62). `zr_tools/patch_job_status_light.py` adds it to KlipperScreen's `job_status.py` (copy `job_status.py.wm-orig`); the installer applies it on install and Update. Tested on a copy of the board's file; not seen on the screen during a print yet.
+
 ## 1.23.68
 
 - README: the Obico, OctoApp and OctoEverywhere installers are now marked as tested on a real Pi (a WonderMaker ZR Ultra-S).

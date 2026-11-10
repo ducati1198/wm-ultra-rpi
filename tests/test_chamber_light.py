@@ -122,5 +122,39 @@ open(os.path.join(gpio, "gpio76", "value"), "w").write("0\n")   # a reboot clear
 check("restore puts it back to the saved state (on)", run("restore") == "on" and open(os.path.join(gpio, "gpio76", "value")).read().strip() == "1")
 check("an unknown argument is refused", subprocess.run([hp, "bogus"], capture_output=True).returncode == 2)
 
+print("print screen patch")
+fake_js = """import logging
+import os
+from gi.repository import GLib, Gtk
+
+
+class Panel:
+    def create_buttons(self):
+        self.buttons = {}
+        self.buttons["control"].connect("clicked", self._screen._go_to_submenu, "")
+
+    def save_offset(self, widget, device):
+        pass
+
+    def show_buttons_for_state(self):
+        if self.state == "printing":
+            self.buttons["button_grid"].attach(self.buttons["control"], 3, 0, 1, 1)
+        elif self.state == "paused":
+            self.buttons["button_grid"].attach(self.buttons["control"], 3, 0, 1, 1)
+"""
+js = os.path.join(tmp, "job_status.py")
+open(js, "w").write(fake_js)
+pp = os.path.join(ROOT, "zr_tools", "patch_job_status_light.py")
+check("patch runs", subprocess.run([sys.executable, pp, js]).returncode == 0)
+once = open(js).read()
+check("patch result compiles", subprocess.run([sys.executable, "-m", "py_compile", js]).returncode == 0)
+check("Light button on both printing and paused", once.count('self.buttons["wm_light"], 4, 0, 1, 1') == 2)
+check("button only added when the helper exists", once.count('os.path.exists("/usr/local/sbin/wm-chamber-light")') == 2)
+subprocess.run([sys.executable, pp, js])
+check("running the patch twice changes nothing", open(js).read() == once)
+other = os.path.join(tmp, "other.py")
+open(other, "w").write("print(1)\n")
+check("a file it does not know is refused", subprocess.run([sys.executable, pp, other], capture_output=True).returncode == 1)
+
 print("passed: %d   failed: %d" % (passed, failed))
 sys.exit(1 if failed else 0)
