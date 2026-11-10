@@ -63,6 +63,22 @@ patch_ks_zcalibrate() {
     sed -i 's/float(self\.probe\["z_offset"\])/float(self.probe.get("z_offset", 0.0))/' "$f"
 }
 
+patch_ks_menu_light() {   # the main-menu Chamber light button toggles directly (menu item "method: wm_chamber_light")
+    local f="$KS_DIR/panels/menu.py" py="${REPO_DIR:-.}/zr_tools/patch_menu_light.py"
+    [ -f "$f" ] && [ -f "$py" ] || return 0
+    grep -q wm_chamber_light "$f" 2>/dev/null && return 0
+    [ -f "$f.wm-orig" ] || cp "$f" "$f.wm-orig"
+    python3 "$py" "$f" || warn_later "Could not patch KlipperScreen's menu for the Chamber light button."
+}
+
+patch_ks_ws_dup() {   # KlipperScreen opened two Moonraker connections after a Moonraker restart: every popup had two OK / Cancel buttons
+    local f="$KS_DIR/ks_includes/KlippyWebsocket.py" py="${REPO_DIR:-.}/zr_tools/patch_ks_ws.py"
+    [ -f "$f" ] && [ -f "$py" ] || return 0
+    grep -q "wm: one connection only" "$f" 2>/dev/null && return 0
+    [ -f "$f.wm-orig" ] || cp "$f" "$f.wm-orig"
+    python3 "$py" "$f" || warn_later "Could not patch KlipperScreen's Moonraker connection (popups may show twice after a Moonraker restart)."
+}
+
 sb_cum() {   # step weight... : the percent finished when step K starts (the weights are how long each step takes, roughly)
     local k="$1" i=1 sum=0 w; shift
     for w in "$@"; do [ "$i" -lt "$k" ] && sum=$((sum+w)); i=$((i+1)); done
@@ -412,7 +428,7 @@ step_klipperscreen() {
         # The stock Network panel needs NetworkManager. This board uses wpa_supplicant (WonderMaker's setup), so use a wpa_cli panel instead.
         if [ -S /run/wpa_supplicant/wlan0 ] || systemctl is-active --quiet makerbase-wlan0 2>/dev/null; then cp "$REPO_DIR/zr_tools/wifi_panel.py" "$KS_DIR/panels/network.py"; fi
         cp "$REPO_DIR/zr_tools/pi_address_panel.py" "$KS_DIR/panels/pi_address.py"
-        patch_ks_zcalibrate
+        patch_ks_zcalibrate; patch_ks_menu_light; patch_ks_ws_dup
         [ -d "$KS_DIR/.git" ] && { mkdir -p "$KS_DIR/.git/info"; grep -qs '^panels/zr_' "$KS_DIR/.git/info/exclude" || echo 'panels/zr_*.py' >> "$KS_DIR/.git/info/exclude"; }
     fi
     write_ks_conf
@@ -436,6 +452,11 @@ moonraker_port: 7125
 name: ZR Tools
 icon: extruder
 panel: zr_tools
+
+[menu __main chamber_light]
+name: Chamber light
+icon: light
+method: wm_chamber_light
 
 [menu __main more pi_address]
 name: Pi address
@@ -553,6 +574,19 @@ step_restore_button() {   # root-owned copy + sudoers line for the one command t
     print_success "Open ZR Tools > More > System > Factory mode to go back to the factory software."
 }
 
+CL_BIN=/usr/local/sbin/wm-chamber-light; CL_UNIT=/etc/systemd/system/wm-chamber-light.service
+step_chamber_light() {   # root helper + one sudoers line for the Chamber light button; a boot unit puts the light back to its last state
+    print_header "Chamber light button"
+    if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would install $CL_BIN, a sudoers entry and a boot unit${NC}"; return 0; fi
+    if [ "$TESTING" = 1 ]; then echo "[test] chamber light helper, sudoers, unit" >> "$HOME_DIR/.sudo.log"; return 0; fi
+    sudo install -o root -g root -m 755 "$REPO_DIR/zr_tools/wm-chamber-light" "$CL_BIN"
+    printf '%s ALL=(root) NOPASSWD: %s on, %s off, %s toggle, %s status\n' "$WM_USER" "$CL_BIN" "$CL_BIN" "$CL_BIN" "$CL_BIN" | sudo tee /etc/sudoers.d/wm-chamber-light >/dev/null
+    sudo chmod 440 /etc/sudoers.d/wm-chamber-light; sudo visudo -cf /etc/sudoers.d/wm-chamber-light >/dev/null || { sudo rm -f /etc/sudoers.d/wm-chamber-light; warn_later "The Chamber light button was not enabled (sudoers check failed)."; return 0; }
+    printf '[Unit]\nDescription=Chamber light: restore last state\n[Service]\nType=oneshot\nExecStart=%s restore\n[Install]\nWantedBy=multi-user.target\n' "$CL_BIN" | sudo tee "$CL_UNIT" >/dev/null
+    sudo systemctl daemon-reload; sudo systemctl enable wm-chamber-light.service >/dev/null 2>&1
+    print_success "Chamber light button installed (main page, next to ZR Tools)."
+}
+
 # ---------------------------------------------------------------- rescue tool (window after 3 failed starts, USB flag at boot)
 RESCUE_BIN=/usr/local/sbin/wm-screen-rescue; RESCUE_WIN=/usr/local/sbin/wm-rescue-window.py
 step_rescue() {
@@ -639,6 +673,7 @@ do_install() {
     drop_swap
     step_disable_factory
     step_restore_button
+    step_chamber_light
     step_rescue
     step_start
     print_header "Done"; progress_bar 100 100 "All 7 steps finished"
@@ -670,6 +705,7 @@ remove_klipperscreen() {
             [ -f "$XDIR/10-wm-fbdev.conf" ] && sudo rm -f "$XDIR/10-wm-fbdev.conf"
             [ -f "$XDIR/20-modesetting.conf.wm-disabled" ] && sudo mv "$XDIR/20-modesetting.conf.wm-disabled" "$XDIR/20-modesetting.conf"
             sudo rm -f /etc/sudoers.d/wm-factory-restore /usr/local/sbin/wm-factory-restore
+            sudo systemctl disable wm-chamber-light.service >/dev/null 2>&1; sudo rm -f /etc/sudoers.d/wm-chamber-light "$CL_BIN" "$CL_UNIT"
         else echo "[test] remove seat rules, X conf, sudoers" >> "$HOME_DIR/.sudo.log"; rm -f "$HOME_DIR/.fbdev" "$BK/udev_rules.created"; fi
         rm -rf "$KS_DIR" "$KS_ENV"; rm -f "$BK/board_mode"
         [ -f "$BK/KlipperScreen.conf.orig" ] && cp "$BK/KlipperScreen.conf.orig" "$CFG_DIR/KlipperScreen.conf" || rm -f "$CFG_DIR/KlipperScreen.conf"
@@ -864,13 +900,24 @@ do_update_board_core() {
     if [ "$DRY" != 1 ]; then
         mkdir -p "$KS_DIR/panels"; cp "$w"/zr_tools/{zr_tools.py,zr_views.py,zr_logic.py} "$KS_DIR/panels/"
         [ -f "$w/zr_tools/pi_address_panel.py" ] && cp "$w/zr_tools/pi_address_panel.py" "$KS_DIR/panels/pi_address.py"
-        patch_ks_zcalibrate
+        patch_ks_zcalibrate; REPO_DIR="$w" patch_ks_menu_light; REPO_DIR="$w" patch_ks_ws_dup
         [ -f "$KS_DIR/panels/network.py" ] && grep -q wpa_cli "$KS_DIR/panels/network.py" 2>/dev/null && [ -f "$w/zr_tools/wifi_panel.py" ] && cp "$w/zr_tools/wifi_panel.py" "$KS_DIR/panels/network.py"
         mkdir -p "$BK"; cp "$w/scripts/screen_board.sh" "$BK/screen_board.sh"
         # the installer folder this script runs from is refreshed too, so the menu itself is the new version (tests: only with WM_TEST_REFRESH_REPO=1, on a copy)
         if [ "$TESTING" != 1 ] || [ "${WM_TEST_REFRESH_REPO:-0}" = 1 ]; then
             if [ -d "$REPO_DIR/.git" ] && command -v git >/dev/null 2>&1 && [ "$TESTING" != 1 ]; then git -C "$REPO_DIR" pull -q --ff-only 2>/dev/null || cp -a "$w"/. "$REPO_DIR"/ 2>/dev/null || warn_later "Could not refresh $REPO_DIR; run: cd $REPO_DIR && git pull"
             else cp -a "$w"/. "$REPO_DIR"/ 2>/dev/null || warn_later "Could not refresh $REPO_DIR."; fi
+        fi
+        if [ "$TESTING" != 1 ] && [ -f "$w/zr_tools/wm-chamber-light" ]; then
+            if [ -f "$CL_BIN" ]; then sudo install -o root -g root -m 755 "$w/zr_tools/wm-chamber-light" "$CL_BIN"
+            else REPO_DIR="$w" step_chamber_light; fi
+            grep -q '^\[menu __main chamber_light\]' "$CFG_DIR/KlipperScreen.conf" 2>/dev/null || python3 - "$CFG_DIR/KlipperScreen.conf" <<'PYE'
+import sys
+p = sys.argv[1]; s = open(p).read()
+add = "[menu __main chamber_light]\nname: Chamber light\nicon: light\nmethod: wm_chamber_light\n\n"
+i = s.find("[menu __main more pi_address]")
+open(p, "w").write(s[:i] + add + s[i:] if i >= 0 else s.rstrip("\n") + "\n\n" + add)
+PYE
         fi
         [ "$TESTING" = 1 ] || { [ -f /usr/local/sbin/wm-factory-restore ] && sudo install -o root -g root -m 755 "$w/scripts/screen_board.sh" /usr/local/sbin/wm-factory-restore; }
     fi

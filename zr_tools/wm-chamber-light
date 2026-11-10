@@ -1,0 +1,24 @@
+#!/bin/sh
+# Chamber light on the TM-T1 screen board: 5 V light on GPIO2_B4 (sysfs gpio76, high = on).
+# Root-owned; the on-screen Chamber light button runs it through one sudoers line.
+# usage: wm-chamber-light on|off|toggle|status|restore
+PIN=76; G=/sys/class/gpio; STATE_DIR=/var/lib/wm-chamber-light; STATE=$STATE_DIR/state
+setup() {
+    [ -d "$G/gpio$PIN" ] || echo "$PIN" > "$G/export" 2>/dev/null
+    [ -d "$G/gpio$PIN" ] || { echo "cannot export gpio$PIN" >&2; exit 1; }
+    echo out > "$G/gpio$PIN/direction" 2>/dev/null
+}
+cur() { [ -d "$G/gpio$PIN" ] && [ "$(cat "$G/gpio$PIN/value" 2>/dev/null)" = 1 ] && echo on || echo off; }
+set_to() {
+    setup
+    if [ "$1" = on ]; then echo 1 > "$G/gpio$PIN/value"; else echo 0 > "$G/gpio$PIN/value"; fi
+    mkdir -p "$STATE_DIR"; echo "$1" > "$STATE"
+}
+case "$1" in
+    on|off) set_to "$1" ;;
+    toggle) [ "$(cur)" = on ] && set_to off || set_to on ;;
+    status) cur; exit 0 ;;
+    restore) [ "$(cat "$STATE" 2>/dev/null)" = on ] && set_to on || set_to off ;;
+    *) echo "usage: $0 on|off|toggle|status|restore" >&2; exit 2 ;;
+esac
+cur
