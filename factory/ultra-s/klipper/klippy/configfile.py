@@ -483,3 +483,6 @@ class PrinterConfig:
         # Request a restart
         # gcode.request_restart('restart')
         # gcode.request_restart('firmware_restart')
+        # the values are in printer.cfg now and nothing restarts: clear the "save and restart" request, or Fluidd keeps asking for it
+        self.save_config_pending = False
+        self.status_save_pending = {}

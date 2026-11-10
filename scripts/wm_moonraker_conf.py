@@ -9,6 +9,9 @@
                                                  instead of a list. With the list Fluidd's Jobs page stays on "Loading items". nozzle_diameter is returned as one
                                                  number (the first nozzle), not a list: OctoApp refuses a list ("Expected JsonPrimitive, but had JsonArray").
 
+  wm_moonraker_conf.py configfile FILE [--write] klipper/klippy/configfile.py: SAVE_CONFIG_NO_RESTART (run at the end of START_PRINT) also clears
+                                                 Klipper's "save and restart" request; without it Fluidd asks for a restart after every print.
+
 Exit code: 0 nothing to change, 10 a change is needed / was written, 2 usage or unreadable file.
 """
 import re, sys
@@ -110,14 +113,25 @@ def fix_metadata(text):
     return text, notes
 
 
+CF_OLD = "        # gcode.request_restart('restart')\n        # gcode.request_restart('firmware_restart')\n"
+CF_NEW = (CF_OLD + "        # the values are in printer.cfg now and nothing restarts: clear the \"save and restart\" request, or Fluidd keeps asking for it\n"
+          "        self.save_config_pending = False\n        self.status_save_pending = {}\n")
+
+
+def fix_configfile(text):
+    if "self.status_save_pending = {}\n" in text.split("def cmd_SAVE_CONFIG_NO_RESTART")[-1] or text.count(CF_OLD) != 1:
+        return text, []
+    return text.replace(CF_OLD, CF_NEW), ["SAVE_CONFIG_NO_RESTART clears Klipper's \"save and restart\" request"]
+
+
 def main(argv):
-    if len(argv) < 3 or argv[1] not in ("conf", "metadata"): print(__doc__); return 2
+    if len(argv) < 3 or argv[1] not in ("conf", "metadata", "configfile"): print(__doc__); return 2
     write = "--write" in argv
     try:
         text = open(argv[2], encoding="utf-8", newline="").read()
     except OSError as e:
         print("cannot read %s: %s" % (argv[2], e)); return 2
-    new, notes = (fix_conf if argv[1] == "conf" else fix_metadata)(text)
+    new, notes = {"conf": fix_conf, "metadata": fix_metadata, "configfile": fix_configfile}[argv[1]](text)
     for n in notes: print(n)
     if new == text: return 0
     if write:

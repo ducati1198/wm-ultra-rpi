@@ -453,6 +453,14 @@ step_moonraker_tune() {   # moonraker.conf sections (file_manager, machine, ...)
             python3 -I "$(moonraker_py)" metadata "$meta" --write >/dev/null && { print_success "Moonraker's metadata.py: filament_type and nozzle_diameter are single values now (copy: metadata.py.wm-before-metadata-fix-$STAMP). Files uploaded before need a re-scan: it happens when you upload them again."; MOONRAKER_CHANGED=1; }
         else print_success "Moonraker's metadata.py already returns filament_type and nozzle_diameter like upstream"; fi
     fi
+    local cf="$HOME_DIR/klipper/klippy/configfile.py"
+    if [ -f "$cf" ]; then
+        python3 -I "$(moonraker_py)" configfile "$cf" >/dev/null; rc=$?
+        if [ "$rc" = 10 ]; then
+            cp -p "$cf" "$cf.wm-before-pending-clear-$STAMP"
+            python3 -I "$(moonraker_py)" configfile "$cf" --write >/dev/null && print_success "Klipper's configfile.py: Fluidd no longer asks to save and restart after START_PRINT (copy: configfile.py.wm-before-pending-clear-$STAMP). Klipper restarts at the end of this run."
+        else print_success "Klipper's configfile.py already clears the save-and-restart request"; fi
+    fi
 }
 do_rpicfg() {   # ./installer.sh --rpi-cfg
     print_header "The Pi's own config files (rpi-cfg)"

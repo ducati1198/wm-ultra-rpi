@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.23.60
+
+- **Fluidd no longer asks to "save and restart" after every print start.** WonderMaker's `START_PRINT` ends with `SAVE_CONFIG_NO_RESTART`: it writes `printer.cfg` but left Klipper's "save config pending" flag on, so Fluidd showed the save-and-restart banner. `SAVE_CONFIG_NO_RESTART` (`klippy/configfile.py`, both models, `SHA256SUMS`) now clears the flag at its end, since the values are saved and nothing needs to restart. The installer (step 4f) patches an installed copy once (copy `configfile.py.wm-before-pending-clear-STAMP`) and restarts Klipper at the end. Tested on the Pi: the print after the patch finished with no banner pending.
+
 ## 1.23.59
 
 - **OctoApp shows the finished print again: `nozzle_diameter` is one number.** WonderMaker's Moonraker returned the nozzle diameter of an OrcaSlicer file as a list (`[0.4,0.4,0.4,0.4]`); OctoApp refuses it ("Expected JsonPrimitive, but had JsonArray as the serialized body of float at path $.nozzle_diameter"), the same kind of problem as `filament_type` in 1.23.54. `metadata.py` (both models, `SHA256SUMS`) now returns the first nozzle (T0) as a float like upstream Moonraker, and the installer step 4f fixes an installed copy (copy `metadata.py.wm-before-metadata-fix-STAMP`). Files and print history entries that were scanned before need a re-scan to change; on the test Pi the history rows were corrected by hand (a copy of the database was kept).
