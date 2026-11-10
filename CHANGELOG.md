@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.23.57
+
+- **A print no longer ends as "error" when the slicer end G-code runs `PRINT_END`.** With the semicolons removed in OrcaSlicer, the print file itself runs `PRINT_END`, and its `SDCARD_RESET_FILE` is refused by Klipper there ("SDCARD_RESET_FILE cannot be run from the sdcard"): Fluidd showed the finished print as an error, ACE logged "printing -> error", and the `SAVE_VARIABLE box_modify_t0-t3` lines after it did not run. `PRINT_END` (`macros.cfg`, both models) now runs `SDCARD_RESET_FILE` only when no print is active; run by the watcher or by hand it works as before. Found on the Pi after a real print and fixed there first (a copy `macros.cfg.wm-before-sdcard-guard` is kept; `./installer.sh --cfg-merge` offers it to existing installs).
+- **New empty macros `BEFORE_LAYER_CHANGE` and `AFTER_LAYER_CHANGE`** in `rpi-cfg/wm_print_end.cfg`: OrcaSlicer calls them on every layer, and Klipper logged "Unknown command" each time.
+
 ## 1.23.56
 
 - README section 7: the power picture `docs/img/screen-board-power.png` and the pins: on the 8-pin connector, 24 V (red wire) is the bottom pin of the right-hand column and ground (black wire) is the pin directly above it. The warning now names what not to touch.
