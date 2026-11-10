@@ -459,3 +459,95 @@ def build_css(theme, style, density="compact", scale=1.0):
            "empty_bg": empty[0], "empty_fg": empty[1],
            "pill": "%d%%" % round((100 if big else 85) * k), "title": "%d%%" % round((120 if big else 100) * k),
            "mat": "%d%%" % round((130 if big else 110) * k), "small_pct": "%d%%" % round(85 * k)}
+
+
+# ---------------------------------------------------------------------
+# Filament colour / material shared with the Fluidd panel and the factory touchscreen.
+# All three read and write the [slot] section of tmt1.ini (colourN / materialN are list indices).
+# The lists below are the touchscreen's own, same order as the Fluidd panel.
+# ---------------------------------------------------------------------
+TOUCH_PALETTE = [
+    ("White", 0xFFFFFF), ("Beige", 0xF3E8C8), ("Brown", 0x9A6738), ("Grey", 0xC7D5DF), ("Black", 0x000000),
+    ("Cyan", 0x00DDE3), ("Light blue", 0x13A7E8), ("Dark blue", 0x0B4BD8), ("Light green", 0x16E900),
+    ("Dark green", 0x00A84F), ("Yellow", 0xFFF200), ("Orange", 0xFF5A1F), ("Light pink", 0xDDBFDE),
+    ("Magenta", 0xE72DBE), ("Red", 0xFF1C2E), ("Bright blue", 0x006EFF), ("Gold", 0xD9A520),
+    ("Copper", 0xB86B44), ("Silver", 0xAFC0CC), ("Multicolour", 0xC060C0), ("Clear", 0xD5E8EE),
+]
+# touchscreen material list: (name, temperature, index in the ZR Tools material list)
+TOUCH_MATERIALS = [
+    ("PLA", 210, 1), ("PLA Silk", 215, 3), ("ABS", 250, 8), ("PETG", 240, 6), ("PLA Matte", 210, 4),
+    ("PLA Metal", 215, 15), ("ABS Matte", 250, 8), ("PETG Matte", 240, 6), ("PVA", 200, 13), ("TPE", 225, 10),
+    ("Marble", 210, 15), ("HIPS", 235, 14), ("TPU", 225, 10), ("PET", 240, 15), ("Wood", 200, 15), ("ASA", 255, 9),
+]
+
+
+def nearest_palette(color_int):
+    """Index of the touchscreen swatch closest to an 0xRRGGBB colour."""
+    r, g, b = (color_int >> 16) & 255, (color_int >> 8) & 255, color_int & 255
+    best, dist = 0, None
+    for i, (_n, c) in enumerate(TOUCH_PALETTE):
+        cr, cg, cb = (c >> 16) & 255, (c >> 8) & 255, c & 255
+        rm = (r + cr) / 2.0
+        d = (2 + rm / 256) * (r - cr) ** 2 + 4 * (g - cg) ** 2 + (2 + (255 - rm) / 256) * (b - cb) ** 2
+        if dist is None or d < dist:
+            best, dist = i, d
+    return best
+
+
+def parse_tmt1_slots(text, ntools=4):
+    """[{'color': palette index or None, 'material': index or None}] from the [slot] section of tmt1.ini."""
+    slots = [{"color": None, "material": None} for _ in range(ntools)]
+    section = ""
+    for raw in (text or "").splitlines():
+        line = raw.strip()
+        m = _re.match(r"^\[(.+)\]$", line)
+        if m:
+            section = m.group(1).strip().lower()
+            continue
+        if section != "slot":
+            continue
+        m = _re.match(r"^(color|material)(\d+)\s*=\s*(-?\d+)\s*$", line, _re.I)
+        if not m or int(m.group(2)) >= ntools:
+            continue
+        key, idx, val = m.group(1).lower(), int(m.group(2)), int(m.group(3))
+        limit = len(TOUCH_PALETTE) if key == "color" else len(TOUCH_MATERIALS)
+        slots[idx][key] = val if 0 <= val < limit else None
+    return slots
+
+
+def update_tmt1_slot(text, index, color, material):
+    """tmt1.ini text with one slot changed; every other line stays as it was."""
+    eol = "\r\n" if "\r\n" in text else "\n"
+    lines = text.splitlines()
+    section, slot_end, done_c, done_m = "", -1, False, False
+    for i, raw in enumerate(lines):
+        line = raw.strip()
+        m = _re.match(r"^\[(.+)\]$", line)
+        if m:
+            if section == "slot":
+                slot_end = i
+            section = m.group(1).strip().lower()
+            continue
+        if section != "slot":
+            continue
+        if _re.match(r"^color%d\s*=" % index, line, _re.I):
+            lines[i], done_c = "color%d=%d" % (index, color), True
+        elif _re.match(r"^material%d\s*=" % index, line, _re.I):
+            lines[i], done_m = "material%d=%d" % (index, material), True
+    if not (done_c and done_m):
+        extra = []
+        if not done_c:
+            extra.append("color%d=%d" % (index, color))
+        if not done_m:
+            extra.append("material%d=%d" % (index, material))
+        if section == "slot" and slot_end < 0:
+            at = len(lines)
+        elif slot_end >= 0:
+            at = slot_end
+        else:
+            lines += ["", "[slot]"]
+            at = len(lines)
+        while at > 0 and lines[at - 1].strip() == "":
+            at -= 1
+        lines[at:at] = extra
+    return eol.join(lines) + (eol if text.endswith(("\n", "\r")) else "")

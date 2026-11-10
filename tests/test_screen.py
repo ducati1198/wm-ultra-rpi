@@ -278,6 +278,27 @@ class Smoke(unittest.TestCase):
         p.show_tool_edit(2)
         p._refresh_view()
 
+    def test_tmt1_colours_shared_with_fluidd(self):
+        import importlib
+        p, screen = self.make("tabs")
+        zl = importlib.import_module("panels.zr_logic")
+        ini = "[slot]\ncolor0=0\nmaterial0=0\ncolor1=14\nmaterial1=3\n\n[nozzle]\ntype0=0\n"
+        slots = zl.parse_tmt1_slots(ini)
+        self.assertEqual((slots[1]["color"], slots[1]["material"]), (14, 3))
+        p._set_tmt1(ini)
+        info = p._tool_info(1)
+        self.assertEqual(info["color"], 0xFF1C2E)          # Red, the touchscreen swatch
+        self.assertEqual(zl.nearest_palette(0xE01010), 14)
+        new = zl.update_tmt1_slot(ini, 1, 5, 0)
+        self.assertIn("color1=5", new); self.assertIn("[nozzle]\ntype0=0", new)
+        self.assertEqual(new.count("color1="), 1)
+        self.assertEqual(zl.update_tmt1_slot("[slot]\ncolor0=1\n", 0, 4, 2), "[slot]\ncolor0=4\nmaterial0=2\n")
+
+    def test_park_button(self):
+        p, screen = self.make("tabs")
+        p.show_tool(0)
+        self.assertTrue(callable(p._act_park))
+
     def test_tool_page_and_editor(self):
         p, screen = self.make("tabs")
         p.show_tool(1)
@@ -288,7 +309,7 @@ class Smoke(unittest.TestCase):
         self.assertEqual((p.edit["mat"], p.edit["color"]), (1, 0xE01010))
         p._save_tool()
         sent = [c.args[0] for c in screen._ws.api.gcode_script.call_args_list]
-        self.assertTrue(any(x.startswith("ZR_SET_TOOL_INFO T=1 COLOR=%d MAT=1" % 0xE01010) for x in sent), sent)
+        self.assertTrue(any(x.startswith("ZR_SET_TOOL_INFO T=1 COLOR=%d MAT=1" % 0xFF1C2E) for x in sent), sent)
         self.assertEqual(p.view, "tool")          # saving returns to the toolhead page
         p.show_tool_edit(1)
         self.assertTrue(p.on_back()); self.assertEqual(p.view, "tool")

@@ -11,7 +11,11 @@
 #   zr_t<N>_temp (C), t<N>_pressure_advance (WonderMaker's own variable)
 # Tool mapping uses WonderMaker's own box_modify_t<N> variables.
 
+import json
 import logging
+import threading
+import urllib.request
+import uuid
 
 import gi
 
@@ -50,12 +54,7 @@ MATERIALS = [
     ("Other", 220),
 ]
 
-COLOR_PRESETS = [
-    ("White", 0xFFFFFF), ("Black", 0x000000), ("Grey", 0x808080),
-    ("Red", 0xE01010), ("Orange", 0xFF8C00), ("Yellow", 0xFFD700),
-    ("Green", 0x20A020), ("Blue", 0x1060E0), ("Purple", 0x8020A0),
-    ("Pink", 0xFF69B4), ("Brown", 0x8B4513), ("Clear", 0xD8E8F0),
-]
+COLOR_PRESETS = L.TOUCH_PALETTE         # same swatches, same order as the Fluidd panel and the touchscreen
 
 CHAMBER_MAX = 65
 
@@ -103,6 +102,9 @@ class Panel(ViewsMixin, ScreenPanel):
         self.st = {}          # last status received from Klipper
         self.w = {}           # widgets of the current view
         self.edit = None      # tool being edited: dict(color, mat, temp, pa)
+        self._tmt1 = []       # [slot] colours and materials from tmt1.ini (shared with Fluidd)
+        self._tmt1_text = ''
+        self._tmt1_busy = False
         self.settings = L.load_settings()
         self.nav_btns = {}
         self.outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
@@ -257,7 +259,64 @@ class Panel(ViewsMixin, ScreenPanel):
         self._query()
         return True
 
+    def _http_base(self):
+        ws = getattr(self._screen, "_ws", None)
+        host, port = getattr(ws, "host", None), getattr(ws, "port", None)
+        if not isinstance(host, str) or not host or not port:
+            return None
+        return "%s://%s:%s" % ("https" if getattr(ws, "ssl", False) else "http", host, port)
+
+    def _fetch_tmt1(self):
+        """Read tmt1.ini from Moonraker (in a thread, the screen must not wait for it)."""
+        base = self._http_base()
+        if base is None or self._tmt1_busy:
+            return
+        self._tmt1_busy = True
+
+        def work():
+            try:
+                with urllib.request.urlopen(base + "/server/files/config/tmt1.ini", timeout=4) as r:
+                    text = r.read().decode("utf-8", "replace")
+                GLib.idle_add(self._set_tmt1, text)
+            except Exception as e:
+                logging.debug(f"ZR: tmt1.ini not read: {e}")
+            finally:
+                self._tmt1_busy = False
+        threading.Thread(target=work, daemon=True).start()
+
+    def _set_tmt1(self, text):
+        self._tmt1_text = text
+        self._tmt1 = L.parse_tmt1_slots(text, NTOOLS)
+        self._refresh_view()
+        return False
+
+    def _write_tmt1(self, index, color_idx, mat_idx):
+        """Change one slot in tmt1.ini so Fluidd and the touchscreen see it. Re-reads first, keeps every other line."""
+        base = self._http_base()
+        if base is None:
+            return
+
+        def work():
+            try:
+                with urllib.request.urlopen(base + "/server/files/config/tmt1.ini", timeout=4) as r:
+                    cur = r.read().decode("utf-8", "replace")
+                new = L.update_tmt1_slot(cur, index, color_idx, mat_idx)
+                if new != cur:
+                    b = uuid.uuid4().hex
+                    body = (f'--{b}\r\nContent-Disposition: form-data; name="root"\r\n\r\nconfig\r\n'
+                            f'--{b}\r\nContent-Disposition: form-data; name="file"; filename="tmt1.ini"\r\n'
+                            f'Content-Type: text/plain\r\n\r\n').encode() + new.encode() + f"\r\n--{b}--\r\n".encode()
+                    req = urllib.request.Request(base + "/server/files/upload", body,
+                                                 {"Content-Type": "multipart/form-data; boundary=" + b})
+                    urllib.request.urlopen(req, timeout=6).read()
+                GLib.idle_add(self._set_tmt1, new)
+            except Exception as e:
+                logging.error(f"ZR: could not write tmt1.ini: {e}")
+                GLib.idle_add(self._screen.show_popup_message, "Could not share the colour with Fluidd (tmt1.ini).")
+        threading.Thread(target=work, daemon=True).start()
+
     def _query(self):
+        self._fetch_tmt1()
         ws = self._ws()
         if ws is None:
             return
@@ -337,11 +396,21 @@ class Panel(ViewsMixin, ScreenPanel):
 
     def _tool_info(self, i):
         v = self._vars()
-        mat = int(v.get(f"zr_t{i}_mat", 0) or 0)
+        slot = self._tmt1[i] if i < len(self._tmt1) else {}
+        if f"zr_t{i}_mat" in v:
+            mat = int(v.get(f"zr_t{i}_mat", 0) or 0)
+        elif slot.get("material") is not None:
+            mat = L.TOUCH_MATERIALS[slot["material"]][2]
+        else:
+            mat = 0
         if mat < 0 or mat >= len(MATERIALS):
             mat = 0
+        if slot.get("color") is not None:      # tmt1.ini is shared with Fluidd and the touchscreen
+            color = L.TOUCH_PALETTE[slot["color"]][1]
+        else:
+            color = int(v.get(f"zr_t{i}_color", 0x404040) or 0)
         return {
-            "color": int(v.get(f"zr_t{i}_color", 0x404040) or 0),
+            "color": color,
             "mat": mat,
             "temp": int(v.get(f"zr_t{i}_temp", MATERIALS[mat][1] or 220) or 0),
             "pa": float(v.get(f"t{i}_pressure_advance", 0.04) or 0.0),
@@ -743,7 +812,10 @@ class Panel(ViewsMixin, ScreenPanel):
             actions.attach(btn, n % 3, n // 3, 1, 1)
         edit_btn = self._button("fine-tune", "Edit filament", "color3", self.show_tool_edit, i)
         edit_btn.set_size_request(-1, int(self.sz["btn_h"] * 1.7))
-        actions.attach(edit_btn, 0, 2, 3, 1)
+        actions.attach(edit_btn, 0, 2, 2, 1)
+        park_btn = self._button("extruder", "Park tool", "color3", self._act_park)
+        park_btn.set_size_request(-1, int(self.sz["btn_h"] * 1.7))
+        actions.attach(park_btn, 2, 2, 1, 1)
         page.pack_start(actions, True, True, 0)
 
         self.root.pack_start(page, True, True, 0)
@@ -906,6 +978,11 @@ class Panel(ViewsMixin, ScreenPanel):
     def _save_tool(self):
         i = self.view_tool
         e = self.edit
+        cidx = L.nearest_palette(int(e["color"]))      # tmt1.ini holds a swatch index, so a custom colour snaps to the closest swatch
+        e["color"] = L.TOUCH_PALETTE[cidx][1]
+        midx = next((n for n, m in enumerate(L.TOUCH_MATERIALS) if m[2] == int(e["mat"])), 0)
+        if int(e["mat"]):
+            self._write_tmt1(i, cidx, midx)
         script = (f"ZR_SET_TOOL_INFO T={i} COLOR={int(e['color'])} "
                   f"MAT={int(e['mat'])} TEMP={int(e['temp'])}")
         old_pa = self._tool_info(i)["pa"]
@@ -945,6 +1022,11 @@ class Panel(ViewsMixin, ScreenPanel):
         if self._require_idle():
             self._confirm("Select toolhead", f"Pick up toolhead {i + 1} (T{i})?",
                           f"_CHANGE_TOOL T={i}", f"Changing to toolhead {i + 1}...")
+
+    def _act_park(self):
+        if self._require_idle():
+            self._confirm("Park tool", "Return the active toolhead to its dock?",
+                          "PARK_CURRENT_TOOL", "Parking the toolhead...")
 
     def _act_heat(self, i):
         temp = int(self.edit["temp"] if self.edit and self.view_tool == i
