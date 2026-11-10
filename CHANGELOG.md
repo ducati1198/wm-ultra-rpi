@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.23.53
+
+- **New `rpi-cfg/wm_print_end.cfg`: `PRINT_END` runs when a print finishes.** OrcaSlicer's end G-code for WonderMaker is only the comment `;PRINT_END`; the original screen board saw the print finish and ran `PRINT_END` itself (seen in its client log). On the Pi nothing did, so the tool head stayed over the print, the heaters stayed on and the motors stayed locked. A watcher now runs `PRINT_END` once when the print state is `complete` and `START_PRINT.print_body_ready` is still True; a G-code file that calls `PRINT_END` itself is not run twice. Installed with the other rpi-cfg files. Tested on the Pi: the file loads and Klipper starts; the first real print end is the live test.
+
 ## 1.23.52
 
 - The Chinese comments, macro descriptions and a few printed messages in WonderMaker's config files are now English (`change_macros.cfg`, `offset_calibrate.cfg`, `macros.cfg`, `test_macro.cfg`, `change_extruder.cfg`, `extruder0-3.cfg`, `moonraker.conf`, for both models). Only text changed: no setting or command. Three real strings: `default('未知')` is now `default('unknown')` (display only), and the messages "retry check", "preheating the next tool head" and "changing current value to %d". The compiled WonderMaker modules, Klipper, Moonraker and the scripts were not touched. Done on the Pi first; Klipper reads it at the next restart. `./installer.sh --cfg-merge` will show these as WonderMaker-side differences if you compare with the original files.

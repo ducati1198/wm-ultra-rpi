@@ -79,6 +79,14 @@ def leds(detected, undefined=()):
     return [l.strip() for l in env.from_string(led).render(printer=pr).splitlines() if l.strip()]
 want("leds: filament = blue, none = red", leds([True, False, True, False]), "SET_LED LED=T0_RGB RED=0.0 GREEN=0.0 BLUE=1.0 TRANSMIT=1", "SET_LED LED=T1_RGB RED=1.0 GREEN=0.0 BLUE=0.0 TRANSMIT=1", "SET_LED LED=T2_RGB RED=0.0 GREEN=0.0 BLUE=1.0 TRANSMIT=1", "SET_LED LED=T3_RGB RED=1.0 GREEN=0.0 BLUE=0.0 TRANSMIT=1", "UPDATE_DELAYED_GCODE ID=WM_TOOL_LEDS DURATION=2")
 want("leds: a missing sensor counts as no filament", leds([True] * 4, undefined=(2,)), "SET_LED LED=T2_RGB RED=1.0 GREEN=0.0 BLUE=0.0 TRANSMIT=1", "SET_LED LED=T3_RGB RED=0.0 GREEN=0.0 BLUE=1.0 TRANSMIT=1")
+# print end watcher (rpi-cfg/wm_print_end.cfg)
+pe = re.search(r'^\[delayed_gcode WM_PRINT_END_WATCH\]\n(?:.*\n)*?gcode:\n((?:(?:    .*|)\n)+)', open(os.path.join(ROOT, "rpi-cfg", "wm_print_end.cfg")).read(), re.M).group(1)
+def pend(state, ready):
+    pr = {"print_stats": {"state": state}, "gcode_macro START_PRINT": {"print_body_ready": ready}}
+    return ["<<run PRINT_END>>" if l.strip() == "PRINT_END" else l.strip() for l in env.from_string(pe).render(printer=pr).splitlines() if l.strip()]
+want("print end: complete and PRINT_END not run yet -> runs it", pend("complete", True), "<<run PRINT_END>>", "UPDATE_DELAYED_GCODE ID=WM_PRINT_END_WATCH DURATION=2")
+want("print end: already run (G-code called it) -> not twice", pend("complete", False), "UPDATE_DELAYED_GCODE ID=WM_PRINT_END_WATCH", none=("<<run",))
+want("print end: printing / cancelled / idle -> nothing", pend("printing", True) + pend("cancelled", True) + pend("standby", True), "UPDATE_DELAYED_GCODE", none=("<<run",))
 want("no chamber macro any more", sorted(macros), none=("WM_CHAMBER_PID",))
 want("bed pid refuses odd target", run("WM_BED_PID", {"TARGET": "200"}), "RAISE")
 want("full calibration: window, nothing runs", run("WM_FULL_CALIBRATION"), "prompt_begin Full Calibration", "_WM_FULL_CALIBRATION", "Hotend PID: tunes", none=("G29", "SAVE_CONFIG\n", "PID_CALIBRATE"))
