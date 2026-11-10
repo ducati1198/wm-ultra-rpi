@@ -900,6 +900,7 @@ check "--shaketune needs on or off" "! bash $ROOT/installer.sh --shaketune maybe
 check "--help mentions --shaketune" "bash $ROOT/installer.sh --help | grep -q shaketune"
 check "shaketune is pinned" "grep -q '^shaketune|https://github.com/Frix-x/klippain-shaketune|[0-9a-f]\\{40\\}' $ROOT/config/pins/addons.txt"
 printf "[server]\n" > "$HK/printer_data/config/moonraker.conf"; : > "$HK/.sudo.log"
+printf '\n#*# <---------------------- SAVE_CONFIG ---------------------->\n#*# DO NOT EDIT THIS BLOCK OR BELOW.\n' >> "$HK/printer_data/config/printer.cfg"
 OUT="$(inst "$HK" --update --shaketune on)"
 check "--shaketune on installs the extension link and config" "[ -L $HK/klipper/klippy/extras/shaketune ] && [ -f $HK/printer_data/config/shaketune.cfg ]"
 check "--shaketune on adds include and update manager, with a printer.cfg copy" "grep -q 'include shaketune.cfg' $HK/printer_data/config/printer.cfg && grep -q 'Klippain-ShakeTune' $HK/printer_data/config/moonraker.conf && ls $HK/printer_data/config/printer.cfg.wm-before-shaketune-* >/dev/null"
