@@ -2,3 +2,4 @@ crowsnest|https://github.com/mainsail-crew/crowsnest|436042452f564f3d737e3b980a2
 moonraker-timelapse|https://github.com/mainsail-crew/moonraker-timelapse|c7fff11e542b95e0e15b8bb1443cea8159ac0274
 klipperscreen|https://github.com/KlipperScreen/KlipperScreen|34610ceae31e12a10cc980e20a1dec9976f97dd4
 shaketune|https://github.com/Frix-x/klippain-shaketune|354ee4be6db218715239f7b9411c2c37fdea23dd
+klipper-upstream|https://github.com/Klipper3d/klipper|0d67d9c45d2dc39f8b4be7d1bb54b94b2698a2b6

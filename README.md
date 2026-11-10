@@ -654,7 +654,7 @@ scripts/                pull_from_board.sh, stage_from_repo.sh, board_check.sh, 
 config/                 systemd units, nginx files, can0 udev rule, pinned Python requirements, crowsnest template, addon version pins
 zr_tools/               ZR Tools KlipperScreen panel (copied by the installer)
 tools/wm-release/       release tool: takes a new WonderMaker System version (from their website, a TM_T1_SOC file or the screen board) and keeps your changes; not used by the installer
-docs/                   HARDWARE.md, WIRING.md and images
+docs/                   HARDWARE.md, WIRING.md, HOST_MCU.md (the Klipper-Mcu service) and images
 tests/                  run_tests.sh (installer, fake home) and test_screen.py (ZR Tools panel)
 ```
 

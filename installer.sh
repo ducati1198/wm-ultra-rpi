@@ -98,7 +98,7 @@ COMPILED_MODULES=(cs1237 hx711 heater_air_core heater_feng xy_offset_calibrator_
 
 pi_weight() {   # how long each install step takes, roughly (a step that is switched off counts for nothing)
     case "$1" in
-        1) echo 14 ;; 2) echo 1 ;; 3) echo 8 ;; 4) echo 5 ;; 4b) echo 1 ;; 4c) echo 1 ;; 4d) echo 1 ;; 4e) echo 2 ;; 5) echo 30 ;; 6) echo 2 ;; 7|8|9) echo 2 ;; 10) echo 4 ;;
+        1) echo 14 ;; 2) echo 1 ;; 3) echo 8 ;; 4) echo 5 ;; 4b) echo 1 ;; 4c) echo 1 ;; 4d) echo 1 ;; 4e) echo 2 ;; 5) echo 30 ;; 6) echo 2 ;; 7) echo 2 ;; 7b) echo 3 ;; 8|9) echo 2 ;; 10) echo 4 ;;
         11) [ "${WANT_SCREEN:-0}" = 1 ] && echo 12 || echo 1 ;;
         12) [ "${WANT_TIMELAPSE:-0}" = 1 ] && echo 2 || echo 0 ;;
         12b) [ "${WANT_SHELLCMD:-0}" = 1 ] && echo 1 || echo 0 ;;
@@ -115,7 +115,7 @@ pi_weight() {   # how long each install step takes, roughly (a step that is swit
 }
 pi_cum() {   # percent-points finished when step KEY starts; "end" = the total
     local k s sum=0
-    for k in 1 2 3 4 4b 4c 4e 4d 5 6 7 8 9 10 11 12 12b 12f 12g 12h 12c 12d 12e 13 14; do
+    for k in 1 2 3 4 4b 4c 4e 4d 5 6 7 7b 8 9 10 11 12 12b 12f 12g 12h 12c 12d 12e 13 14; do
         [ "$k" = "$1" ] && { echo "$sum"; return; }
         sum=$((sum + $(pi_weight "$k")))
     done
@@ -632,6 +632,40 @@ step_services() {
     SUDO systemctl disable klipper
     SUDO systemctl stop klipper
     print_success "Services installed (Klipper stays off for now)"
+}
+
+# ---------------------------------------------------------------------------
+# Klipper's Linux host MCU: a small Klipper program that runs on the Pi itself (service klipper-mcu, socket /tmp/klipper_host_mcu).
+# It is what Klipper uses for sensors wired straight to the Pi (an ADXL345 on the SPI pins, GPIO pins). WonderMaker's ~/klipper has no
+# MCU source folder, so it is built from the official Klipper source, pinned in config/pins/addons.txt. Installing it changes nothing in
+# printer.cfg: Klipper only talks to it once printer.cfg has an [mcu host] section (see docs/HOST_MCU.md).
+# ---------------------------------------------------------------------------
+step_hostmcu() {
+    print_header "Step 7b: Klipper host MCU"
+    why "Adds the Klipper-Mcu service (Fluidd's Services list) so sensors wired to the Pi's own pins can be used. Nothing in printer.cfg changes."
+    local dir="$HOME_DIR/klipper-host-mcu" bin=/usr/local/bin/klipper_mcu unit=/etc/systemd/system/klipper-mcu.service pin url sha
+    if [ "$DRY" != 1 ] && [ "$TESTING" != 1 ] && [ -x "$bin" ] && [ -f "$unit" ]; then
+        SUDO systemctl enable klipper-mcu >/dev/null 2>&1; SUDO systemctl start klipper-mcu >/dev/null 2>&1
+        print_success "Klipper host MCU is already installed"; return 0
+    fi
+    pin="$(addon_pin klipper-upstream)"; url="${pin%|*}"; sha="${pin#*|}"
+    fetch_addon "$url" "$sha" "$dir" || { warn_later "Could not download Klipper's source for the host MCU (network?). The Klipper-Mcu service was not installed; run ./installer.sh --update to retry."; return 0; }
+    if [ "$DRY" = 1 ]; then echo -e "  ${DIM}would run: make (CONFIG_MACH_LINUX), install $bin and $unit, enable and start klipper-mcu${NC}"; return 0; fi
+    if [ "$TESTING" = 1 ]; then
+        mkdir -p "$dir/out" "$dir/scripts"; echo "[test] host mcu build + install klipper-mcu" >> "$HOME_DIR/.sudo.log"; return 0
+    fi
+    printf 'CONFIG_LOW_LEVEL_OPTIONS=y\nCONFIG_MACH_LINUX=y\n' > "$dir/.config"
+    heartbeat_start "building the host MCU"
+    ( cd "$dir" && make olddefconfig >/dev/null 2>&1 && make clean >/dev/null 2>&1; make -j"$(nproc)" >/dev/null 2>&1 ) && [ -x "$dir/out/klipper.elf" ] \
+        || { heartbeat_stop; warn_later "The Klipper host MCU did not build. Klipper is not affected. Details: cd ~/klipper-host-mcu && make"; return 0; }
+    heartbeat_stop
+    SUDO install -m 755 "$dir/out/klipper.elf" "$bin"
+    SUDO install -m 644 "$dir/scripts/klipper-mcu.service" "$unit"
+    record "FILE $bin"; record "FILE $unit"; record "HOMEDIR klipper-host-mcu"
+    SUDO systemctl daemon-reload
+    SUDO systemctl enable klipper-mcu >/dev/null 2>&1; SUDO systemctl start klipper-mcu
+    SUDO systemctl restart moonraker 2>/dev/null   # Moonraker looks for the services it may control only when it starts
+    print_success "Klipper host MCU installed (service klipper-mcu). Use it by adding [mcu host] with serial: /tmp/klipper_host_mcu to printer.cfg: docs/HOST_MCU.md"
 }
 
 step_nginx() {
@@ -1804,7 +1838,7 @@ do_update() {
         "$HOME_DIR/moonraker-env/bin/pip" install -q -r "$SCRIPT_DIR/config/moonraker-requirements.txt" || warn_later "moonraker-env packages did not update."
     fi
     progress_bar 45 100 "Update step 4 of $UT: services, nginx, CAN"
-    if [ -z "$ONLY_ADDON" ]; then step_services_files; step_nginx; step_can; step_rpicfg; step_cfgmerge; step_pidcfg; fi
+    if [ -z "$ONLY_ADDON" ]; then step_services_files; step_hostmcu; step_nginx; step_can; step_rpicfg; step_cfgmerge; step_pidcfg; fi
     progress_bar 50 100 "Update step 5 of $UT: Fluidd panel"
     if [ -z "$ONLY_ADDON" ] && [ "$WANT_PANEL" = 1 ]; then
         local sha=""; panel_get && sha="$(sha256sum "$PANEL_ZIP" | cut -d' ' -f1)"
@@ -2247,6 +2281,7 @@ do_uninstall() {
 uninstall_system_files() {
     SUDO systemctl stop klipper; SUDO systemctl stop moonraker
     SUDO systemctl disable klipper; SUDO systemctl disable moonraker
+    [ -f /etc/systemd/system/klipper-mcu.service ] && { SUDO systemctl stop klipper-mcu; SUDO systemctl disable klipper-mcu; }   # the host MCU this installer built
     local k v
     while read -r k v; do
         case "$k" in
@@ -2965,7 +3000,7 @@ guard_not_printing
 save_answers
 PROG_STEPS=14
 step_packages; step_groups; step_python; step_unpack; step_model; step_rpicfg; step_cfgmerge; step_pidcfg; step_venvs; step_modules
-step_services; step_nginx; step_can; step_panel; step_screen; step_netmgr; step_timelapse; step_shellcmd; step_shaketune; step_spoolman; step_acepro; moonraker_add_update_entries; step_remote; step_crowsnest; step_start
+step_services; step_hostmcu; step_nginx; step_can; step_panel; step_screen; step_netmgr; step_timelapse; step_shellcmd; step_shaketune; step_spoolman; step_acepro; moonraker_add_update_entries; step_remote; step_crowsnest; step_start
 save_answers
 restart_klipper_after
 self_test

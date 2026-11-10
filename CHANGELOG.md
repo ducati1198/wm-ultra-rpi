@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.23.43
+
+- New install step 7b: **Klipper host MCU**. The installer builds Klipper's Linux MCU from the official Klipper source (pinned in `config/pins/addons.txt` as `klipper-upstream`, v0.12.0, into `~/klipper-host-mcu`), installs `/usr/local/bin/klipper_mcu` and the `klipper-mcu` service, enables and starts it, and restarts Moonraker so Fluidd lists **Klipper-Mcu** under Services. WonderMaker's `~/klipper` has no MCU source folder, which is why the official one is used. Nothing in `printer.cfg` changes: Klipper only uses it once you add `[mcu host]` (see the new `docs/HOST_MCU.md`). It runs on a new install and on `--update` (skipped when already installed); a failed build or download only warns. Uninstall stops and disables the service. Tried on a fresh Pi (build, service active, Moonraker lists it); the installer step itself is covered by the mock tests.
+- Fluidd has no "Firmware Restart" entry in its Services list (only on the red status card when Klipper is down); use the console command `FIRMWARE_RESTART`.
+
 ## 1.23.42
 
 - The tool offsets are now two macros, one for each button of the screen: `WM_OFFSETS_RAPID` and `WM_OFFSETS_ACCURATE` (option `TEMP`, default 220). `WM_TOOL_OFFSETS` (with `MODE=`) and its four helper macros (`_WM_TO_PREP`, `_WM_TO_CLEAN`, `_WM_TO_RAPID`, `_WM_TO_END`) from 1.23.41 are gone. Same order as the screen as in 1.23.41. Klipper does not let a macro call itself and has no "wait for a button", so `WM_OFFSETS_ACCURATE` ends after each tool is prepared and shows the debris window; its OK button starts the same macro again with `STEP=clean N=<tool>`, which wipes that tool and prepares the next one (or, after the last tool, measures all tools, parks and turns the heaters off). `WM_FULL_CALIBRATION` calls `WM_OFFSETS_RAPID`. A Pi that has the old `wm_calibration.cfg` gets the new one with Doctor Fix. Not tested on a real printer.
