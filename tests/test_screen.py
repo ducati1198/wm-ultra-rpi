@@ -326,6 +326,44 @@ class Smoke(unittest.TestCase):
         p.show_main(); p._refresh_main()
         self.assertTrue(any("dryer off" in c[0][0] for c in p.w["p_ace"].set_text.call_args_list))
 
+    def test_load_unload_use_the_ace_only_when_it_is_connected(self):
+        p, screen = self.make("tabs")
+        p._require_idle = lambda: True
+        seen = []
+        p._confirm = lambda title, text, script, message=None: seen.append(script)
+        p.st["print_stats"] = {"state": "standby"}
+        p._act_load(1); p._act_unload(1)
+        self.assertEqual(seen, ["ZR_LOAD T=1", "ZR_RETRACT T=1"])           # no ACE: regular load, retract
+        del seen[:]
+        p.st["ace_instance_0"] = {"connection_state": "connected", "slots": [], "dryer_status": {"status": "stop"}}
+        p._act_load(2); p._act_unload(2)
+        self.assertEqual(seen, ["ACE_WM_LOAD T=2", "ACE_WM_UNLOAD T=2"])    # ACE connected
+        del seen[:]
+        p.st["ace_instance_0"]["connection_state"] = "disconnected"
+        p._act_load(0); p._act_unload(0)
+        self.assertEqual(seen, ["ZR_LOAD T=0", "ZR_RETRACT T=0"])           # ACE unplugged: back to the regular ones
+
+    def test_calibration_page_lists_the_wm_macros(self):
+        p, screen = self.make("tabs")
+        labels = []
+        p._button = lambda icon, text, style, cb, *a: labels.append((text, a[1] if len(a) > 1 else None)) or p._gtk.Button()
+        p._sections = lambda: ["gcode_macro WM_FULL_CALIBRATION", "gcode_macro WM_BED_PID", "gcode_macro WM_NOZZLE_TEMP_CAL"]
+        p.show_utilities()
+        names = [x[0] for x in labels]
+        self.assertIn("Full calibration", names); self.assertIn("Bed PID", names)
+        self.assertNotIn("Bed leveling", names)                 # macro missing on the Pi: not offered
+        for gone in ("Offsets: fine (all)", "Offsets: rapid (all)", "Bed mesh"):
+            self.assertNotIn(gone, names)
+        self.assertFalse(any(n.startswith(("Z offset", "XY offset")) for n in names))
+        self.assertIn(("Nozzle temperature T0", "WM_NOZZLE_TEMP_CAL T=0"), [(x[0], x[1]) for x in labels])
+        del labels[:]
+        p._sections = lambda: []                                # list unknown: show everything
+        p.show_utilities()
+        self.assertEqual(sum(1 for n, _ in labels if n in ("Full calibration", "Bed leveling", "Probe calibrate (Z height)",
+            "Offsets: rapid", "Offsets: accurate", "Vibration compensation", "Bed PID", "Nozzle type", "Nozzle change", "Extruder setup")), 10)
+        hub = [x[1] for x in p._hub_items()]
+        self.assertNotIn("Z offset", hub); self.assertNotIn("Input shaper", hub)
+
     def test_park_button(self):
         p, screen = self.make("tabs")
         p.show_tool(0)

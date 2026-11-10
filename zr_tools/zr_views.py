@@ -91,10 +91,7 @@ class ViewsMixin:
             items.append(("settings", "Calibration", self.show_utilities))
         items += [("shuffle", "Choose toolheads", self.show_mapping),
                   ("fan", "Fans", lambda: self._open_stock("fan", "Fan")),
-                  ("z-farther", "Z offset", lambda: self._open_stock("fine_tune", "Fine tuning")),
                   ("retract", "Pressure advance", lambda: self._open_stock("pressure_advance", "Pressure advance"))]
-        if L.shaper_available(self._sections()):
-            items.append(("speed+", "Input shaper", lambda: self._open_stock("input_shaper", "Input shaper")))
         if L.collision_settings(self._collision_section()):
             items.append(("warning", "Collision", self.show_collision))
         items += [("camera", "Camera", lambda: self._open_stock("camera", "Camera")),

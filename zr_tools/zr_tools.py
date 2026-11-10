@@ -1054,17 +1054,32 @@ class Panel(ViewsMixin, ScreenPanel):
         self._gcode(f"SET_HEATER_TEMPERATURE HEATER={_ext_name(i)} TARGET=0",
                     f"Toolhead {i + 1} heater off")
 
+    def _ace_connected(self):
+        return L.has_ace(self.st) and bool(L.ace_state(self.st)["connected"])
+
     def _act_load(self, i):
-        if self._require_idle():
-            self._confirm("Load filament",
-                          f"Insert filament into toolhead {i + 1}, then press OK.\n"
-                          "It heats to the saved temperature and feeds 100 mm.",
-                          f"ZR_LOAD T={i}", "Loading...")
+        if not self._require_idle():
+            return
+        if self._ace_connected():           # ACE feeds the filament to this toolhead
+            self._confirm("Load from ACE", f"Feed ACE slot {i + 1} to toolhead {i + 1} and load it?",
+                          f"ACE_WM_LOAD T={i}", f"ACE loading T{i + 1}")
+            return
+        self._confirm("Load filament",
+                      f"Insert filament into toolhead {i + 1}, then press OK.\n"
+                      "It heats to the saved temperature and feeds 100 mm.",
+                      f"ZR_LOAD T={i}", "Loading...")
 
     def _act_unload(self, i):
-        if self._require_idle():
-            self._confirm("Unload filament", f"Unload filament from toolhead {i + 1}?",
-                          f"ZR_UNLOAD T={i}", "Unloading...")
+        if not self._require_idle():
+            return
+        if self._ace_connected():           # ACE pulls the filament back into its slot
+            self._confirm("Unload to ACE", f"Unload toolhead {i + 1} and pull the filament back into ACE slot {i + 1}?",
+                          f"ACE_WM_UNLOAD T={i}", f"ACE unloading T{i + 1}")
+            return
+        self._confirm("Unload filament",
+                      f"Unload filament from toolhead {i + 1}?\n"
+                      "It picks up the toolhead, heats it to the saved temperature and retracts the filament.",
+                      f"ZR_RETRACT T={i}", "Unloading...")
 
     def _act_purge(self, i):
         if not self._require_idle():
@@ -1139,20 +1154,31 @@ class Panel(ViewsMixin, ScreenPanel):
     def show_utilities(self):
         self.view = "utilities"
         self._clear()
-        self.root.pack_start(self._header("Utilities"), False, False, 0)
+        self.root.pack_start(self._header("Calibration"), False, False, 0)
         a = self._active_tool()
         at = a if a >= 0 else 0
-        items = [
-            ("home", "Home all", "G28", "Home all axes?"),
-            ("fine-tune", "Offsets: fine (all)", "CALIBRATE_OFFSET_ALL_FINE_MODE",
-             "Calibrate XY offsets of all toolheads (fine mode)?\nThis heats the nozzles."),
-            ("fine-tune", "Offsets: rapid (all)", "CALIBRATE_OFFSET_ALL_RAPID_MODE",
-             "Calibrate offsets of all toolheads (rapid mode)?"),
-            ("z-farther", f"Z offset T{at}", f"CALIBRATE_TOOL_Z_OFFSET T={at}",
-             f"Calibrate the Z offset of the active toolhead (T{at})?"),
-            ("move", f"XY offset T{at}", f"CALIBRATE_TOOL_OFFSET T={at}",
-             f"Calibrate the XY offset of the active toolhead (T{at})?"),
-            ("bed-level", "Bed mesh", "BED_MESH_CALIBRATE", "Run a full bed mesh?"),
+        have = {str(x).strip().upper() for x in (self._sections() or [])}
+
+        def wm(name):      # WonderMaker calibration macros (rpi-cfg/wm_calibration.cfg, wm_nozzle.cfg): hidden when the Pi lacks them
+            return not have or ("GCODE_MACRO " + name) in have
+
+        # (icon, label, script, confirm question or None). The WM_* macros open their own Start / Cancel window
+        # (Fluidd and here), so they are sent straight away.
+        items = [("home", "Home all", "G28", "Home all axes?")]
+        items += [x for x in (
+            ("settings", "Full calibration", "WM_FULL_CALIBRATION", None),
+            ("bed-level", "Bed leveling", "WM_BED_LEVELING", None),
+            ("z-farther", "Probe calibrate (Z height)", "WM_PROBE_CALIBRATE", None),
+            ("fine-tune", "Offsets: rapid", "WM_OFFSETS_RAPID", None),
+            ("fine-tune", "Offsets: accurate", "WM_OFFSETS_ACCURATE", None),
+            ("speed+", "Vibration compensation", "WM_VIBRATION_COMP", None),
+            ("heat-up", "Bed PID", "WM_BED_PID", None),
+            ("heat-up", f"Nozzle temperature T{at}", f"WM_NOZZLE_TEMP_CAL T={at}", None),
+            ("extruder", "Nozzle type", "WM_NOZZLE_TYPE", None),
+            ("extruder", "Nozzle change", "WM_NOZZLE_CHANGE", None),
+            ("toolchanger", "Extruder setup", "WM_EXTRUDER_SETUP", None),
+        ) if wm(x[2].split()[0])]
+        items += [
             ("fine-tune", "Wipe nozzle", "WIPE_NOZZLE", "Wipe the active nozzle?"),
             ("extruder", "Park tool", "PARK_CURRENT_TOOL", "Return the active toolhead to its dock?"),
             ("motor-off", "Motors off", "M84", "Disable all motors?"),
@@ -1171,7 +1197,11 @@ class Panel(ViewsMixin, ScreenPanel):
         self.root.show_all()
 
     def _utility(self, title, script, question):
-        if self._require_idle():
+        if not self._require_idle():
+            return
+        if question is None:            # the macro shows its own Start / Cancel window
+            self._gcode(script)
+        else:
             self._confirm(title, question, script, f"{title}...")
 
     # ------------------------------------------------------------------
