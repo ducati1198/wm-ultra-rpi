@@ -12,7 +12,7 @@ macros = {m.group(1): m.group(2) for m in re.finditer(r'^\[gcode_macro (\S+)\]\n
 HEAT = ['heater_bed', 'extruder', 'extruder1', 'extruder2', 'extruder3', 'heater_generic chamber']
 class Raise(Exception): pass
 env = jinja2.Environment(variable_start_string='{', variable_end_string='}')
-def run(name, params=None, target=None, control='pid', printing='standby', chamber=True, sv=None, temps=None, docks=None, shell=True, ids=None, actual=None, canids=True):
+def run(name, params=None, target=None, control='pid', printing='standby', chamber=True, sv=None, temps=None, docks=None, shell=True, ids=None, actual=None, canids=True, fil=None, ace=False):
     svars = {'thr_number': 4, 'current_extruder': 0, 'fail_flag': 0, 'fail_tool': 99, 'is_nozzle_setting': 0}; svars.update(sv or {})
     printer = {'save_variables': {'variables': svars},
                'print_stats': {'state': printing}, 'heaters': {'available_heaters': HEAT}, 'toolhead': {'homed_axes': 'xyz'},
@@ -27,6 +27,8 @@ def run(name, params=None, target=None, control='pid', printing='standby', chamb
     for i in range(4):
         cs['filament_switch_sensor docked%d' % i] = {}
         printer['filament_switch_sensor docked%d' % i] = {'filament_detected': (docks or {}).get(i, True)}
+    for i in range(4): printer['filament_switch_sensor filament%d' % i] = {'filament_detected': (fil or {}).get(i, True)}
+    if ace: printer['ace'] = {}
     def raise_(m): raise Raise(m)
     info = []
     def respond_info(m): info.append(m); return ''
@@ -160,6 +162,58 @@ closes_first("accurate: bad temp closes the window before it fails", run("WM_OFF
 closes_first("accurate: clean while printing closes the window before it fails", run("WM_OFFSETS_ACCURATE", {"STEP": "clean", "N": "0"}, printing="printing"))
 want("_WM_FAIL raises the message", run("_WM_FAIL", {"MSG": "No filament in T1."}), "RAISE: No filament in T1.")
 want("z offset", run("WM_ZOFFSET_DOWN", {"STEP": "0.01"}), "SET_GCODE_OFFSET Z_ADJUST=-0.01 MOVE=1")
+want("accurate popup tells to load filament in every tool", run("_WM_CAL_ASK", {"STAGE": "offsets", "MODE": "accurate"}), "Filament must be loaded in every tool head")
+want("rapid popup has no filament sentence", run("_WM_CAL_ASK", {"STAGE": "offsets", "MODE": "rapid"}), "Calibrates every tool head", none=("Filament must be loaded",))
+def fails_before(label, lines, *later):   # the render prints every line, but Klipper stops at _WM_FAIL, so the error line must come before anything that moves or heats
+    fi = next((i for i, l in enumerate(lines) if "_WM_FAIL" in l), None)
+    if fi is None: bad.append("%s: no _WM_FAIL in\n%s" % (label, "\n".join(lines))); return
+    for w in later:
+        li = next((i for i, l in enumerate(lines) if l.startswith(w)), None)
+        if li is not None and li < fi: bad.append("%s: %r runs before _WM_FAIL in\n%s" % (label, w, "\n".join(lines)))
+want("accurate: an empty tool is named in the error", run("WM_OFFSETS_ACCURATE", {"CONFIRM": "1"}, fil={2: False}), '_WM_FAIL MSG="No filament in T2')
+fails_before("accurate: an empty tool stops it before G28", run("WM_OFFSETS_ACCURATE", {"CONFIRM": "1"}, fil={2: False}), "G28", "WM_NOZZLE_PREPARE", "RESPOND MSG=\"Accurate tool offset calibration started")
+closes_first("accurate: missing filament closes the window before it fails", run("WM_OFFSETS_ACCURATE", {"CONFIRM": "1"}, fil={1: False}))
+want("accurate: only the tools in use are checked", run("WM_OFFSETS_ACCURATE", {"CONFIRM": "1"}, sv={"thr_number": 2}, fil={3: False}), "G28", none=("_WM_FAIL",))
+want("prepare: no filament", run("WM_NOZZLE_PREPARE", {"S": "220", "T": "1"}, fil={1: False}), '_WM_FAIL MSG="No filament in T1')
+fails_before("prepare: no filament stops before it moves or heats", run("WM_NOZZLE_PREPARE", {"S": "220", "T": "1"}, fil={1: False}), "T1", "G28", "M109", "G1")
+
+def assist_check(label, lines, ace, extrude=("G1 E120", "G1 E88", "G1 E{", "G1 E100")):   # feed assist only with an ACE, switched on before the purge and off after it
+    on = [i for i, l in enumerate(lines) if "ACE_ENABLE_FEED_ASSIST" in l]; off = [i for i, l in enumerate(lines) if "ACE_DISABLE_FEED_ASSIST" in l]
+    ex = [i for i, l in enumerate(lines) if l.startswith("G1 E") and not l.startswith("G1 E-")]
+    if not ex: bad.append("%s: no purge in\n%s" % (label, "\n".join(lines))); return
+    if not ace:
+        if on or off or any("ACE_" in l for l in lines): bad.append("%s: ACE commands without an ACE in\n%s" % (label, "\n".join(lines)))
+    elif not (len(on) == 1 and len(off) == 1 and on[0] < ex[0] and ex[-1] < off[0]): bad.append("%s: feed assist must go on before and off after the purge in\n%s" % (label, "\n".join(lines)))
+for a in (False, True):
+    assist_check("WM_NOZZLE_PREPARE ace=%s" % a, run("WM_NOZZLE_PREPARE", {"S": "220", "T": "1"}, ace=a), a)
+    want("WM_NOZZLE_PREPARE ace=%s steps" % a, run("WM_NOZZLE_PREPARE", {"S": "220", "T": "0"}, ace=a), "G28 Z", "PROBE", "M109 S220 T0", "G1 E120 F800", "G1 E-3 F800", "M109 S100 T0", "G1 Z80")
+    if a: want("WM_NOZZLE_PREPARE assist is for the tool", run("WM_NOZZLE_PREPARE", {"S": "220", "T": "2"}, ace=True), "ACE_ENABLE_FEED_ASSIST T=2", "ACE_DISABLE_FEED_ASSIST T=2")
+
+# the other macros that push filament outside a print (factory offset_calibrate.cfg for both models, ZR Tools): feed assist only with an ACE
+def macros_of(path):
+    t = open(os.path.join(ROOT, path)).read()
+    return {m.group(1): m.group(2) for m in re.finditer(r'^\[gcode_macro (\S+)\]\n(?:.*\n)*?gcode:\n((?:(?:    .*|)\n)+)', t, re.M)}
+def run_other(ms, name, params, ace):
+    printer = {'save_variables': {'variables': {'current_extruder': 0, 'zr_t1_temp': 220}}, 'print_stats': {'state': 'standby'},
+               'toolhead': {'homed_axes': 'xyz', 'extruder': 'extruder2'}, 'extruder2': {'target': 0.0}}
+    if ace: printer['ace'] = {}
+    def raise_(m): raise Raise(m)
+    try: out = env.from_string(ms[name]).render(printer=printer, params=params, action_raise_error=raise_, action_respond_info=lambda m: '')
+    except Raise as e: return ["RAISE: " + str(e)]
+    return [l.strip() for l in out.splitlines() if l.strip()]
+for path in ("factory/ultra/config/offset_calibrate.cfg", "factory/ultra-s/config/offset_calibrate.cfg"):
+    ms = macros_of(path)
+    for a in (False, True):
+        assist_check("%s NOZZLE_PREPARE ace=%s" % (path, a), run_other(ms, "NOZZLE_PREPARE", {"T": "2"}, a), a)
+        assist_check("%s POP ace=%s" % (path, a), run_other(ms, "POP", {"T": "3"}, a), a)
+    want(path + " NOZZLE_PREPARE assist tool", run_other(ms, "NOZZLE_PREPARE", {"T": "2"}, True), "ACE_ENABLE_FEED_ASSIST T=2", "ACE_DISABLE_FEED_ASSIST T=2")
+    want(path + " POP assist tool", run_other(ms, "POP", {"T": "3"}, True), "ACE_ENABLE_FEED_ASSIST T=3", "ACE_DISABLE_FEED_ASSIST T=3")
+zms = macros_of("zr_tools/zr_tools.cfg")
+for a in (False, True):
+    assist_check("ZR_PURGE ace=%s" % a, run_other(zms, "ZR_PURGE", {}, a), a)
+    assist_check("ZR_LOAD ace=%s" % a, run_other(zms, "ZR_LOAD", {"T": "1"}, a), a)
+want("ZR_PURGE assist follows the active tool", run_other(zms, "ZR_PURGE", {}, True), "ACE_ENABLE_FEED_ASSIST T=2", "ACE_DISABLE_FEED_ASSIST T=2")
+want("ZR_LOAD assist is for the chosen tool", run_other(zms, "ZR_LOAD", {"T": "1"}, True), "ACE_ENABLE_FEED_ASSIST T=1", "ACE_DISABLE_FEED_ASSIST T=1")
 # every macro the file calls that is not defined here must be a WonderMaker or Klipper command that exists in the repo's factory files
 if bad: print("\n".join(bad)); sys.exit(1)
 print("all %d macros render and behave" % len(macros))

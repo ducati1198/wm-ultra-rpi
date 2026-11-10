@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.23.65
+
+- **ACE feed assist while purging or loading outside a print, skipped when there is no ACE.** The ACE watcher only turns feed assist on during a print, so every standby purge ran without it. The assist now goes on for the tool right before the purge and off right after it in `NOZZLE_PREPARE` (the 120 mm button purge, so "Offsets, all: fine" gets it too) and `POP` (`offset_calibrate.cfg`, both models), and in `ZR_PURGE` and `ZR_LOAD` (ZR Tools). Each is wrapped in `{% if "ace" in printer %}`, so a printer without an ACE runs the same lines as before.
+- **`WM_OFFSETS_ACCURATE` checks that every tool has filament.** The start window now says filament must be loaded in every tool head, and the macro stops with "No filament in Tn" before it homes if a tool head sensor sees none. The per-tool steps are the new `WM_NOZZLE_PREPARE`: the factory `NOZZLE_PREPARE` steps (heat, probe, 120 mm button purge, cool, lift), plus the ACE feed assist and the same filament check. Both errors use `_WM_FAIL`, so the window closes first.
+- Tests: the render tests now cover the filament check, the start window text and the feed assist order (on before the purge, off after, none without an ACE) for all four macros.
+
 ## 1.23.64
 
 - **Calibration windows now close on the screen even when the macro stops with an error.** `{action_raise_error(...)}` inside a macro runs while Klipper reads the macro, before any of its lines, so in `WM_OFFSETS_ACCURATE` and `_WM_CAL_PRECHECK` the error (for example "No filament in T1") stopped the macro before its `action:prompt_end` line and the KlipperScreen window stayed open. The errors now come from a small macro, `_WM_FAIL`, called as a normal line after `prompt_end`. `tools/wm_fail_patch.py` makes the same change in an installed `wm_calibration.cfg` (idempotent). New tests check that the window closes before the error. Klipper must restart to load it.
