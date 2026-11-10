@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.23.48
+
+- **The installer no longer touches the chamber heater's PID.** `--pid-cfg`, the install/update step 4d and the Doctor check now look only at the hotends and the heated bed; `zru-s.cfg` keeps the chamber's `control` and `pid_*` lines as WonderMaker wrote them. Reason: on the Pi, `PID_CALIBRATE` on the chamber gives wrong values, because WonderMaker's `heaters.py` multiplies the chamber reading by 1.18 while it heats, which flips every time the tuner changes the target. Two runs on 2026-11-10 stopped within 3 seconds of the first peak with meaningless values (Ki 187, Kd 4.2 instead of about 1.3 and 749).
+- The old version of `scripts/wm_pidcfg.py` (the one that also moved the chamber heater into `printer.cfg`) is kept in the new folder `chamber_test/`, with a README that explains the finding. Nothing in the installer uses it.
+- Tests: the chamber-move tests now check that `zru-s.cfg` is left unchanged; one new test keeps the saved copy working.
+
 ## 1.23.47
 
 Found while testing Extruder Setup and the nozzle windows on a real printer.

@@ -16,7 +16,7 @@
 # ./installer.sh --zr-tools            check the ZR Tools macros (for the screen board), install them when missing
 # ./installer.sh --cfg-merge           bring WonderMaker's changes in this repository's factory printer.cfg (and saved_variables.cfg) to the Pi's printer.cfg with a 3-way merge; your own lines and the SAVE_CONFIG block stay (scripts/wm_cfgmerge.py)
 # ./installer.sh --can-ids [set NAME ID]  which CAN ids in the config answer on the bus (hub, extruder board, T0-T3, load cell, main board); offers to correct wrong ones; "set T2 ac8b57e80210" sets one by hand
-# ./installer.sh --pid-cfg             check that the PID settings of the hotends, bed and chamber heater are where Klipper's SAVE_CONFIG can store a PID result, and fix them (scripts/wm_pidcfg.py)
+# ./installer.sh --pid-cfg             check that the PID settings of the hotends and the bed are where Klipper's SAVE_CONFIG can store a PID result, and fix them (scripts/wm_pidcfg.py)
 # ./installer.sh --pi-sensors          add the chip temperature of every board and the host MCU ([mcu rpi]) to Klipper; Klipper restarts, and the change is undone when it does not come back
 # ./installer.sh --rpi-cfg             install or refresh the Pi's own config files from rpi-cfg/ (calibration macros WM_BED_LEVELING, WM_FULL_CALIBRATION, ...) and their include line in printer.cfg
 # ./installer.sh --first-start         checks with the main board connected; fixes canbus_uuid; then starts Klipper and the other services
@@ -505,9 +505,9 @@ do_cfgmerge() {   # ./installer.sh --cfg-merge
 }
 pidcfg_py() { echo "$SCRIPT_DIR/scripts/wm_pidcfg.py"; }
 pidcfg_check() { python3 "$(pidcfg_py)" check "$HOME_DIR/printer_data/config" 2>&1; }   # exit 0 = fine, 1 = problems (listed), 2 = no printer.cfg
-step_pidcfg() {   # the PID values of the hotends, the bed and the chamber heater must live in printer.cfg itself, or Klipper cannot save a PID result
+step_pidcfg() {   # the PID values of the hotends and the bed must live in printer.cfg itself, or Klipper cannot save a PID result (the chamber heater is left alone: see chamber_test/README.md)
     print_header "Step 4d: PID settings where Klipper can save them"
-    why "After a PID tuning Klipper saves the result with SAVE_CONFIG. It refuses when an included file (the ZR Ultra-S zru-s.cfg, for the chamber heater) already sets control or pid_Kp/Ki/Kd, and a hotend without control: pid has nothing to tune. This moves the chamber values into printer.cfg and gives every hotend control: pid. Your values are kept; the changed files are saved as <file>.wm-before-pidcfg-$STAMP."
+    why "After a PID tuning Klipper saves the result with SAVE_CONFIG. It refuses when an included file already sets control or pid_Kp/Ki/Kd for a heater it has to save, and a hotend without control: pid has nothing to tune. This moves such values into printer.cfg and gives every hotend control: pid. Your values are kept; the changed files are saved as <file>.wm-before-pidcfg-$STAMP."
     local cd="$HOME_DIR/printer_data/config" out rc
     if [ "$DRY" = 1 ] || [ ! -f "$cd/printer.cfg" ]; then echo -e "  ${DIM}would check the PID settings in printer.cfg and the files it includes, and move them into printer.cfg when needed${NC}"; return 0; fi
     [ -f "$(pidcfg_py)" ] || { print_warning "scripts/wm_pidcfg.py is missing from this repository: PID settings not checked"; return 0; }
@@ -520,7 +520,7 @@ step_pidcfg() {   # the PID values of the hotends, the bed and the chamber heate
     [ "$rc" = 0 ] || return 1
 }
 do_pidcfg() {   # ./installer.sh --pid-cfg
-    print_header "PID settings (hotends, bed, chamber heater)"
+    print_header "PID settings (hotends, bed)"
     devbox_notice
     [ -f "$HOME_DIR/printer_data/config/printer.cfg" ] || die_with_fix "there is no printer.cfg on this Pi yet." "install first (menu 1), then run this again."
     guard_not_printing
@@ -2223,9 +2223,9 @@ do_doctor() {
     fi
     if [ -f "$(pidcfg_py)" ] && [ -f "$HOME_DIR/printer_data/config/printer.cfg" ]; then
         local pco pcr; pco="$(pidcfg_check)"; pcr=$?
-        if [ "$pcr" = 0 ]; then doc_ok "PID settings of the hotends, bed and chamber heater are where Klipper can save a PID result"
+        if [ "$pcr" = 0 ]; then doc_ok "PID settings of the hotends and the bed are where Klipper can save a PID result"
         else
-            doc_bad "PID settings: $(echo "$pco" | head -n 3 | tr '\n' ';')" "SAVE_CONFIG cannot store a PID result while an included file (zru-s.cfg) sets the chamber heater's control and pid values, and a hotend without control: pid has nothing to tune. It also blocks every other result saved with it (bed mesh, input shaper)."
+            doc_bad "PID settings: $(echo "$pco" | head -n 3 | tr '\n' ';')" "SAVE_CONFIG cannot store a PID result while an included file sets a heater's control and pid values, and a hotend without control: pid has nothing to tune. It also blocks every other result saved with it (bed mesh, input shaper)."
             offer_fix "move the PID settings into printer.cfg (a copy of each changed file is kept)" step_pidcfg
         fi
     fi

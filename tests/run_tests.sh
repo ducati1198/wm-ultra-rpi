@@ -1189,37 +1189,37 @@ check "bars: Check, Doctor, support bundle and backup all end at 100 percent" "M
 # ---- PID settings where SAVE_CONFIG can store them (scripts/wm_pidcfg.py, installer step 4d, --pid-cfg, Doctor)
 G3="$T/g3"; rm -rf "$G3"; mkdir -p "$G3/printer_data"; cp -r "$ROOT/factory/ultra-s/config" "$G3/printer_data/config"; echo ultra-s > "$G3/printer_data/wm-model"
 P3="$G3/printer_data/config"
-check "pid-cfg: the factory Ultra-S files have the chamber conflict (what the check must find)" "python3 $ROOT/scripts/wm_pidcfg.py check $P3 | grep -q 'CONFLICT zru-s.cfg \\[heater_generic chamber\\] control pid_Kp pid_Ki pid_Kd'"
+check "pid-cfg: the check ignores the chamber heater (zru-s.cfg keeps its control and PID, see chamber_test/README.md)" "grep -q '^pid_Kp=63.418' $P3/zru-s.cfg && ! python3 $ROOT/scripts/wm_pidcfg.py check $P3 | grep -qi 'chamber\|CONFLICT'"
 check "pid-cfg: the factory file saves PID only for the first hotend, so the check finds the other three (the installer fixes them)" "python3 $ROOT/scripts/wm_pidcfg.py check $P3 | grep -c '^HOTEND' | grep -qx 3"
 D3="WM_HOME=$G3 WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash $ROOT/installer.sh"
 DR3="yes n 2>/dev/null | WM_HOME=$G3 WM_INSTALLER_TEST=1 bash $ROOT/installer.sh --doctor"   # answers n to every fix: report only
-check "doctor reports the chamber PID conflict (and changes nothing when the fix is declined)" "eval \"$DR3\" > $T/dr1.out 2>&1; grep -q 'problem.*PID settings: CONFLICT zru-s.cfg' $T/dr1.out && grep -q '^pid_Kp=63.418' $P3/zru-s.cfg"
+check "doctor reports the hotends without PID and not the chamber (and changes nothing when the fix is declined)" "eval \"$DR3\" > $T/dr1.out 2>&1; grep -q 'problem.*PID settings: HOTEND' $T/dr1.out && ! grep -q 'PID settings:.*CONFLICT' $T/dr1.out && grep -q '^pid_Kp=63.418' $P3/zru-s.cfg"
 WM_HOME="$G3" WM_INSTALLER_TEST=1 bash "$ROOT/installer.sh" --pid-cfg --dry-run >/dev/null 2>&1 </dev/null
 check "--pid-cfg dry run changes nothing" "grep -q '^pid_Kp=63.418' $P3/zru-s.cfg && ! ls $P3/*.wm-before-pidcfg-* "
 WM_HOME="$G3" WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash "$ROOT/installer.sh" --pid-cfg > "$T/pid.out" 2>&1 </dev/null
-check "--pid-cfg moves the chamber values into printer.cfg" "! grep -qE '^(control|pid_K)' $P3/zru-s.cfg && sed -n '1,/SAVE_CONFIG ---/p' $P3/printer.cfg | grep -A5 '^\\[heater_generic chamber\\]' | grep -q 'pid_Kp: 63.418'"
-check "--pid-cfg keeps every value and the rest of zru-s.cfg" "grep -q '^heater_pin:PA4' $P3/zru-s.cfg && grep -q 'pid_Kd: 749.125' $P3/printer.cfg && grep -q 'pid_Ki: 1.342' $P3/printer.cfg"
-check "--pid-cfg keeps a copy of each changed file" "ls $P3/zru-s.cfg.wm-before-pidcfg-* $P3/printer.cfg.wm-before-pidcfg-* && grep -q '^pid_Kp=63.418' $P3/zru-s.cfg.wm-before-pidcfg-*"
+check "--pid-cfg leaves the chamber heater alone: zru-s.cfg keeps its PID and printer.cfg gets no chamber section" "grep -q '^pid_Kp=63.418' $P3/zru-s.cfg && ! grep -q '^\\[heater_generic chamber\\]' $P3/printer.cfg"
+check "--pid-cfg does not change zru-s.cfg at all" "cmp $P3/zru-s.cfg $ROOT/factory/ultra-s/config/zru-s.cfg"
+check "--pid-cfg keeps a copy of printer.cfg and makes none of zru-s.cfg" "ls $P3/printer.cfg.wm-before-pidcfg-* >/dev/null && ! ls $P3/zru-s.cfg.wm-before-pidcfg-* 2>/dev/null"
 check "--pid-cfg leaves the SAVE_CONFIG block alone" "diff <(sed -n '/SAVE_CONFIG ---/,\$p' $ROOT/factory/ultra-s/config/printer.cfg) <(sed -n '/SAVE_CONFIG ---/,\$p' $P3/printer.cfg)"
 check "the pid check is clean after the fix" "python3 $ROOT/scripts/wm_pidcfg.py check $P3 | grep -qx OK"
 NBP=$(ls $P3 | grep -c 'wm-before-pidcfg')
 WM_HOME="$G3" WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash "$ROOT/installer.sh" --pid-cfg > "$T/pid2.out" 2>&1 </dev/null
 check "--pid-cfg is idempotent: second run says fine and makes no new copy" "grep -q 'PID settings are where SAVE_CONFIG can store them' $T/pid2.out && [ \$(ls $P3 | grep -c 'wm-before-pidcfg') = $NBP ]"
-check "doctor is happy after the fix" "$D3 --doctor 2>&1 </dev/null | grep -q 'ok.*PID settings of the hotends, bed and chamber heater'"
+check "doctor is happy after the fix" "$D3 --doctor 2>&1 </dev/null | grep -q 'ok.*PID settings of the hotends and the bed'"
 python3 - "$P3/printer.cfg" <<'PY'
 import re,sys
 f=sys.argv[1]; s=open(f).read()
 s=re.sub(r"#\*# \[extruder\d?\]\n(#\*# (control|pid_k.) = .*\n)+#\*#\n","",s)
-s=s.replace("[heater_generic chamber]\n# moved here from zru-s.cfg: Klipper's SAVE_CONFIG cannot save a value that an included file sets\n","[heater_generic chamber]\n")
 open(f,"w").write(s)
 PY
 check "pid-cfg: hotends without control: pid and without a saved value are found" "python3 $ROOT/scripts/wm_pidcfg.py check $P3 | grep -c '^HOTEND' | grep -qx 1"
 cp "$P3/printer.cfg" "$T/pid-before.cfg"
 WM_HOME="$G3" WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash "$ROOT/installer.sh" --doctor --fix-all >/dev/null 2>&1 </dev/null
-check "Fix everything gives the 4 hotends control: pid (6 lines with bed and chamber) and keeps their old (commented) values" "[ \$(sed -n '1,/SAVE_CONFIG ---/p' $P3/printer.cfg | grep -c '^control: pid') = 6 ] && grep -q '^pid_Kp: 25.788' $P3/printer.cfg && grep -q '^pid_Kd: 14.291' $P3/printer.cfg"
-check "pid check is clean again (hotends and chamber)" "python3 $ROOT/scripts/wm_pidcfg.py check $P3 | grep -qx OK"
+check "Fix everything gives the 4 hotends control: pid (5 lines with the bed) and keeps their old (commented) values" "[ \$(sed -n '1,/SAVE_CONFIG ---/p' $P3/printer.cfg | grep -c '^control: pid') = 5 ] && grep -q '^pid_Kp: 25.788' $P3/printer.cfg && grep -q '^pid_Kd: 14.291' $P3/printer.cfg"
+check "pid check is clean again (hotends and bed)" "python3 $ROOT/scripts/wm_pidcfg.py check $P3 | grep -qx OK"
 check "the hotend fix saved printer.cfg first" "ls $P3/printer.cfg.wm-before-pidcfg-* >/dev/null && grep -q '^#control: pid' $P3/printer.cfg.wm-before-pidcfg-*"
 check "the Ultra (no zru-s.cfg include, no chamber) is not touched" "R=$T/g4; rm -rf \$R; mkdir -p \$R/printer_data; cp -r $ROOT/factory/ultra/config \$R/printer_data/config; ! grep -q 'heater_generic chamber' \$R/printer_data/config/printer.cfg && ! grep -q '^\\[include zru-s.cfg\\]' \$R/printer_data/config/printer.cfg"
+check "chamber_test: the README and the old script are kept, and the old script still finds the chamber conflict" "[ -s $ROOT/chamber_test/README.md ] && R=$T/g6; rm -rf \$R; mkdir -p \$R; cp -r $ROOT/factory/ultra-s/config \$R/config; python3 $ROOT/chamber_test/wm_pidcfg_with_chamber.py check \$R/config | grep -q 'CONFLICT zru-s.cfg \\[heater_generic chamber\\] control pid_Kp pid_Ki pid_Kd'"
 # ---- WonderMaker's printer.cfg changes merged into the Pi's printer.cfg (scripts/wm_cfgmerge.py, installer step 4e, --cfg-merge)
 check "doctor says when the WonderMaker printer.cfg starting point is not recorded" "grep -q 'problem.*printer.cfg this Pi was set up from is not recorded' $T/dr1.out"
 RP="$T/repo5"; rm -rf "$RP"; mkdir -p "$RP/factory/ultra-s/config" "$RP/scripts" "$RP/rpi-cfg"; cp "$ROOT/installer.sh" "$ROOT/VERSION" "$RP/"; cp "$ROOT"/scripts/* "$RP/scripts/"; cp "$ROOT"/rpi-cfg/* "$RP/rpi-cfg/"

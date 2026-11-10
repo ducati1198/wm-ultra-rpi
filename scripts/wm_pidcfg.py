@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 """Checks (and fixes) where the heaters' PID settings live, so Klipper's SAVE_CONFIG can store a PID result.
 
-Why: SAVE_CONFIG refuses with "section 'heater_generic chamber' option 'control' conflicts with included value" when an
-[include]d file sets control / pid_Kp / pid_Ki / pid_Kd for a section it has to save. The ZR Ultra-S zru-s.cfg sets them for the
-chamber heater. Those four options must live in printer.cfg itself (Klipper then keeps its own copy in the SAVE_CONFIG block).
+Why: SAVE_CONFIG refuses with "section '...' option 'control' conflicts with included value" when an [include]d file sets
+control / pid_Kp / pid_Ki / pid_Kd for a section it has to save. Those four options must live in printer.cfg itself (Klipper
+then keeps its own copy in the SAVE_CONFIG block). This looks at the hotends and the heated bed.
+The chamber heater (heater_generic chamber) is deliberately NOT looked at: WonderMaker's heaters.py multiplies the chamber
+reading by 1.18 while it heats, which breaks PID_CALIBRATE, so the chamber stays as zru-s.cfg has it.
+The version that also moved the chamber heater into printer.cfg is kept in chamber_test/ (see chamber_test/README.md).
 Second check: every hotend ([extruder], [extruder1] ...) must end up with control: pid (an active line in printer.cfg or a value
 in the SAVE_CONFIG block); with neither, the hotend is a watermark heater and PID_CALIBRATE has nothing to tune.
 
@@ -18,7 +21,7 @@ DEFAULTS = (("control", "pid"), ("pid_Kp", "26.0"), ("pid_Ki", "7.8"), ("pid_Kd"
 
 
 def target(sec):
-    return sec == "extruder" or re.fullmatch(r"extruder\d+", sec or "") is not None or sec == "heater_bed" or (sec or "").startswith("heater_generic ")
+    return sec == "extruder" or re.fullmatch(r"extruder\d+", sec or "") is not None or sec == "heater_bed"
 
 
 def hotend(sec):
