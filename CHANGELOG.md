@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.23.64
+
+- **Calibration windows now close on the screen even when the macro stops with an error.** `{action_raise_error(...)}` inside a macro runs while Klipper reads the macro, before any of its lines, so in `WM_OFFSETS_ACCURATE` and `_WM_CAL_PRECHECK` the error (for example "No filament in T1") stopped the macro before its `action:prompt_end` line and the KlipperScreen window stayed open. The errors now come from a small macro, `_WM_FAIL`, called as a normal line after `prompt_end`. `tools/wm_fail_patch.py` makes the same change in an installed `wm_calibration.cfg` (idempotent). New tests check that the window closes before the error. Klipper must restart to load it.
+
 ## 1.23.63
 
 - **Chamber light on the Fluidd panel too.** The light is wired to the screen board, so the board now runs a small service (`wm-chamber-light-http`, port 8765, systemd unit `wm-chamber-light-http`) that toggles it through the same root helper. At start (and every 10 minutes) the service uploads `wm_chamber_light.json` with its address into Moonraker's config folder; the Fluidd Toolheads card (panel repo 1.5.14) reads it and shows CHAMBER LIGHT ON/OFF beside AIR FILTER. No file, no button. The service answers any device on the local network (turn the light on, off or toggle; nothing else). Installed by the same step as the KlipperScreen button (install and Update); uninstalling KlipperScreen removes it. New tests: `tests/test_chamber_light.py` (service, registration upload, helper with a fake sysfs folder).
