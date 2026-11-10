@@ -31,6 +31,15 @@ The macros call WonderMaker's own macros (`G29`, `PROBE_CALIBRATE`, `CALIBRATE_O
 
 **Where the commands come from:** the G-code sequences were read from the strings in the screen app (`TM_T1/bin/client`, System 1.1.13). The app's own progress names `CHECK_AUTO_LEVEL_*`, `CHECK_SHAPPER_*` and `CHECK_PID_*` are not G-code and are not used. The app also saves a `probe_position` value after PROBE_CALIBRATE; how it is calculated is not known, so `WM_PROBE_CALIBRATE` does only the Klipper side. **Not tested on a real printer.**
 
+## If the tool alignment always fails
+
+`WM_TOOL_OFFSETS` (Rapid / Accurate) can stop every time at `TOOL_LOCATE_SENSOR` with `Probe samples exceed samples_tolerance`, with the same values on each try. Check the saved sensor position first (read only): `grep probe_position ~/printer_data/config/saved_variables.cfg`.
+
+- The alignment uses this saved value (x, y, z, x_offset, y_offset). `probe_position` in `offset_calibrate.cfg` is only the default when nothing is saved yet.
+- A Z that is far from what the printer had when it worked (for example 4 instead of 8.87) can make the nozzle read "touched" at once. If you have a copy of the config of a printer that aligned well, compare this line first.
+- To set it: `SAVE_VARIABLE VARIABLE=probe_position VALUE=299.0,289.0,8.87,6.9,5.8` (use your own numbers) and run the alignment again. Nothing else needed.
+- A factory reset on the screen may bring the default back.
+
 ## Install and update
 
 - The installer does it (step 4c) on every install and `--update`.

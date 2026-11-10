@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.23.40
+
+- Docs only: the tool alignment (Rapid / Accurate) can fail on every try with `Probe samples exceed samples_tolerance` at `TOOL_LOCATE_SENSOR` when the saved `probe_position` in `saved_variables.cfg` is wrong. Seen on a new screen board: the saved value was `(299.0, 290.0, 4, 6.9, 5.8)`; the printer that had worked before had `(299.0, 289.0, 8.87, 6.9, 5.8)`. After setting the old value (`SAVE_VARIABLE VARIABLE=probe_position VALUE=299.0,289.0,8.87,6.9,5.8`) Rapid passed for T0 to T3. The alignment takes the sensor position from the saved value, not from `probe_position` in `offset_calibrate.cfg` (that one is only used when nothing is saved). The values are not changed in `factory/`: the right Z is a calibrated number of that printer. Written in `rpi-cfg/README.md`.
+
 ## 1.23.39
 
 - `WM_EXTRUDER_SETUP` is now the screen's Extruder Setup page: the app's instructions and a **Set Up** button that does the matching (what `WM_EXTRUDER_MATCH` did in 1.23.38; that macro is gone, it is this one now). The earlier "release the tool heads so you can change nozzles" workflow was not something the app does, so it moved to its own name: `WM_NOZZLE_CHANGE` and `WM_NOZZLE_CHANGE_END` (was `WM_EXTRUDER_SETUP_END`). Its Done window has an Extruder Setup button for the matching. The README said the old workflow was the app's; it now says it is Pi only. If a nozzle change is left on, `WM_NOZZLE_CHANGE_END` clears it.
