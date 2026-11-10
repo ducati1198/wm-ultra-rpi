@@ -116,7 +116,7 @@ pi_weight() {   # how long each install step takes, roughly (a step that is swit
 }
 pi_cum() {   # percent-points finished when step KEY starts; "end" = the total
     local k s sum=0
-    for k in 1 2 3 4 4b 4c 4e 4f 4d 5 6 7 7b 8 9 10 11 12 12b 12f 12g 12h 12c 12d 12e 13 14; do
+    for k in 1 2 3 4 4b 4c 4f 4e 4d 5 6 7 7b 8 9 10 11 12 12b 12f 12g 12h 12c 12d 12e 13 14; do
         [ "$k" = "$1" ] && { echo "$sum"; return; }
         sum=$((sum + $(pi_weight "$k")))
     done
