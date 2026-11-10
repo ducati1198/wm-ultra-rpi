@@ -30,3 +30,8 @@ So the chamber is left exactly as `zru-s.cfg` has it, and the chamber is not tun
 
 - While it heats, the chamber temperature Klipper shows can be up to 18% higher than the real sensor value (same code).
 - `WM_CHAMBER_PID` (and the last stage of `WM_FULL_CALIBRATION`) run `PID_CALIBRATE` on the chamber and would give the same wrong values.
+
+
+## Added in 1.23.49
+- `wm_chamber_pid_macro.cfg`: the WM_CHAMBER_PID macro and the chamber stage of WM_FULL_CALIBRATION, removed from rpi-cfg/wm_calibration.cfg.
+- `heaters_py_finding.md`: the heaters.py 1.18 factor, why it breaks the tune, options.

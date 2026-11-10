@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.23.49
+
+- **`WM_CHAMBER_PID` is removed**, and `WM_FULL_CALIBRATION` no longer has a chamber stage (now 5 stages: bed leveling, extruder offsets, vibration compensation, bed PID, hotend PID). WonderMaker's heaters.py scales the chamber reading by 1.18 while heating, so the tune gives wrong values.
+- The removed macro code and the heaters.py finding are kept in `chamber_test/` (`wm_chamber_pid_macro.cfg`, `heaters_py_finding.md`).
+- Tests updated (chamber macro tests replaced by a check that the macro is gone).
+
 ## 1.23.48
 
 - **The installer no longer touches the chamber heater's PID.** `--pid-cfg`, the install/update step 4d and the Doctor check now look only at the hotends and the heated bed; `zru-s.cfg` keeps the chamber's `control` and `pid_*` lines as WonderMaker wrote them. Reason: on the Pi, `PID_CALIBRATE` on the chamber gives wrong values, because WonderMaker's `heaters.py` multiplies the chamber reading by 1.18 while it heats, which flips every time the tuner changes the target. Two runs on 2026-11-10 stopped within 3 seconds of the first peak with meaningless values (Ki 187, Kd 4.2 instead of about 1.3 and 749).
