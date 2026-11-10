@@ -6,7 +6,8 @@
                                                  and the K1 [timelapse] options (frames in ~/printer_data/frames/ instead of /tmp, park back_right, ...)
   wm_moonraker_conf.py metadata FILE [--write]   moonraker/components/file_manager/metadata.py: filament_type of an OrcaSlicer
                                                  file is returned as a string like upstream Moonraker ("PLA;PLA;PLA;PLA")
-                                                 instead of a list. With the list Fluidd's Jobs page stays on "Loading items".
+                                                 instead of a list. With the list Fluidd's Jobs page stays on "Loading items". nozzle_diameter is returned as one
+                                                 number (the first nozzle), not a list: OctoApp refuses a list ("Expected JsonPrimitive, but had JsonArray").
 
 Exit code: 0 nothing to change, 10 a change is needed / was written, 2 usage or unreadable file.
 """
@@ -89,12 +90,24 @@ NEW_SIG = "    def parse_filament_type(self) -> Optional[str]:\n"
 OLD_RET = "                return materials if materials else None\n"
 NEW_RET = ("                # a string like upstream Moonraker (Fluidd cannot show a list here); one entry per extruder, joined with \";\"\n"
            "                return \";\".join(materials) if materials else None\n")
+OLD_NZ_SIG = "    def parse_nozzle_diameter(self) -> Optional[List[float]]:\n"
+NEW_NZ_SIG = "    def parse_nozzle_diameter(self) -> Optional[float]:\n"
+OLD_NZ_RET = "                return costs\n"
+NEW_NZ_RET = ("                # one number like upstream Moonraker (OctoApp and Fluidd read a float): the first nozzle (T0)\n"
+              "                return costs[0] if costs else None\n")
 
 
 def fix_metadata(text):
-    if OLD_SIG not in text or OLD_RET not in text:
-        return text, []
-    return text.replace(OLD_SIG, NEW_SIG).replace(OLD_RET, NEW_RET), ["filament_type is returned as a string (upstream behaviour)"]
+    notes = []
+    if OLD_SIG in text and OLD_RET in text:
+        text = text.replace(OLD_SIG, NEW_SIG).replace(OLD_RET, NEW_RET)
+        notes.append("filament_type is returned as a string (upstream behaviour)")
+    i = text.find(OLD_NZ_SIG)
+    j = text.find(OLD_NZ_RET, i) if i >= 0 else -1
+    if i >= 0 and j >= 0 and j - i < 800:   # only the return inside this one function (BaseSlicer has similar lines for filament cost)
+        text = text[:i] + NEW_NZ_SIG + text[i + len(OLD_NZ_SIG):j] + NEW_NZ_RET + text[j + len(OLD_NZ_RET):]
+        notes.append("nozzle_diameter is returned as one number (upstream behaviour)")
+    return text, notes
 
 
 def main(argv):

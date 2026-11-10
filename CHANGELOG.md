@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.23.59
+
+- **OctoApp shows the finished print again: `nozzle_diameter` is one number.** WonderMaker's Moonraker returned the nozzle diameter of an OrcaSlicer file as a list (`[0.4,0.4,0.4,0.4]`); OctoApp refuses it ("Expected JsonPrimitive, but had JsonArray as the serialized body of float at path $.nozzle_diameter"), the same kind of problem as `filament_type` in 1.23.54. `metadata.py` (both models, `SHA256SUMS`) now returns the first nozzle (T0) as a float like upstream Moonraker, and the installer step 4f fixes an installed copy (copy `metadata.py.wm-before-metadata-fix-STAMP`). Files and print history entries that were scanned before need a re-scan to change; on the test Pi the history rows were corrected by hand (a copy of the database was kept).
+
 ## 1.23.58
 
 - The empty `BEFORE_LAYER_CHANGE` and `AFTER_LAYER_CHANGE` macros of 1.23.57 are removed again: the layer-change lines are taken out of the OrcaSlicer profile instead, so Klipper has nothing to complain about. `rpi-cfg/wm_print_end.cfg` is back to the watcher only.
@@ -19,7 +23,7 @@
 ## 1.23.54
 
 - **Moonraker settings and the Jobs page fix are now part of the installer** (new Step 4f, also run by `--update` and `--rpi-cfg`; new script `scripts/wm_moonraker_conf.py`). Everything was tried on the Pi first.
-  - **Fluidd's Jobs page no longer stays on "Loading items".** WonderMaker's Moonraker returned `filament_type` of an OrcaSlicer file as a list; Fluidd needs a string like upstream Moonraker (`PLA;PLA;PLA;PLA`). Fixed in `metadata.py` for both models (shipped files and `SHA256SUMS`), and the installer fixes an already installed copy (a copy `metadata.py.wm-before-filament-type-STAMP` is kept). Files uploaded before need a new upload (re-scan).
+  - **Fluidd's Jobs page no longer stays on "Loading items".** WonderMaker's Moonraker returned `filament_type` of an OrcaSlicer file as a list; Fluidd needs a string like upstream Moonraker (`PLA;PLA;PLA;PLA`). Fixed in `metadata.py` for both models (shipped files and `SHA256SUMS`), and the installer fixes an already installed copy (a copy `metadata.py.wm-before-metadata-fix-STAMP` is kept). Files uploaded before need a new upload (re-scan).
   - **moonraker.conf** gets the K1 sections when missing: `[database]`, `[file_manager]` (`queue_gcode_uploads: False`, `enable_object_processing: True`), `[machine]` (`provider: systemd_dbus`, `validate_service: False`, `validate_config: False`), `[secrets]`. Your own values are never changed; a copy `moonraker.conf.wm-before-moonraker-tune-STAMP` is kept. Moonraker is restarted when something changed.
   - **Timelapse like on the K1:** frames go to `~/printer_data/frames/` instead of `/tmp/timelapse/` (lost at reboot), `camera: default`, `parkpos: back_right`, park/retract/extrude speeds and distances, `extraoutputparams: -preset superfast`. Only options that are missing are added; the old WonderMaker `/tmp/timelapse/` value is the only one replaced.
   - **`[update_manager timelapse]`** is added by the timelapse step and the timelapse repo is put on branch `main`. On the Pi the entry was INVALID in Fluidd ("Failed to detect git branch / repo url") because the repo was on a detached HEAD.

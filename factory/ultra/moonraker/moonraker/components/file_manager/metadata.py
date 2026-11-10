@@ -552,13 +552,14 @@ class PrusaSlicer(BaseSlicer):
             r"; chamber_temperature = (%F)", self.footer_data
         )
 
-    def parse_nozzle_diameter(self) -> Optional[List[float]]:
+    def parse_nozzle_diameter(self) -> Optional[float]:
         cost_data = regex_find_string(r";\snozzle_diameter\s=\s(%S)", self.footer_data)
         if cost_data:
             try:
                 # 分割字符串并转换为浮点数
                 costs = [float(c.strip()) for c in cost_data.split(",")]
-                return costs
+                # one number like upstream Moonraker (OctoApp and Fluidd read a float): the first nozzle (T0)
+                return costs[0] if costs else None
             except ValueError as e:
                 # 处理转换错误
                 print(f"Error converting nozzle diameter to float: {e}")

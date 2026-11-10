@@ -449,9 +449,9 @@ step_moonraker_tune() {   # moonraker.conf sections (file_manager, machine, ...)
     if [ -f "$meta" ]; then
         python3 -I "$(moonraker_py)" metadata "$meta" >/dev/null; rc=$?
         if [ "$rc" = 10 ]; then
-            cp -p "$meta" "$meta.wm-before-filament-type-$STAMP"
-            python3 -I "$(moonraker_py)" metadata "$meta" --write >/dev/null && { print_success "Moonraker's metadata.py: filament_type is a string now (copy: metadata.py.wm-before-filament-type-$STAMP). Files uploaded before need a re-scan: it happens when you upload them again."; MOONRAKER_CHANGED=1; }
-        else print_success "Moonraker's metadata.py already returns filament_type as a string"; fi
+            cp -p "$meta" "$meta.wm-before-metadata-fix-$STAMP"
+            python3 -I "$(moonraker_py)" metadata "$meta" --write >/dev/null && { print_success "Moonraker's metadata.py: filament_type and nozzle_diameter are single values now (copy: metadata.py.wm-before-metadata-fix-$STAMP). Files uploaded before need a re-scan: it happens when you upload them again."; MOONRAKER_CHANGED=1; }
+        else print_success "Moonraker's metadata.py already returns filament_type and nozzle_diameter like upstream"; fi
     fi
 }
 do_rpicfg() {   # ./installer.sh --rpi-cfg
