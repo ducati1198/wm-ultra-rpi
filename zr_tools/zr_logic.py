@@ -175,6 +175,46 @@ def ace_state(objects, ntools=4):
             "endless_available": objects.get("gcode_macro WM_ENDLESS_CONTINUE") is not None}
 
 
+def ace_tool_lines(objects, tool):
+    """Up to two short lines about the ACE slot that feeds this tool (tool N = slot N), for the Filament page."""
+    if not has_ace(objects):
+        return []
+    a = ace_state(objects)
+    if not a["connected"]:
+        return ["ACE: not connected"]
+    slot = a["slots"][tool] if 0 <= tool < len(a["slots"]) else None
+    first = "ACE slot %d: %s" % (tool + 1, slot["text"] if slot else "no data")
+    if slot and slot["assist"]:
+        first += " \u00b7 feed assist on"
+    elif slot:
+        first += " \u00b7 feed assist off"
+    second = "ACE %s\u00b0" % ("%.0f" % a["temp"] if isinstance(a["temp"], (int, float)) else "--")
+    second += (" \u00b7 drying, %s left" % a["dry_left"]) if a["drying"] else " \u00b7 dryer off"
+    return [first, second]
+
+
+def ace_card_text(objects, tool):
+    """Short ACE line for a tool card on the Toolheads page ('' when there is no ACE)."""
+    if not has_ace(objects):
+        return ""
+    a = ace_state(objects)
+    if not a["connected"]:
+        return "ACE offline"
+    slot = a["slots"][tool] if 0 <= tool < len(a["slots"]) else None
+    return "ACE %d: %s" % (tool + 1, slot["text"] if slot else "no data")
+
+
+def ace_bar_text(objects):
+    """One line for the top of the Toolheads page ('' when there is no ACE)."""
+    if not has_ace(objects):
+        return ""
+    a = ace_state(objects)
+    if not a["connected"]:
+        return "ACE: not connected"
+    temp = "%.0f\u00b0" % a["temp"] if isinstance(a["temp"], (int, float)) else "--"
+    return "ACE %s \u00b7 %s" % (temp, ("drying, %s left" % a["dry_left"]) if a["drying"] else "dryer off")
+
+
 def endless_enabled(variables):
     try:
         return int(float(variables.get("wm_endless", 0))) == 1

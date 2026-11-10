@@ -626,6 +626,7 @@ class Panel(ViewsMixin, ScreenPanel):
         self.w["p_car"] = self._pill("On carriage: --", "info")
         self.w["p_state"] = self._pill("Printer: --", "info")
         self.w["p_ch"] = self._pill("", "info")
+        self.w["p_ace"] = self._pill("", "info")
         if self.portrait:
             # Tall screen: the three pills would not fit in one row, so the chamber pill gets its own row.
             top = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
@@ -634,10 +635,12 @@ class Panel(ViewsMixin, ScreenPanel):
             row1.pack_start(self.w["p_state"], False, False, 0)
             top.pack_start(row1, False, False, 0)
             top.pack_start(self.w["p_ch"], False, False, 0)
+            top.pack_start(self.w["p_ace"], False, False, 0)
         else:
             top = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
             top.pack_start(self.w["p_car"], False, False, 0)
             top.pack_start(self.w["p_state"], False, False, 0)
+            top.pack_start(self.w["p_ace"], False, False, 0)
             top.pack_end(self.w["p_ch"], False, False, 0)
         self.root.pack_start(top, False, False, 0)
 
@@ -682,11 +685,14 @@ class Panel(ViewsMixin, ScreenPanel):
             "bar": self._tempbar(),
             "fil": self._label("", "zr_small"),
             "dock": self._label("", "zr_small"),
+            "ace": self._label("", "zr_small"),
         }
         for key in ("title", "chip", "spool", "mat", "color", "temp"):
             box.pack_start(c[key], False, False, 0)
         box.pack_start(c["bar"], False, False, 2)
         box.pack_start(c["fil"], False, False, 0)
+        if big:                      # compact sizes keep the cards' touch area, so no ACE line there
+            box.pack_start(c["ace"], False, False, 0)
         box.pack_end(c["dock"], False, False, 0)
         ev.add(box)
         ev.connect("button-release-event", lambda *_a, t=i: self.show_tool(t))
@@ -707,6 +713,9 @@ class Panel(ViewsMixin, ScreenPanel):
         self.w["p_state"].set_text("Printer: %s" % state)
         self.w["p_ch"].set_text(self._chamber_text())
         self.w["p_ch"].set_visible(bool(self._chamber_text()))
+        bar = L.ace_bar_text(self.st)
+        self.w["p_ace"].set_text(bar)
+        self.w["p_ace"].set_visible(bool(bar))
         for i, c in enumerate(self.w.get("cards", [])):
             info = self._tool_info(i)
             name, _ = MATERIALS[info["mat"]]
@@ -739,6 +748,7 @@ class Panel(ViewsMixin, ScreenPanel):
             dock = self._sensor("docked%d" % i)
             c["fil"].set_markup(self._dot(fil, "Filament"))
             c["dock"].set_text(("In dock" if dock else "On carriage") if dock is not None else " ")
+            c["ace"].set_text(L.ace_card_text(self.st, i))
 
     @staticmethod
     def _dot(on, text):
@@ -773,17 +783,19 @@ class Panel(ViewsMixin, ScreenPanel):
         self.w["h_col"] = self._label("", "zr_small")
         self.w["h_chip"] = self._pill("", "ready")
         self.w["h_state"] = self._label("", "zr_small")
+        self.w["h_ace1"] = self._label("", "zr_small")
+        self.w["h_ace2"] = self._label("", "zr_small")
         if self.portrait:
             strip = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
             strip.pack_start(self.w["e_swatch"], False, False, 0)
             texts = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-            for k in ("h_mat", "h_col", "h_chip", "h_state"):
+            for k in ("h_mat", "h_col", "h_chip", "h_state", "h_ace1", "h_ace2"):
                 texts.pack_start(self.w[k], False, False, 0)
             strip.pack_start(texts, True, True, 0)
             col.pack_start(strip, True, True, 0)
         else:
             col.pack_start(self.w["e_swatch"], True, True, 0)
-            for k in ("h_mat", "h_col", "h_chip", "h_state"):
+            for k in ("h_mat", "h_col", "h_chip", "h_state", "h_ace1", "h_ace2"):
                 col.pack_start(self.w[k], False, False, 0)
             card.set_size_request(190 if big else 150, -1)
         card.add(col)
@@ -1016,6 +1028,10 @@ class Panel(ViewsMixin, ScreenPanel):
         if dock is not None:
             state.append("In dock" if dock else "On carriage")
         self.w["h_state"].set_text("   ".join(state) if state else " ")
+        ace = L.ace_tool_lines(self.st, i)
+        for n, key in enumerate(("h_ace1", "h_ace2")):
+            self.w[key].set_text(ace[n] if n < len(ace) else "")
+            self.w[key].set_visible(n < len(ace))
 
     # tool actions --------------------------------------------------------
     def _act_select(self, i):

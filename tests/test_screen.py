@@ -294,6 +294,38 @@ class Smoke(unittest.TestCase):
         self.assertEqual(new.count("color1="), 1)
         self.assertEqual(zl.update_tmt1_slot("[slot]\ncolor0=1\n", 0, 4, 2), "[slot]\ncolor0=4\nmaterial0=2\n")
 
+    def test_ace_lines_on_the_filament_page(self):
+        import importlib
+        zl = importlib.import_module("panels.zr_logic")
+        self.assertEqual(zl.ace_tool_lines({}, 0), [])
+        st = {"ace_instance_0": {"connection_state": "connected", "temp": 32.4, "feed_assist_slot": 2,
+                                 "dryer_status": {"status": "stop"},
+                                 "slots": [{"index": i, "status": "ready"} for i in range(4)]}}
+        l = zl.ace_tool_lines(st, 2)
+        self.assertIn("ACE slot 3", l[0]); self.assertIn("feed assist on", l[0]); self.assertIn("dryer off", l[1])
+        self.assertIn("feed assist off", zl.ace_tool_lines(st, 0)[0])
+        st["ace_instance_0"]["connection_state"] = "disconnected"
+        self.assertEqual(zl.ace_tool_lines(st, 0), ["ACE: not connected"])
+        p, screen = self.make("tabs")
+        p.st.update({"ace_instance_0": {"temp": 30, "slots": [{"index": 0, "status": "ready"}], "dryer_status": {"status": "stop"}}})
+        p.show_tool(0); p._refresh_tool()
+        self.assertTrue(any("ACE slot 1" in c[0][0] for c in p.w["h_ace1"].set_text.call_args_list))
+
+    def test_ace_on_the_toolheads_page(self):
+        import importlib
+        zl = importlib.import_module("panels.zr_logic")
+        self.assertEqual((zl.ace_card_text({}, 0), zl.ace_bar_text({})), ("", ""))
+        st = {"ace_instance_0": {"connection_state": "connected", "temp": 41, "dryer_status": {"status": "drying", "remain_time": 90, "duration": 120, "target_temp": 45},
+                                 "slots": [{"index": 0, "status": "ready"}, {"index": 1, "status": "empty"}]}}
+        self.assertEqual(zl.ace_card_text(st, 1), "ACE 2: empty")
+        self.assertIn("drying", zl.ace_bar_text(st))
+        st["ace_instance_0"]["connection_state"] = "disconnected"
+        self.assertEqual(zl.ace_bar_text(st), "ACE: not connected")
+        p, screen = self.make("tabs")
+        p.st.update({"ace_instance_0": {"temp": 30, "slots": [{"index": 0, "status": "ready"}], "dryer_status": {"status": "stop"}}})
+        p.show_main(); p._refresh_main()
+        self.assertTrue(any("dryer off" in c[0][0] for c in p.w["p_ace"].set_text.call_args_list))
+
     def test_park_button(self):
         p, screen = self.make("tabs")
         p.show_tool(0)
