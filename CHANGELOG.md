@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.23.66
+
+- **The installer never puts an add-on `[include]` under the SAVE_CONFIG block.** Shake&Tune used to append `[include shaketune.cfg]` to the end of `printer.cfg`, which is below `#*# <--- SAVE_CONFIG --->`, where Klipper rewrites everything on each save. It now goes through the same helper as the other includes (after the other includes, just above the block), and so does the ZRU-S model include. If an older install already has includes under the block, `--update` (Shake&Tune step) moves them back above it, keeping a copy (`printer.cfg.wm-before-include-fix-<date>`), and the Doctor reports them with a fix offer. New tests cover all three.
+
 ## 1.23.65
 
 - **ACE feed assist while purging or loading outside a print, skipped when there is no ACE.** The ACE watcher only turns feed assist on during a print, so every standby purge ran without it. The assist now goes on for the tool right before the purge and off right after it in `NOZZLE_PREPARE` (the 120 mm button purge, so "Offsets, all: fine" gets it too) and `POP` (`offset_calibrate.cfg`, both models), and in `ZR_PURGE` and `ZR_LOAD` (ZR Tools). Each is wrapped in `{% if "ace" in printer %}`, so a printer without an ACE runs the same lines as before.

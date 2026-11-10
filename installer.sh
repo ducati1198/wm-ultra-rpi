@@ -583,7 +583,7 @@ step_model() {
     if grep -qxF "$want" "$cfg"; then print_success "printer.cfg already matches the $MODEL"; else
         cp "$cfg" "$cfg.wm-model-bak"
         if grep -qE '^[#[:space:]]*\[include zru-s.cfg\]' "$cfg"; then sed -i "s/^[#[:space:]]*\[include zru-s.cfg\]/$want/" "$cfg"
-        elif [ "$MODEL" = ultra-s ]; then printf '\n[include zru-s.cfg]\n' >> "$cfg"; fi
+        elif [ "$MODEL" = ultra-s ]; then cfg_include_last zru-s.cfg; fi   # above the SAVE_CONFIG block, never under it
         print_success "printer.cfg set for the $MODEL (copy of the old one: printer.cfg.wm-model-bak)"
     fi
     echo "$MODEL" > "$HOME_DIR/printer_data/wm-model"
@@ -767,6 +767,38 @@ t[i:i]=["[include %s]"%f,""]
 open(p,"w").write("\n".join(t))
 PYEOF
     else printf '\n[include %s]\n' "$1" >> "$cfg"; fi
+}
+cfg_below_save_list() {   # prints the [include] lines that sit UNDER the SAVE_CONFIG block of printer.cfg (Klipper rewrites everything under it when it saves); returns 0 when there are any
+    local cfg="$HOME_DIR/printer_data/config/printer.cfg"; [ -f "$cfg" ] || return 1
+    python3 - "$cfg" <<'PYEOF'
+import sys,re
+t=open(sys.argv[1]).read().split("\n")
+i=next((k for k,l in enumerate(t) if re.match(r"^#\*# <-* SAVE_CONFIG",l)),None)
+bad=[l.strip() for l in (t[i+1:] if i is not None else []) if re.match(r"^\s*\[include\s+\S.*\]\s*$",l)]
+print("\n".join(bad)); sys.exit(0 if bad else 1)
+PYEOF
+}
+cfg_below_save_fix() {   # move every [include] that sits under the SAVE_CONFIG block back above it (a copy of printer.cfg is kept); nothing under it = nothing changed
+    local cfg="$HOME_DIR/printer_data/config/printer.cfg"
+    cfg_below_save_list >/dev/null || return 0
+    cp "$cfg" "$cfg.wm-before-include-fix-$STAMP"
+    python3 - "$cfg" <<'PYEOF'
+import sys,re
+p=sys.argv[1]; t=open(p).read().split("\n")
+i=next(k for k,l in enumerate(t) if re.match(r"^#\*# <-* SAVE_CONFIG",l))
+inc=re.compile(r"^\s*\[include\s+\S.*\]\s*$")
+above=set(l.strip() for l in t[:i])
+moved=[]; rest=t[:i+1]
+for l in t[i+1:]:
+    if inc.match(l):
+        if l.strip() not in above and l.strip() not in moved: moved.append(l.strip())
+    else: rest.append(l)
+while rest and rest[-1]=="": rest.pop()
+rest.append("")
+rest[i:i]=moved+([""] if moved else [])
+open(p,"w").write("\n".join(rest))
+PYEOF
+    print_info "Moved the [include] line(s) that were under the SAVE_CONFIG block back above it (copy: printer.cfg.wm-before-include-fix-$STAMP)"
 }
 cfg_include_remove() { sed -i -E "/^[[:space:]]*\[include[[:space:]]+${1//./\\.}[[:space:]]*\][[:space:]]*$/d" "$HOME_DIR/printer_data/config/printer.cfg"; }
 pisens_add() {   # file label : the file is already in the config folder; include it, restart Klipper, undo everything if Klipper does not become ready. Returns 0 = in use, 1 = undone
@@ -1185,9 +1217,10 @@ step_shaketune() {
     record "HOMEDIR klippain_shaketune"
     [ -f "$cfgd/shaketune.cfg" ] || printf '[shaketune]\n# result_folder: ~/printer_data/config/ShakeTune_results\n# number_of_results_to_keep: 10\n# keep_raw_data: False\n' > "$cfgd/shaketune.cfg"
     if [ -f "$cfgd/printer.cfg" ] && ! grep -rqs '^\[shaketune\]\|include shaketune.cfg' "$cfgd/printer.cfg"; then
-        cp "$cfgd/printer.cfg" "$cfgd/printer.cfg.wm-before-shaketune-$STAMP"; printf '\n[include shaketune.cfg]\n' >> "$cfgd/printer.cfg"
+        cp "$cfgd/printer.cfg" "$cfgd/printer.cfg.wm-before-shaketune-$STAMP"; cfg_include_last shaketune.cfg   # above the SAVE_CONFIG block, never under it
         print_info "Added [include shaketune.cfg] to printer.cfg (copy: printer.cfg.wm-before-shaketune-$STAMP)"
     fi
+    cfg_below_save_fix   # an older version of this installer appended the include under the SAVE_CONFIG block
     if [ -f "$cfgd/moonraker.conf" ] && ! grep -q '\[update_manager[a-z ]* Klippain-ShakeTune\]' "$cfgd/moonraker.conf"; then
         printf '\n## Klippain Shake&Tune automatic update management\n[update_manager Klippain-ShakeTune]\ntype: git_repo\norigin: https://github.com/Frix-x/klippain-shaketune.git\npath: ~/klippain_shaketune\nvirtualenv: %s/klippy-env\nrequirements: requirements.txt\nsystem_dependencies: system-dependencies.json\nprimary_branch: main\nmanaged_services: klipper\n' "$HOME_DIR" >> "$cfgd/moonraker.conf"
     fi
@@ -2330,6 +2363,12 @@ do_doctor() {
     if [ "$WANT_SCREEN" = macros ]; then
         local c="$HOME_DIR/printer_data/config"
         { [ -f "$c/zr_tools.cfg" ] && grep -q '^\[include zr_tools.cfg\]' "$c/printer.cfg" 2>/dev/null; } && doc_ok "ZR Tools macros are in printer.cfg" || doc_bad "ZR Tools macros are missing from printer.cfg" "Run ./installer.sh --update."
+    fi
+    if [ -f "$HOME_DIR/printer_data/config/printer.cfg" ]; then
+        if cfg_below_save_list >/dev/null; then
+            doc_bad "printer.cfg has an [include] under the SAVE_CONFIG block: $(cfg_below_save_list | tr '\n' ' ')" "Klipper rewrites everything under that line when it saves, so the include is lost or the file breaks."
+            offer_fix "move the include above the SAVE_CONFIG block" cfg_below_save_fix
+        else doc_ok "no [include] sits under the SAVE_CONFIG block"; fi
     fi
     ntp_ok && doc_ok "clock is synchronized" || doc_bad "clock is not synchronized" "HTTPS downloads and file times go wrong. Check the network."
     progress_bar 5 5 "Doctor finished"

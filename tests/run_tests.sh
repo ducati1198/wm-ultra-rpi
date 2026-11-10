@@ -903,9 +903,15 @@ printf "[server]\n" > "$HK/printer_data/config/moonraker.conf"; : > "$HK/.sudo.l
 OUT="$(inst "$HK" --update --shaketune on)"
 check "--shaketune on installs the extension link and config" "[ -L $HK/klipper/klippy/extras/shaketune ] && [ -f $HK/printer_data/config/shaketune.cfg ]"
 check "--shaketune on adds include and update manager, with a printer.cfg copy" "grep -q 'include shaketune.cfg' $HK/printer_data/config/printer.cfg && grep -q 'Klippain-ShakeTune' $HK/printer_data/config/moonraker.conf && ls $HK/printer_data/config/printer.cfg.wm-before-shaketune-* >/dev/null"
+check "--shaketune on puts the include above the SAVE_CONFIG block, not under it" "grep -q SAVE_CONFIG $HK/printer_data/config/printer.cfg && ! sed -n '/SAVE_CONFIG/,\$p' $HK/printer_data/config/printer.cfg | grep -q '^\\[include'"
 check "--shaketune on restarts klipper (once) at the end, because it was running" "[ \$(grep -c 'restart klipper' $HK/.sudo.log) -eq 1 ]"
 check "--shaketune is remembered" "grep -rq 'WANT_SHAKETUNE=1' $HK/wm-rpi-backup"
 check "--remove shaketune removes it" "M 'y\\n' $HK --remove shaketune | grep -q 'removed' && [ ! -e $HK/klipper/klippy/extras/shaketune ] && ! grep -q 'shaketune.cfg' $HK/printer_data/config/printer.cfg"
+# an include that an older installer appended under the SAVE_CONFIG block is moved back above it (and the doctor reports it)
+printf '[include old_addon.cfg]\n[include shaketune.cfg]\n' >> "$HK/printer_data/config/printer.cfg"
+check "the doctor reports an include under the SAVE_CONFIG block" "M 'n\\n' $HK --doctor | grep -qi 'include.*under the SAVE_CONFIG'"
+inst "$HK" --update --shaketune on >/dev/null
+check "--update moves a stray include from under the SAVE_CONFIG block to above it, with a copy" "! sed -n '/SAVE_CONFIG/,\$p' $HK/printer_data/config/printer.cfg | grep -q '^\\[include' && grep -q 'include old_addon.cfg' $HK/printer_data/config/printer.cfg && [ \$(grep -c 'include shaketune.cfg' $HK/printer_data/config/printer.cfg) -eq 1 ] && ls $HK/printer_data/config/printer.cfg.wm-before-include-fix-* >/dev/null"
 OUT="$(inst "$T/hq" --dry-run --from-stage "$T/stage_hk" --model ultra-s --screen off)"
 check "the plan shows Shake&Tune" "echo \"\$OUT\" | grep -qi 'shake&tune'"
 check "the install does not ask about Obico, OctoApp or OctoEverywhere" "! M '\\n\\n\\n\\n\\n' $T/hq2 --dry-run | grep -qi 'Do you want.*\\(obico\\|octoapp\\|octoeverywhere\\)'"
