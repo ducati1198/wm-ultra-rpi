@@ -13,7 +13,7 @@ Files in this folder are **not WonderMaker's**. They are made for the Raspberry 
 |---|---|---|
 | `WM_BED_LEVELING` | Bed Leveling | `G28`, `G29` (heat bed 55 C and nozzle 140 C, wipe, 49 point mesh), heaters off, `SAVE_CONFIG` |
 | `WM_PROBE_CALIBRATE` | PROBE_CALIBRATE | warms the bed (`BED=60`, max 100), then WonderMaker's `PROBE_CALIBRATE`; you adjust with `TESTZ Z=-0.1` and so on, run `ACCEPT`, then `WM_PROBE_DONE` |
-| `WM_TOOL_OFFSETS MODE=rapid` or `MODE=accurate` | Extruder Offsets Calibration (Rapid / Accurate) | `CALIBRATE_OFFSET_ALL_RAPID_MODE` or `CALIBRATE_OFFSET_ALL_FINE_MODE`, then heaters off |
+| `WM_TOOL_OFFSETS MODE=rapid` or `MODE=accurate` | Extruder Offsets Calibration (Rapid / Accurate) | rapid: `CALIBRATE_OFFSET_ALL_RAPID_MODE`, `PARK_CURRENT_TOOL`. accurate (`TEMP=220`): `G28`; per tool `NOZZLE_PREPARE`, a window asks you to remove the purged debris (OK), `NOZZLE_CALIBRATE_TOOL_OFFSET`; then `RAPID_MODE` per tool; `PARK_CURRENT_TOOL`; heaters off. Same order as the screen app |
 | `WM_VIBRATION_COMP` | Vibration Compensation | `G28`, `SHAPER_CALIBRATE` (the `lis2dw` accelerometer on the EX_T board), `SAVE_CONFIG` |
 | `WM_BED_PID TARGET=60` | (no button in the app) | `PID_CALIBRATE HEATER=heater_bed` for the heated bed (40 to 110 C), `SAVE_CONFIG`. Needs `control: pid`, which the factory bed has |
 | `WM_CHAMBER_PID TARGET=45` | (no button in the app) | `PID_CALIBRATE HEATER=chamber` for the ZR Ultra-S chamber heater (30 to 60 C), `SAVE_CONFIG`. Refuses on the Ultra (no chamber heater) |

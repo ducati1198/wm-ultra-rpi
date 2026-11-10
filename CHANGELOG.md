@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.23.41
+
+- `WM_TOOL_OFFSETS MODE=accurate` now follows the order the screen app uses (read from its code and from the log of a real run on a screen board): `G28`; for every tool `NOZZLE_PREPARE S=220 T=n`, then a window with the app's text ("ensure the button-like purged debris has been manually removed from the nozzle tip") and an OK button, then `NOZZLE_CALIBRATE_TOOL_OFFSET T=n`; after the last tool `RAPID_MODE T=n` for every tool; `PARK_CURRENT_TOOL`. Before it called WonderMaker's `CALIBRATE_OFFSET_ALL_FINE_MODE`, which does one tool after the other and which the screen never calls. New option `TEMP` (default 220, the app uses the filament's extrude temperature). `MODE=rapid` is as before and now also parks the tool at the end, like the screen. New helper macros `_WM_TO_PREP`, `_WM_TO_CLEAN`, `_WM_TO_RAPID`, `_WM_TO_END`. If Klipper stops with an error the chain stops; WM_CAL_STOP turns the heaters off (the screen skips the failed tool instead). Tested with mocks only, not on a real printer.
+
 ## 1.23.40
 
 - Docs only: the tool alignment (Rapid / Accurate) can fail on every try with `Probe samples exceed samples_tolerance` at `TOOL_LOCATE_SENSOR` when the saved `probe_position` in `saved_variables.cfg` is wrong. Seen on a new screen board: the saved value was `(299.0, 290.0, 4, 6.9, 5.8)`; the printer that had worked before had `(299.0, 289.0, 8.87, 6.9, 5.8)`. After setting the old value (`SAVE_VARIABLE VARIABLE=probe_position VALUE=299.0,289.0,8.87,6.9,5.8`) Rapid passed for T0 to T3. The alignment takes the sensor position from the saved value, not from `probe_position` in `offset_calibrate.cfg` (that one is only used when nothing is saved). The values are not changed in `factory/`: the right Z is a calibrated number of that printer. Written in `rpi-cfg/README.md`.

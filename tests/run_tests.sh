@@ -415,7 +415,7 @@ check "rpi-cfg: wm_calibration.cfg is installed and included, ultra-s and ultra"
 check "rpi-cfg: exactly one include line, and printer.cfg was saved first" "[ \$(grep -c 'include wm_calibration.cfg' $HG/printer_data/config/printer.cfg) = 1 ] && ls $HG/printer_data/config/printer.cfg.wm-before-rpicfg-*"
 check "rpi-cfg: the include sits before the SAVE_CONFIG block, not after it" "! sed -n '/SAVE_CONFIG/,\$p' $HG/printer_data/config/printer.cfg | grep -q 'include wm_calibration'"
 check "rpi-cfg: the macros render and behave (jinja2)" "python3 $ROOT/tests/rpi_cfg_render.py; r=\$?; [ \$r = 0 ] || [ \$r = 77 ]"
-check "rpi-cfg: every WonderMaker macro it calls exists in both factory folders" "for m in G29 PROBE_CALIBRATE CALIBRATE_OFFSET_ALL_RAPID_MODE CALIBRATE_OFFSET_ALL_FINE_MODE; do for d in ultra ultra-s; do grep -q \"^\\[gcode_macro \$m\\]\" $ROOT/factory/\$d/config/*.cfg || exit 1; done; done"
+check "rpi-cfg: every WonderMaker macro it calls exists in both factory folders" "for m in G29 PROBE_CALIBRATE CALIBRATE_OFFSET_ALL_RAPID_MODE NOZZLE_PREPARE NOZZLE_CALIBRATE_TOOL_OFFSET RAPID_MODE PARK_CURRENT_TOOL; do for d in ultra ultra-s; do grep -q \"^\\[gcode_macro \$m\\]\" $ROOT/factory/\$d/config/*.cfg || exit 1; done; done"
 check "MCU firmware and flasher match their checksums" "cd $ROOT/factory/ultra-s/mcu && sha256sum -c binaries.sha256"
 check "model variants of printer.cfg present" "[ -f $ROOT/factory/ultra-s/config-variants/printer4.cfg ]"
 # modules: wrong files refused, right files accepted (use a copy of the repo with matching fake checksums)
