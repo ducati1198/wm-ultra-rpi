@@ -1,8 +1,12 @@
 # Changelog
 
+## 1.23.56
+
+- README section 7: the power picture `docs/img/screen-board-power.png` and the pins: on the 8-pin connector, 24 V (red wire) is the bottom pin of the right-hand column and ground (black wire) is the pin directly above it. The warning now names what not to touch.
+
 ## 1.23.55
 
-- README section 7 (screen board): new "Power the screen board first" with the 24 V and ground connection and a warning not to put 24 V on any other pin (it burns the board). Picture and pin names follow.
+- README section 7 (screen board): new "Power the screen board first" with the 24 V and ground connection and a warning not to put 24 V on any other pin (it burns the board).
 
 ## 1.23.54
 

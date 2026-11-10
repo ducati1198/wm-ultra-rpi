@@ -447,9 +447,11 @@ The `grid` layout shows the same pages as cards instead of tabs;.
 
 ### Power the screen board first (24 V and ground)
 
-The screen board needs **24 V and ground** from the printer's power supply. Connect them to the two power pins only (picture and pin names: *to be added*).
+The screen board needs **24 V and ground** from the printer's power supply. On the board's **8-pin connector** (the larger of the two sockets), use the **bottom pin of the right-hand column for 24 V (red wire)** and the **pin directly above it for ground (black wire)**:
 
-> **WARNING: connect 24 V only to the 24 V power pin. Never put 24 V on any other pin of the board (signal, data, UART, USB, display or GPIO pins).** Those pins are not made for 24 V and **you will burn the screen board**. Check the pins twice with the printer switched off and unplugged before you power it on. A wrong wire cannot be undone.
+![Screen board power pins: 24 V and ground on the 8-pin connector](docs/img/screen-board-power.png)
+
+> **WARNING: connect 24 V only to that one pin (red wire). Never put 24 V on any other pin of the board: not the other 7 pins of this connector, not the small 2-pin connector, and not any signal, data, UART, USB or display pin.** Those pins are not made for 24 V and **you will burn the screen board**. Check the pins twice with the printer switched off and unplugged before you power it on. A wrong wire cannot be undone.
 
 Run `bash scripts/screen_board.sh` on the board to get this menu:
 
