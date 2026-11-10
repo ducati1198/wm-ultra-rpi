@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.23.52
+
+- The Chinese comments, macro descriptions and a few printed messages in WonderMaker's config files are now English (`change_macros.cfg`, `offset_calibrate.cfg`, `macros.cfg`, `test_macro.cfg`, `change_extruder.cfg`, `extruder0-3.cfg`, `moonraker.conf`, for both models). Only text changed: no setting or command. Three real strings: `default('未知')` is now `default('unknown')` (display only), and the messages "retry check", "preheating the next tool head" and "changing current value to %d". The compiled WonderMaker modules, Klipper, Moonraker and the scripts were not touched. Done on the Pi first; Klipper reads it at the next restart. `./installer.sh --cfg-merge` will show these as WonderMaker-side differences if you compare with the original files.
+
 ## 1.23.51
 
 - README: new section 3.2b for `--import-settings`; the clean-up table no longer says the staged software comes from the old board.
