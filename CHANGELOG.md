@@ -1,8 +1,12 @@
 # Changelog
 
+## 1.23.68
+
+- README: the Obico, OctoApp and OctoEverywhere installers are now marked as tested on a real Pi (a WonderMaker ZR Ultra-S).
+
 ## 1.23.67
 
-- **README status updated: tested on a real printer.** The project has now been run on a WonderMaker ZR Ultra-S with a Raspberry Pi: install, Fluidd panel, ACE Pro, printing, the calibration macros, KlipperScreen on the WonderMaker screen board, and the OrcaSlicer plugin. The "not tested with a running printer" notes in the status line, the disclaimer, the touchscreen and Orca sections, `zr_tools/INSTALL.md` and `rpi-cfg/README.md` now say so. Still marked as not tested: Raspberry Pi OS Trixie, the ACE 2 Pro, a screen connected directly to a Pi, the USB flag tool, the `wm-release` comparison with a real WonderMaker update, and the Obico/OctoApp/OctoEverywhere installers. It still needs a little tweaking.
+- **README status updated: tested on a real printer.** The project has now been run on a WonderMaker ZR Ultra-S with a Raspberry Pi: install, Fluidd panel, ACE Pro, printing, the calibration macros, KlipperScreen on the WonderMaker screen board, and the OrcaSlicer plugin. The "not tested with a running printer" notes in the status line, the disclaimer, the touchscreen and Orca sections, `zr_tools/INSTALL.md` and `rpi-cfg/README.md` now say so. Still marked as not tested: Raspberry Pi OS Trixie, the ACE 2 Pro, a screen connected directly to a Pi, the USB flag tool, the `wm-release` comparison with a real WonderMaker update. It still needs a little tweaking.
 
 ## 1.23.66
 

@@ -758,7 +758,7 @@ OctoApp and OctoEverywhere ask questions while they install, so the installer on
 - WonderMaker's `printer.cfg` already has what Obico's macros use: `[pause_resume]`, `[respond]`, `[virtual_sdcard]`, `[display_status]`, `[exclude_object]`, and the `PAUSE`, `RESUME` and `CANCEL_PRINT` macros. WonderMaker's Klipper supports `action_call_remote_method`.
 - WonderMaker's `moonraker.conf` trusts `127.0.0.0/8`, which is where the add-ons connect from.
 
-**Not tested on a real Pi:** nobody has run these three installers on a Pi with this repository. Their downloads and account steps could not be tried from the build environment.
+**Tested on a real Pi:** these three installers have been run on the Raspberry Pi of a WonderMaker ZR Ultra-S with this repository and work.
 
 **Things to know**
 - Each add-on adds an `[update_manager ...]` section to `moonraker.conf`. WonderMaker's Klipper and Moonraker are not git clones, so Fluidd may list them as not updatable or invalid. Do not press update on those two; use `./installer.sh --update`.
