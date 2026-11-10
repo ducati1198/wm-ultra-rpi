@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.23.67
+
+- **README status updated: tested on a real printer.** The project has now been run on a WonderMaker ZR Ultra-S with a Raspberry Pi: install, Fluidd panel, ACE Pro, printing, the calibration macros, KlipperScreen on the WonderMaker screen board, and the OrcaSlicer plugin. The "not tested with a running printer" notes in the status line, the disclaimer, the touchscreen and Orca sections, `zr_tools/INSTALL.md` and `rpi-cfg/README.md` now say so. Still marked as not tested: Raspberry Pi OS Trixie, the ACE 2 Pro, a screen connected directly to a Pi, the USB flag tool, the `wm-release` comparison with a real WonderMaker update, and the Obico/OctoApp/OctoEverywhere installers. It still needs a little tweaking.
+
 ## 1.23.66
 
 - **The installer never puts an add-on `[include]` under the SAVE_CONFIG block.** Shake&Tune used to append `[include shaketune.cfg]` to the end of `printer.cfg`, which is below `#*# <--- SAVE_CONFIG --->`, where Klipper rewrites everything on each save. It now goes through the same helper as the other includes (after the other includes, just above the block), and so does the ZRU-S model include. If an older install already has includes under the block, `--update` (Shake&Tune step) moves them back above it, keeping a copy (`printer.cfg.wm-before-include-fix-<date>`), and the Doctor reports them with a fix offer. New tests cover all three.

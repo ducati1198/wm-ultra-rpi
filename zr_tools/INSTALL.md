@@ -5,7 +5,7 @@ Normally `./installer.sh` does all of this for you (see README section 6). This 
 ## Files
 | File | Goes to | What it does |
 |---|---|---|
-| `zr_tools.py`, `zr_views.py`, `zr_logic.py` | `~/KlipperScreen/panels/` | The touch panel (not yet tested on hardware) |
+| `zr_tools.py`, `zr_views.py`, `zr_logic.py` | `~/KlipperScreen/panels/` | The touch panel (tested on the WonderMaker screen board) |
 | `zr_tools.cfg` | `~/printer_data/config/` | Helper macros used by the panel |
 | `install_zr_tools.sh` | run once | Copies everything, edits configs (with backups), restarts |
 

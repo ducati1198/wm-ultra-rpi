@@ -12,7 +12,7 @@
 
 > **The ACE Pro is not an MMU.** The WonderMaker has four toolheads that do the switching, so the ACE Pro here is used **only to load and unload the filament and to dry it**.
 
-> **Status:** tested with a fake home folder, on a fresh Raspberry Pi (install, doctor, Fluidd, Moonraker, Klipper loading the config) and on one WonderMaker screen board. **Not tested with a running printer yet.** Use at your own risk, see the [full disclaimer](#disclaimer-use-at-your-own-risk).
+> **Status:** tested on a WonderMaker ZR Ultra-S printer with a Raspberry Pi (install, Fluidd, Moonraker, Klipper, the ACE Pro, printing, the calibration macros), with KlipperScreen on the WonderMaker screen board, and with the OrcaSlicer plugin. It still needs a little tweaking, and other setups may differ. Use at your own risk, see the [full disclaimer](#disclaimer-use-at-your-own-risk).
 
 ## Contents
 
@@ -117,7 +117,7 @@ More in [Troubleshooting](#9-troubleshooting).
 
 ## Disclaimer (use at your own risk)
 
-This is a community project, not made or supported by WonderMaker. It is provided "as is", without warranty. **It has been tested with a fake home folder, on a fresh Raspberry Pi OS Bookworm Pi (install, `--doctor`, Fluidd, Moonraker, Klipper loading the config) and on one WonderMaker screen board (section 7). It has not been tested with a running printer yet**. Please report what works and what does not.
+This is a community project, not made or supported by WonderMaker. It is provided "as is", without warranty. **It has been tested on one printer: a WonderMaker ZR Ultra-S with a Raspberry Pi (Bookworm) running the install, `--doctor`, Fluidd, Moonraker, Klipper, the ACE Pro, printing and the calibration macros, with KlipperScreen on the WonderMaker screen board (section 7), and with the OrcaSlicer plugin.** Your printer or firmware may differ. Please report what works and what does not.
 
 The installer never flashes any board and never starts Klipper unless you ask for it. You still work on a printer with mains power and heaters: you are responsible for what you connect and run.
 
@@ -132,7 +132,7 @@ The installer never flashes any board and never starts Klipper unless you ask fo
 | Webcams and timelapse | crowsnest and Moonraker timelapse, the versions WonderMaker ships |
 | Fluidd with a **Toolheads** panel | four toolheads, chamber, air filter, doors, print with colours, filament mapping |
 | Safe without the printer | Moonraker and Fluidd work right away. Without the main board Klipper starts but only reports "cannot connect" (nothing moves); `--no-start` leaves it off until `--first-start` |
-| Optional touchscreen | KlipperScreen with a **ZR Tools** page, if you connect a screen to the Pi (**not yet tested on hardware**) |
+| Optional touchscreen | KlipperScreen with a **ZR Tools** page, on the WonderMaker screen board or a screen connected to the Pi (tested on the WonderMaker screen board) |
 
 ![Before and after](docs/img/overview.svg)
 
@@ -353,7 +353,7 @@ Without an Anycubic ACE Pro the ACE parts stay hidden. If you add one later, use
 
 ### Install the OrcaSlicer plugin (optional, works without an ACE Pro)
 
-> **Not yet tested in OrcaSlicer or on a printer.** You need OrcaSlicer **2.5 or newer** (it has the plugin system).
+> **Tested in OrcaSlicer on a WonderMaker ZR Ultra-S.** You need OrcaSlicer **2.5 or newer** (it has the plugin system).
 
 The plugin ([WM Toolhead Mapper](https://github.com/ducati1198/wm-ultra-fluidd-acepro-panel/tree/main/orca_plugin), from the [wm-ultra-fluidd-acepro-panel](https://github.com/ducati1198/wm-ultra-fluidd-acepro-panel) repository) lets you pick, inside Orca, which toolhead prints each filament. When you send or export, it writes the choice at the top of the G-code, so the print needs no popup at start. It reads your four toolheads (colour, material, loaded or empty) from the printer, so an ACE Pro is not needed.
 
@@ -384,7 +384,7 @@ cd wm-ultra-fluidd-acepro-panel
 
 Use this if you connect a touchscreen directly to the Raspberry Pi. KlipperScreen runs on the Pi next to Klipper and Moonraker, with the ZR Tools panel. For the original WonderMaker screen board as the screen, see section 7 instead.
 
-> **Not yet tested on hardware.** It was built against the KlipperScreen documentation and checked with automated tests, but nobody has run it on a Pi with a screen yet. Please report what you see.
+> **Tested on the WonderMaker screen board.** A screen connected directly to a Pi has not been tried. Please report what you see.
 
 The installer asks **"Add a touchscreen?"** (default yes). Skip it with `--screen off`. Options:
 
