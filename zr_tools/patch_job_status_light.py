@@ -30,22 +30,38 @@ method = '''
         import threading
         from gi.repository import GLib
 
+        import logging
+
         def work():
             try:
                 r = subprocess.run(["sudo", "-n", "/usr/local/sbin/wm-chamber-light", "toggle"],
                                    capture_output=True, text=True, timeout=8)
                 ok = r.returncode == 0
+                logging.info("chamber light: rc=%s out=%r err=%r", r.returncode, r.stdout, r.stderr)
             except Exception:
+                logging.exception("chamber light toggle failed")
                 ok = False
             GLib.idle_add(done, ok)
 
         def done(ok):
-            self._gtk.Button_busy(widget, False)
-            if not ok:
-                self._screen.show_popup_message("The chamber light helper is not installed.")
+            try:
+                self._gtk.Button_busy(widget, False)
+                if not ok:
+                    self._screen.show_popup_message("The chamber light helper is not installed.")
+            except Exception:
+                logging.exception("chamber light: could not reset the button")
             return False
 
+        def watchdog():   # never leave the button spinning
+            try:
+                self._gtk.Button_busy(widget, False)
+            except Exception:
+                logging.exception("chamber light: watchdog")
+            return False
+
+        logging.info("chamber light: button pressed")
         self._gtk.Button_busy(widget, True)
+        GLib.timeout_add_seconds(12, watchdog)
         threading.Thread(target=work, daemon=True).start()
 '''
 i = s.index("\n    def save_offset(self, widget, device):")

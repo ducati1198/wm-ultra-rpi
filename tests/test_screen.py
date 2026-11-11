@@ -419,6 +419,21 @@ class Smoke(unittest.TestCase):
         self.assertIn("WM_ENDLESS_SET ENABLE=1", sent)
         self.assertTrue(any(s.startswith("ACE_WM_DRY_START TEMP=55 DURATION=") for s in sent), sent)
 
+    def test_dryer_is_on_the_climate_page(self):
+        p, screen = self.make("tabs", ace=True)
+        p.show_chamber(); p._refresh_view()
+        self.assertIn("dry_lbl", p.w); self.assertIn("dry_info", p.w)
+        p._ace_preset(65, 6); p._ace_step("dry_hours", 1)
+        self.assertEqual((p.dry_temp, p.dry_hours), (65, 7))
+        p._ace_dry_start()
+        sent = [c.args[0] for c in screen._ws.api.gcode_script.call_args_list]
+        self.assertIn("ACE_WM_DRY_START TEMP=65 DURATION=420", sent)
+        p.show_ace(); p._refresh_view()
+        self.assertNotIn("dry_lbl", p.w)          # the ACE page no longer has the dryer
+        p, _ = self.make("tabs")                   # no ACE: no dryer on the Climate page
+        p.show_chamber(); p._refresh_view()
+        self.assertNotIn("dry_lbl", p.w)
+
     def test_ace_tab_only_with_ace(self):
         p, _ = self.make("tabs")
         self.assertNotIn("ACE", p.nav_btns)

@@ -490,6 +490,8 @@ def build_css(theme, style, density="compact", scale=1.0):
     .zr_selected { background-image: none; background-color: %(acc)s; border-color: %(acc)s; color: #ffffff; }
     .zr_section { font-weight: bold; padding-top: 6px; }
     .zr_small { font-size: %(small_pct)s; color: %(small)s; }
+    .zr_value { font-weight: bold; font-size: %(value)s; }
+    .zr_value_dim { font-weight: bold; font-size: %(value_dim)s; color: %(small)s; }
     .zr_hint { font-size: %(small_pct)s; color: %(hint)s; }
     scrollbar.vertical { min-width: 18px; }
     scrollbar slider { min-width: 14px; min-height: 40px; border-radius: 8px; background-color: %(edge)s; }
@@ -498,7 +500,8 @@ def build_css(theme, style, density="compact", scale=1.0):
            "ready_bg": ready[0], "ready_fg": ready[1], "active_bg": active[0], "active_fg": active[1],
            "empty_bg": empty[0], "empty_fg": empty[1],
            "pill": "%d%%" % round((100 if big else 85) * k), "title": "%d%%" % round((120 if big else 100) * k),
-           "mat": "%d%%" % round((130 if big else 110) * k), "small_pct": "%d%%" % round(85 * k)}
+           "mat": "%d%%" % round((130 if big else 110) * k),
+           "value": "%d%%" % round((330 if big else 290) * k), "value_dim": "%d%%" % round((230 if big else 200) * k), "small_pct": "%d%%" % round(85 * k)}
 
 
 # ---------------------------------------------------------------------

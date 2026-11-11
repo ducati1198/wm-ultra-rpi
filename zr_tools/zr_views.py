@@ -22,6 +22,8 @@ NTOOLS = 4
 
 
 class ViewsMixin:
+    dry_temp = 55      # ACE dryer settings (the Climate page edits them)
+    dry_hours = 6
 
     # ------------------------------------------------------------------
     # small helpers
@@ -124,8 +126,6 @@ class ViewsMixin:
     def show_ace(self):
         self.view = "ace"
         self.ace_slot = getattr(self, "ace_slot", 0)
-        self.dry_temp = getattr(self, "dry_temp", 55)
-        self.dry_hours = getattr(self, "dry_hours", 6)
         self.ace_len = getattr(self, "ace_len", 50)
         self.ace_speed = getattr(self, "ace_speed", 5)
         self._clear()
@@ -161,28 +161,6 @@ class ViewsMixin:
         body.pack_start(self.w["ace_len_lbl"], False, False, 0)
         body.pack_start(self._tile_grid(mv, cols=2), False, False, 0)
 
-        body.pack_start(self._label("Dryer", "zr_small"), False, False, 0)
-        pres = Gtk.Grid()
-        pres.set_column_spacing(6)
-        pres.set_row_spacing(6)
-        pres.set_column_homogeneous(True)
-        for n, (name, temp, hours) in enumerate(L.DRY_PRESETS):
-            b = self._button(None, name, "color3", self._ace_preset, temp, hours)
-            b.set_size_request(-1, self.sz["btn_h"] - 14)
-            pres.attach(b, n % 3, n // 3, 1, 1)
-        body.pack_start(pres, False, False, 0)
-        drow = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        for text, key, step in (("Temp -", "dry_temp", -5), ("Temp +", "dry_temp", 5),
-                                ("Hours -", "dry_hours", -1), ("Hours +", "dry_hours", 1)):
-            b = self._button(None, text, "color3", self._ace_step, key, step)
-            b.set_size_request(-1, self.sz["btn_h"] - 10)
-            drow.pack_start(b, True, True, 0)
-        body.pack_start(drow, False, False, 0)
-        self.w["dry_lbl"] = self._label("", "zr_small")
-        body.pack_start(self.w["dry_lbl"], False, False, 0)
-        body.pack_start(self._row(self._button("heat-up", "Start drying", "color1", self._ace_dry_start),
-                                  self._button("stop", "Stop drying", "color3", self._ace_dry_stop)), False, False, 0)
-
         if L.ace_state(self.st)["endless_available"]:
             body.pack_start(self._label("Endless spool (experimental): when a head runs out, the print pauses; "
                                         "use Swap & continue in Fluidd.", "zr_hint", wrap=True), False, False, 0)
@@ -192,6 +170,60 @@ class ViewsMixin:
         self.root.pack_start(self._scrolled(body), True, True, 0)
         self.root.show_all()
         self._refresh_ace()
+
+    def _build_dryer(self, body):
+        """The ACE dryer card: big temperature and hours, presets, Temp / Hours steps, start and stop."""
+        self.dry_temp = getattr(self, "dry_temp", 55)
+        self.dry_hours = getattr(self, "dry_hours", 6)
+        bh = min(self.sz["btn_h"], 42)
+        body.pack_start(self._label("ACE DRYER", "zr_small"), False, False, 0)
+        vals = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=14)
+        vals.set_halign(Gtk.Align.CENTER)
+        self.w["dry_lbl"] = self._label("", "zr_value")
+        self.w["dry_hrs"] = self._label("", "zr_value_dim")
+        vals.pack_start(self.w["dry_lbl"], False, False, 0)
+        vals.pack_start(self.w["dry_hrs"], False, False, 0)
+        body.pack_start(vals, False, False, 0)
+        self.w["dry_info"] = self._label("", "zr_small")
+        body.pack_start(self.w["dry_info"], False, False, 0)
+        pres = Gtk.Grid()
+        pres.set_column_spacing(6)
+        pres.set_row_spacing(6)
+        pres.set_column_homogeneous(True)
+        for n, (name, temp, hours) in enumerate(L.DRY_PRESETS):
+            b = self._button(None, name, "color3", self._ace_preset, temp, hours)
+            b.set_size_request(-1, bh - 4)
+            pres.attach(b, n % 3, n // 3, 1, 1)
+        body.pack_start(pres, False, False, 0)
+        drow = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        drow.set_homogeneous(True)
+        for text, key, step in (("-5\u00b0", "dry_temp", -5), ("+5\u00b0", "dry_temp", 5),
+                                ("-1 h", "dry_hours", -1), ("+1 h", "dry_hours", 1)):
+            b = self._button(None, text, "color3", self._ace_step, key, step)
+            b.set_size_request(-1, bh)
+            drow.pack_start(b, True, True, 0)
+        body.pack_start(drow, False, False, 0)
+        start = self._button("heat-up", "Start drying", "color1", self._ace_dry_start)
+        stop = self._button("stop", "Stop", "color3", self._ace_dry_stop)
+        for btn in (start, stop):
+            btn.set_size_request(-1, bh + 4)
+        body.pack_start(self._row(start, stop), False, False, 0)
+        self._refresh_dryer()
+
+    def _refresh_dryer(self):
+        if "dry_lbl" not in self.w:
+            return
+        a = L.ace_state(self.st)
+        t = []
+        if a["temp"] is not None:
+            t.append("ACE %s C" % a["temp"])
+        if a["humidity"] is not None:
+            t.append("%s %% RH" % a["humidity"])
+        t.append(("drying, %s left" % a["dry_left"]) if a["drying"] else "dryer off")
+        t.append("max %s C" % a["max_temp"])
+        self.w["dry_info"].set_text("  -  ".join(t))
+        self.w["dry_lbl"].set_text("%d\u00b0C" % self.dry_temp)
+        self.w["dry_hrs"].set_text("%d h" % self.dry_hours)
 
     def _refresh_ace(self):
         if "ace_info" not in self.w:
@@ -216,7 +248,6 @@ class ViewsMixin:
             else:
                 ctx.remove_class("zr_selected")
         self.w["ace_len_lbl"].set_text("Manual move: %d mm at %d mm/s (slot T%d)" % (self.ace_len, self.ace_speed, self.ace_slot + 1))
-        self.w["dry_lbl"].set_text("Drying: %d C for %d h (max %s C)" % (self.dry_temp, self.dry_hours, a["max_temp"]))
         if "endless" in self.w:
             self.w["endless"].set_label("Endless spool: %s (tap to switch)" % ("ON" if L.endless_enabled(self._vars()) else "off"))
 
@@ -260,13 +291,15 @@ class ViewsMixin:
             self.ace_speed = max(1, min(30, self.ace_speed + step))
         elif key == "dry_temp":
             self.dry_temp, self.dry_hours = L.clamp_dry(self.dry_temp + step, self.dry_hours, L.ace_state(self.st)["max_temp"])
+            return self._refresh_dryer()
         elif key == "dry_hours":
             self.dry_temp, self.dry_hours = L.clamp_dry(self.dry_temp, self.dry_hours + step, L.ace_state(self.st)["max_temp"])
+            return self._refresh_dryer()
         self._refresh_ace()
 
     def _ace_preset(self, temp, hours):
         self.dry_temp, self.dry_hours = L.clamp_dry(temp, hours, L.ace_state(self.st)["max_temp"])
-        self._refresh_ace()
+        self._refresh_dryer()
 
     def _ace_dry_start(self):
         self._gcode("ACE_WM_DRY_START TEMP=%d DURATION=%d" % (self.dry_temp, self.dry_hours * 60), "Drying started")

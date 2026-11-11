@@ -1207,38 +1207,73 @@ class Panel(ViewsMixin, ScreenPanel):
     # ------------------------------------------------------------------
     # CHAMBER VIEW
     # ------------------------------------------------------------------
+    def _climate_card(self):
+        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        card.get_style_context().add_class("zr_card")
+        card.set_border_width(8)
+        return card
+
     def show_chamber(self):
         self.view = "chamber"
         self._clear()
-        self.root.pack_start(self._header("Chamber"), False, False, 0)
-        self.w["ch_temp"] = self._label()
-        self.root.pack_start(self.w["ch_temp"], False, False, 6)
+        self.root.pack_start(self._header("Climate"), False, False, 0)
+        bh = min(self.sz["btn_h"], 42)
+        ch = self._climate_card()
+        ch.pack_start(self._label("CHAMBER", "zr_small"), False, False, 0)
+        vals = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        vals.set_halign(Gtk.Align.CENTER)
+        self.w["ch_temp"] = self._label("", "zr_value")
+        self.w["ch_target"] = self._label("", "zr_small")
+        self.w["ch_target"].set_valign(Gtk.Align.END)
+        vals.pack_start(self.w["ch_temp"], False, False, 0)
+        vals.pack_start(self.w["ch_target"], False, False, 0)
+        ch.pack_start(vals, False, False, 0)
 
         presets = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         presets.set_homogeneous(True)
         for t in (0, 40, 50, 60):
-            b = self._button("heat-up" if t else "cool-down", "Off" if t == 0 else f"{t} C",
-                             "color2" if t else "color3", self._chamber_set, t)
-            b.set_size_request(-1, self.sz["btn_h"])
+            b = self._button(None, "Off" if t == 0 else f"{t} C", "color2" if t else "color3", self._chamber_set, t)
+            b.set_size_request(-1, bh)
             presets.pack_start(b, True, True, 0)
-        self.root.pack_start(presets, False, False, 0)
+        ch.pack_start(presets, False, False, 0)
 
         adj = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         adj.set_homogeneous(True)
-        adj.pack_start(self._button("decrease", "-5 C", "color3", self._chamber_step, -5), True, True, 0)
-        adj.pack_start(self._button("increase", "+5 C", "color3", self._chamber_step, 5), True, True, 0)
-        self.root.pack_start(adj, False, False, 0)
+        for text, d in (("-5 C", -5), ("+5 C", 5)):
+            b = self._button(None, text, "color3", self._chamber_step, d)
+            b.set_size_request(-1, bh)
+            adj.pack_start(b, True, True, 0)
+        ch.pack_start(adj, False, False, 0)
 
         fan = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         fan.set_homogeneous(True)
-        self.w["ch_fan"] = self._label()
-        fan.pack_start(self.w["ch_fan"], True, True, 0)
-        fan.pack_start(self._button("fan", "Air filter ON", "color1", self._air_filter, 1), True, True, 0)
-        fan.pack_start(self._button("fan-off", "Air filter OFF", "color3", self._air_filter, 0), True, True, 0)
-        self.root.pack_start(fan, False, False, 0)
-
+        on = self._button("fan", "Air filter ON", "color1", self._air_filter, 1)
+        off = self._button(None, "OFF", "color3", self._air_filter, 0)
+        for b in (on, off):
+            b.set_size_request(-1, bh + 4)
+            fan.pack_start(b, True, True, 0)
+        ch.pack_start(fan, False, False, 0)
+        self.w["ch_fan"] = self._label("", "zr_small")
         self.w["ch_doors"] = self._label("", "zr_small", wrap=True)
-        self.root.pack_start(self.w["ch_doors"], False, False, 6)
+        ch.pack_start(self.w["ch_fan"], False, False, 0)
+        ch.pack_start(self.w["ch_doors"], False, False, 0)
+
+        cards = [ch]
+        if L.has_ace(self.st):
+            dry = self._climate_card()
+            self._build_dryer(dry)
+            cards.append(dry)
+        if len(cards) == 2 and not self.portrait and not self.tiny:      # side by side on a wide screen
+            body = Gtk.Grid()
+            body.set_column_spacing(10)
+            body.set_column_homogeneous(True)
+            for n, c in enumerate(cards):
+                body.attach(c, n, 0, 1, 1)
+        else:                                                           # stacked, scrolls
+            body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+            for c in cards:
+                body.pack_start(c, False, False, 0)
+        self.root.pack_start(self._scrolled(body), True, True, 0)
         self.root.show_all()
         self._refresh_view()
 
@@ -1258,22 +1293,24 @@ class Panel(ViewsMixin, ScreenPanel):
     def _refresh_chamber(self):
         ch = self.st.get("heater_generic chamber")
         if isinstance(ch, dict) and ch.get("temperature") is not None:
-            self.w["ch_temp"].set_markup(
-                f"<big><b>Chamber: {ch['temperature']:.0f} / {ch.get('target') or 0:.0f} C</b></big>")
+            tgt = ch.get("target") or 0
+            self.w["ch_temp"].set_text("%.0f\u00b0" % ch["temperature"])
+            self.w["ch_target"].set_text("target %.0f\u00b0" % tgt if tgt else "heater off")
         else:
-            self.w["ch_temp"].set_text("Chamber heater not found (is zru-s.cfg included?)")
+            self.w["ch_temp"].set_text("--")
+            self.w["ch_target"].set_text("Chamber heater not found (is zru-s.cfg included?)")
         fan = self.st.get("fan_generic air_fan")
         if isinstance(fan, dict) and fan.get("speed") is not None:
-            self.w["ch_fan"].set_text(f"Air filter: {fan['speed'] * 100:.0f}%")
+            self.w["ch_fan"].set_text(f"Air filter {fan['speed'] * 100:.0f}%")
         else:
             self.w["ch_fan"].set_text("Air filter: --")
         doors = []
         for n in (1, 2):
             d = self.st.get(f"gcode_button Door_button{n}")
             if isinstance(d, dict) and d.get("state"):
-                doors.append(f"Door switch {n}: {d['state']}")
-        self.w["ch_doors"].set_text("\n".join(doors) + (
-            "\n(Air filter needs air_filter=1 in tmt1.ini)" if doors else ""))
+                doors.append(f"{n}: {str(d['state']).lower()}")
+        self.w["ch_doors"].set_text(("Doors  " + "   ".join(doors)) if doors else "")
+        self._refresh_dryer()
 
     # ------------------------------------------------------------------
     def _refresh_view(self):

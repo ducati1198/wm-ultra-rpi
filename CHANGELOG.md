@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.23.70
+
+- **ACE dryer moved to the ZR Tools Climate page.** The dryer (six material presets, Temp -/+, Hours -/+, Start / Stop drying, and a line with the ACE temperature, humidity and time left) is now under Climate, only when an ACE is connected. The ACE page keeps slots, Load / Unload, Feed assist, Stop motor and manual Feed / Retract.
+- **New Climate layout.** Chamber card on the left and ACE dryer card on the right, one page, no scrolling on an 800x480 screen. The chamber temperature and the dryer temperature and hours are shown in large type. Dryer buttons are -5° / +5° / -1 h / +1 h. Narrow or portrait screens stack the cards and scroll. Seen on the screen board (screenshot); the buttons were not pressed.
+- **Chamber light buttons on KlipperScreen: logging and a 12 second reset.** Each press writes lines to KlipperScreen's log and the button can no longer stay stuck on its spinner.
+
 ## 1.23.69
 
 - **Chamber light button on the KlipperScreen print screen.** While printing or paused, a Light button appears next to Pause, Cancel, Fine Tuning and Settings and toggles the chamber light. It shows only when the Chamber light helper is installed (1.23.62). `zr_tools/patch_job_status_light.py` adds it to KlipperScreen's `job_status.py` (copy `job_status.py.wm-orig`); the installer applies it on install and Update. Tested on a copy of the board's file; not seen on the screen during a print yet.
