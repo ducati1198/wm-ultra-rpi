@@ -34,7 +34,7 @@ class ViewsMixin:
         except Exception:
             return []
 
-    def _tile_grid(self, items, cols=None):
+    def _tile_grid(self, items, cols=None, scale=1.0):
         """items: (icon, label, callback). A homogeneous grid of buttons."""
         cols = cols or self.sz["cols"]
         grid = Gtk.Grid()
@@ -43,7 +43,7 @@ class ViewsMixin:
         grid.set_column_homogeneous(True)
         for n, (icon, label, cb) in enumerate(items):
             b = self._button(icon, label, "color%d" % (1 + n % 4), cb)
-            b.set_size_request(-1, self.sz["tile_h"])
+            b.set_size_request(-1, int(self.sz["tile_h"] * scale))
             grid.attach(b, n % cols, n // cols, 1, 1)
         return grid
 
@@ -106,7 +106,7 @@ class ViewsMixin:
         self.view = "hub" if include_main else "more"
         self._clear()
         self.root.pack_start(self._header(title), False, False, 0)
-        self.root.pack_start(self._scrolled(self._tile_grid(self._hub_items(include_main))), True, True, 0)
+        self.root.pack_start(self._scrolled(self._tile_grid(self._hub_items(include_main), scale=1.0 if include_main else 1.7)), True, True, 0)
         self.root.show_all()
 
     def show_more(self):
@@ -132,34 +132,63 @@ class ViewsMixin:
         self.root.pack_start(self._header("ACE Pro"), False, False, 0)
         body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         self.w["ace_info"] = self._label("", "zr_small")
-        body.pack_start(self.w["ace_info"], False, False, 0)
 
-        slots = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        slots.set_homogeneous(True)
-        self.w["ace_slots"] = []
+        # Four slot cards like the Toolheads page (spool in the filament colour, status chip) ...
+        cards = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        cards.set_homogeneous(True)
+        self.w["ace_cards"] = []
+        small = self.sz.get("tiny") or self.density == "compact"
         for i in range(NTOOLS):
-            b = self._button(None, "T%d" % (i + 1), "color3", self._ace_select, i)
-            b.set_size_request(-1, self.sz["btn_h"])
-            slots.pack_start(b, True, True, 0)
-            self.w["ace_slots"].append(b)
-        body.pack_start(slots, False, False, 0)
+            ev = Gtk.EventBox()
+            ev.get_style_context().add_class("zr_card")
+            box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+            for m in ("top", "bottom", "start", "end"):
+                getattr(box, "set_margin_" + m)(5)
+            c = {"ev": ev, "title": self._label("T%d" % (i + 1), "zr_title"),
+                 "spool": self._spool(40 if small else 48), "chip": self._pill("", "empty"),
+                 "hub": self._label("", "zr_small")}
+            for key in ("title", "spool", "chip", "hub"):
+                box.pack_start(c[key], False, False, 0)
+            ev.add(box)
+            ev.connect("button-release-event", lambda *_a, n=i: self._ace_select(n))
+            cards.pack_start(ev, True, True, 0)
+            self.w["ace_cards"].append(c)
+        body.pack_start(cards, False, False, 0)
 
-        act = [("load", "Load from ACE", self._ace_load), ("retract", "Unload to ACE", self._ace_unload),
-               ("fan", "Feed assist", self._ace_assist), ("stop", "Stop motor", self._ace_stop)]
-        body.pack_start(self._tile_grid(act, cols=2 if (self.density == "compact" or getattr(self._screen, "width", 0) <= 900) else 4), False, False, 0)
+        # ... and a grid of big coloured actions like the Filament page.
+        bh = int(self.sz["btn_h"] * 1.0)
+        acts = [("load", "Load from ACE", "zr_btn_green", self._ace_load),
+                ("retract", "Unload to ACE", "zr_btn_orange", self._ace_unload),
+                ("fan", "Feed assist", "zr_btn_primary", self._ace_assist),
+                ("arrow-down", "Feed", "", self._ace_feed),
+                ("arrow-up", "Retract", "", self._ace_retract),
+                ("stop", "Stop motor", "zr_btn_red", self._ace_stop)]
+        grid = Gtk.Grid()
+        grid.set_row_spacing(6)
+        grid.set_column_spacing(6)
+        grid.set_column_homogeneous(True)
+        for n, (icon, text, cls, cb) in enumerate(acts):
+            b = self._button(icon, text, "color3", cb)
+            if cls:
+                b.get_style_context().add_class(cls)
+            b.set_size_request(-1, bh)
+            grid.attach(b, n % 3, n // 3, 1, 1)
+        body.pack_start(grid, False, False, 0)
 
-        mv = [("arrow-down", "Feed", self._ace_feed), ("arrow-up", "Retract", self._ace_retract)]
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        box.get_style_context().add_class("zr_card")
+        box.set_border_width(6)
+        self.w["ace_len_lbl"] = self._label("", "zr_mat")
+        box.pack_start(self.w["ace_len_lbl"], False, False, 0)
         row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        self.w["ace_len_lbl"] = self._label("", "zr_small")
-        self.w["ace_speed_lbl"] = self._label("", "zr_small")
+        row.set_homogeneous(True)
         for text, key, step in (("Length -", "ace_len", -10), ("Length +", "ace_len", 10),
                                 ("Speed -", "ace_speed", -1), ("Speed +", "ace_speed", 1)):
             b = self._button(None, text, "color3", self._ace_step, key, step)
-            b.set_size_request(-1, self.sz["btn_h"] - 10)
+            b.set_size_request(-1, self.sz["btn_h"] - 16)
             row.pack_start(b, True, True, 0)
-        body.pack_start(row, False, False, 0)
-        body.pack_start(self.w["ace_len_lbl"], False, False, 0)
-        body.pack_start(self._tile_grid(mv, cols=2), False, False, 0)
+        box.pack_start(row, False, False, 0)
+        body.pack_start(box, False, False, 0)
 
         if L.ace_state(self.st)["endless_available"]:
             body.pack_start(self._label("Endless spool (experimental): when a head runs out, the print pauses; "
@@ -238,16 +267,21 @@ class ViewsMixin:
         if a["drying"]:
             t.append("drying, %s left" % a["dry_left"])
         self.w["ace_info"].set_text("   ".join(t))
-        for i, b in enumerate(self.w["ace_slots"]):
-            s = a["slots"][i]
-            hub = "-" if s["hub"] is None else ("hub on" if s["hub"] else "hub off")
-            b.set_label("T%d %s\n%s" % (i + 1, s["text"], hub))
-            ctx = b.get_style_context()
+        for i, c in enumerate(self.w["ace_cards"]):
+            sl = a["slots"][i]
+            info = self._tool_info(i)
+            has = not sl["empty"] and sl["text"] != "no data"
+            c["spool"].zr_empty = not has
+            self._set_swatch(c["spool"], info["color"] if has else 0x303030)
+            kind = "empty" if not has else ("active" if sl["text"] in ("loading", "unloading", "assist") else "ready")
+            self._set_pill(c["chip"], sl["text"].capitalize(), kind)
+            c["hub"].set_text("-" if sl["hub"] is None else ("hub on" if sl["hub"] else "hub off"))
+            ctx = c["ev"].get_style_context()
             if i == self.ace_slot:
-                ctx.add_class("zr_selected")
+                ctx.add_class("zr_active")
             else:
-                ctx.remove_class("zr_selected")
-        self.w["ace_len_lbl"].set_text("Manual move: %d mm at %d mm/s (slot T%d)" % (self.ace_len, self.ace_speed, self.ace_slot + 1))
+                ctx.remove_class("zr_active")
+        self.w["ace_len_lbl"].set_text("Manual move:  %d mm at %d mm/s  (slot T%d)" % (self.ace_len, self.ace_speed, self.ace_slot + 1))
         if "endless" in self.w:
             self.w["endless"].set_label("Endless spool: %s (tap to switch)" % ("ON" if L.endless_enabled(self._vars()) else "off"))
 

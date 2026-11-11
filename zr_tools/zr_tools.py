@@ -766,7 +766,21 @@ class Panel(ViewsMixin, ScreenPanel):
         self.view_tool = i
         self.edit = dict(self._tool_info(i))
         self._clear()
-        self.root.pack_start(self._header("Toolhead %d (T%d)" % (i + 1, i)), False, False, 0)
+        head = self._header("Toolhead %d (T%d)" % (i + 1, i))
+        kids = head.get_children()
+        lbl = kids[-1]
+        head.remove(lbl)
+        mid = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        for text, n in (("\u25c0", (i - 1) % NTOOLS), (None, None), ("\u25b6", (i + 1) % NTOOLS)):
+            if text is None:
+                mid.pack_start(lbl, True, True, 0)
+                continue
+            arrow = self._button(None, text, "color3", self.show_tool, n)
+            arrow.get_style_context().add_class("zr_arrow")
+            arrow.set_size_request(84, self.sz["btn_h"])
+            mid.pack_start(arrow, False, False, 0)
+        head.pack_start(mid, True, True, 0)
+        self.root.pack_start(head, False, False, 0)
 
         big = self.density == "comfortable"
         # Wide screen: the spool card on the left, the actions on the right.
@@ -805,29 +819,34 @@ class Panel(ViewsMixin, ScreenPanel):
         actions.set_row_spacing(8)
         actions.set_column_spacing(8)
         actions.set_column_homogeneous(True)
+        # Row 1: Select, Park tool, Edit filament.  Right column: Heat under Edit filament, Cool under Heat.
+        # Left two columns: Load, Unload, and Purge across the bottom.
         items = [
-            ("extruder", "Select", "color1", self._act_select),
-            ("heat-up", "Heat", "color3", self._act_heat),
-            ("cool-down", "Cool", "color3", self._act_cool),
-            ("arrow-down", "Load", "color2", self._act_load),
-            ("arrow-up", "Unload", "color4", self._act_unload),
-            ("fine-tune", "Purge", "color3", self._act_purge),
+            ("extruder", "Select", "color1", self._act_select, "", 0, 0, 1),
+            ("arrow-down", "Load", "color2", self._act_load, "", 0, 1, 1),
+            ("arrow-up", "Unload", "color4", self._act_unload, "", 1, 1, 1),
+            ("fine-tune", "Purge", "color3", self._act_purge, "", 0, 2, 2),
+            ("heat-up", "Heat", "color3", self._act_heat, "zr_btn_red", 2, 1, 1),
+            ("cool-down", "Cool", "color3", self._act_cool, "zr_btn_cyan", 2, 2, 1),
         ]
-        for n, (icon, text, style, cb) in enumerate(items):
+        for icon, text, style, cb, cls, col, row, span in items:
             btn = self._gtk.Button(icon, text, style, lines=1)
             btn.get_style_context().add_class("zr_btn")
             if style in self._STYLE_CLASS:
                 btn.get_style_context().add_class(self._STYLE_CLASS[style])
+            if cls:
+                btn.get_style_context().add_class(cls)
             btn.set_hexpand(True)
             btn.set_vexpand(True)
             btn.connect("clicked", lambda _w, f=cb: f(i))
-            actions.attach(btn, n % 3, n // 3, 1, 1)
-        edit_btn = self._button("fine-tune", "Edit filament", "color3", self.show_tool_edit, i)
-        edit_btn.set_size_request(-1, int(self.sz["btn_h"] * 1.7))
-        actions.attach(edit_btn, 0, 2, 2, 1)
+            actions.attach(btn, col, row, span, 1)
         park_btn = self._button("extruder", "Park tool", "color3", self._act_park)
-        park_btn.set_size_request(-1, int(self.sz["btn_h"] * 1.7))
-        actions.attach(park_btn, 2, 2, 1, 1)
+        park_btn.get_style_context().add_class("zr_btn_purple")
+        park_btn.set_vexpand(True)
+        actions.attach(park_btn, 1, 0, 1, 1)
+        edit_btn = self._button("fine-tune", "Edit filament", "color3", self.show_tool_edit, i)
+        edit_btn.set_vexpand(True)
+        actions.attach(edit_btn, 2, 0, 1, 1)
         page.pack_start(actions, True, True, 0)
 
         self.root.pack_start(page, True, True, 0)
@@ -1229,12 +1248,17 @@ class Panel(ViewsMixin, ScreenPanel):
         vals.pack_start(self.w["ch_target"], False, False, 0)
         ch.pack_start(vals, False, False, 0)
 
-        presets = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        presets.set_homogeneous(True)
-        for t in (0, 40, 50, 60):
-            b = self._button(None, "Off" if t == 0 else f"{t} C", "color2" if t else "color3", self._chamber_set, t)
-            b.set_size_request(-1, bh)
-            presets.pack_start(b, True, True, 0)
+        presets = Gtk.Grid()
+        presets.set_column_spacing(6)
+        presets.set_column_homogeneous(True)
+        off = self._button(None, "Heater off", "color3", self._chamber_set, 0)
+        off.get_style_context().add_class("zr_btn_red")
+        off.set_size_request(-1, bh + 16)
+        presets.attach(off, 0, 0, 2, 1)
+        for n, t in enumerate((40, 50, 60)):
+            b = self._button(None, f"{t} C", "color2", self._chamber_set, t)
+            b.set_size_request(-1, bh + 16)
+            presets.attach(b, 2 + n, 0, 1, 1)
         ch.pack_start(presets, False, False, 0)
 
         adj = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)

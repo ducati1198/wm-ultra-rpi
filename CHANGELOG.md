@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.23.71
+
+- **Filament page rearranged.** Top row: Select, Park tool (purple), Edit filament. Heat (red) under Edit filament, Cool (teal-blue) under Heat; Load and Unload on the left, Purge across the bottom. Medium left / right arrows beside the title switch toolhead.
+- **Climate:** a big red "Heater off" button, wider than the 40 / 50 / 60 presets.
+- **ACE page redesigned** like the Toolheads and Filament pages: four slot cards (spool in the filament colour, status, hub), coloured action buttons (Load green, Unload orange, Feed assist blue, Stop motor red, plus Feed and Retract), and the manual move Length / Speed controls in their own box with larger text.
+- **More page:** the tiles are about 1.7 times taller.
+- Seen on two TM-T1 screen boards (10.11.88.35 and 10.11.88.91); the new buttons were not all pressed.
+
 ## 1.23.70
 
 - **ACE dryer moved to the ZR Tools Climate page.** The dryer (six material presets, Temp -/+, Hours -/+, Start / Stop drying, and a line with the ACE temperature, humidity and time left) is now under Climate, only when an ACE is connected. The ACE page keeps slots, Load / Unload, Feed assist, Stop motor and manual Feed / Retract.
