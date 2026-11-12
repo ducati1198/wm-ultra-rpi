@@ -1,6 +1,6 @@
 # rpi-cfg: the Pi's own config files
 
-Files in this folder are **not WonderMaker's**. They are made for the Raspberry Pi. The installer copies them into `~/printer_data/config` and adds an `[include ...]` line for each to `printer.cfg`. A WonderMaker update never changes them (`tools/wm-release/wm_release.py` knows these file names and leaves them alone).
+Files in this folder are **not WonderMaker's**. They are made for the Raspberry Pi. The installer copies them into `~/printer_data/config` and adds an `[include ...]` line for each to `printer.cfg`. A WonderMaker update never changes them.
 
 | File | What it is |
 |---|---|
@@ -46,13 +46,12 @@ The macros call WonderMaker's own macros (`G29`, `PROBE_CALIBRATE`, `CALIBRATE_O
 - The installer does it (step 4c) on every install and `--update`.
 - Only this: `./installer.sh --rpi-cfg`
 - `./installer.sh --doctor` checks that each file is there, included in `printer.cfg` and the same as this folder; Fix everything repairs it. An edited copy is kept as `<name>.wm-before-rpicfg-<time>` before it is replaced.
-- `python3 tools/wm-release/wm_release.py status` shows the state of each file.
 
 ## Where the PID settings must live
 
 Klipper's `SAVE_CONFIG` stores a PID result in `printer.cfg`. It **refuses** when an included file sets the same option (`control`, `pid_Kp`, `pid_Ki`, `pid_Kd`) for that heater, with the error `SAVE_CONFIG section ... option ... conflicts with included value`, and then nothing in that save is stored (bed mesh and input shaper included). WonderMaker's `zru-s.cfg` sets them for the chamber heater, so on the ZR Ultra-S they have to be moved into `printer.cfg`. Every hotend also needs `control: pid` (WonderMaker leaves it commented out in the `[extruder]` sections and relies on the saved block at the end of `printer.cfg`; a printer without that block has watermark hotends).
 
-`scripts/wm_pidcfg.py check|fix CONFIG_DIR` does both. The installer runs it (step 4d, also `./installer.sh --pid-cfg`), the Doctor and Fix everything repair it, and `python3 tools/wm-release/wm_release.py pid-cfg [--fix]` does the same from the release tool. Every file it changes is first copied to `<file>.wm-before-pidcfg-<time>`; your values are kept.
+`scripts/wm_pidcfg.py check|fix CONFIG_DIR` does both. The installer runs it (step 4d, also `./installer.sh --pid-cfg`), the Doctor and Fix everything repair it. Every file it changes is first copied to `<file>.wm-before-pidcfg-<time>`; your values are kept.
 
 ## `wm_nozzle.cfg`: Nozzle Type and Extruder Setup
 

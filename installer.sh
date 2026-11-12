@@ -391,12 +391,12 @@ step_unpack() {
     for d in klipper moonraker printer_data fluidd; do record "HOMEDIR $d"; done
     [ -d "$HOME_DIR/klipper/klippy" ] || [ "$DRY" = 1 ] || die_with_fix "~/klipper/klippy is missing after unpacking." "the stage folder is incomplete: pull again."
     # iso_version.txt (System_x.y.z, in the home folder like on the old board): the System version these files belong to.
-    # It comes from factory/<model>/iso_version.txt. wm_release.py reads it to know your version and rewrites it after an update.
+    # It comes from factory/<model>/iso_version.txt. It records which WonderMaker version these files belong to.
     if [ "$DRY" != 1 ]; then
         if [ -s "$HOME_DIR/iso_version.txt" ]; then
             record "FILE $HOME_DIR/iso_version.txt"; print_info "System version: $(grep -o 'System_[0-9.]*' "$HOME_DIR/iso_version.txt" | tail -n1)  (~/iso_version.txt)"
         else
-            warn_later "No ~/iso_version.txt (the System version) came with these files. tools/wm-release/wm_release.py will use its own recorded baseline instead; or create it: echo "$(date '+%Y-%m-%d %H:%M:%S'): Add System_1.1.13" > ~/iso_version.txt (use your real version)."
+            warn_later "No ~/iso_version.txt (the System version) came with these files. create it: echo "$(date '+%Y-%m-%d %H:%M:%S'): Add System_1.1.13" > ~/iso_version.txt (use your real version)."
         fi
     fi
     print_success "Unpacked"
@@ -2240,7 +2240,7 @@ do_doctor() {
     if [ -s "$HOME_DIR/iso_version.txt" ]; then
         doc_ok "~/iso_version.txt (System version: $(grep -o 'System_[0-9.]*' "$HOME_DIR/iso_version.txt" | tail -n1 | sed 's/^System_//'))"
     else
-        doc_bad "~/iso_version.txt (the System version) is missing" "tools/wm-release/wm_release.py uses it to know which WonderMaker version this machine has. The installer puts it there."
+        doc_bad "~/iso_version.txt (the System version) is missing" "It records which WonderMaker version this machine has. The installer puts it there."
         [ -s "$SCRIPT_DIR/factory/$(model_now)/iso_version.txt" ] && offer_fix "copy the factory iso_version.txt from this repository" restore_iso_version
     fi
     if [ "$TESTING" != 1 ] && [ -x "$HOME_DIR/klippy-env/bin/python" ]; then

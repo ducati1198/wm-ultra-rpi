@@ -34,7 +34,6 @@ Details:
 
 More:
 
-- [Tools: new WonderMaker releases](#tools-new-wondermaker-releases-toolswm-release) (`tools/wm-release`)
 - [The menu](#the-menu)
 - [Backup before every update](#backup-before-every-update)
 - [Status page and Network and system](#status-page-and-network-and-system)
@@ -78,7 +77,6 @@ Run these in `~/wm-ultra-rpi` on the Pi.
 | Do any of this from a **menu** | `./installer.sh` (opens the menu, also on an empty Pi) or `./installer.sh --menu` | Same as the options below; nothing changes until you pick something and confirm |
 | See what is new first | `./installer.sh --check-updates` | Nothing is changed |
 | **Update** to the latest version | `./installer.sh --get-latest && ./installer.sh --update` (works with or without git) | Kept: `printer_data`, calibration, settings |
-| Take a **new WonderMaker System release** (from their website, no screen board) | `python3 tools/wm-release/wm_release.py` then **1** → `web` | Plan first; your changes kept; backup before you type `APPLY`. See [Tools](#tools-new-wondermaker-releases-toolswm-release) |
 | **Repair** a broken service, nginx or can0 rule | `./installer.sh --repair` | Kept |
 | **Back up** my settings | `./installer.sh --backup` | Saved to `~/wm-backups/` as a private `.tgz`. Copy it off the Pi. |
 | **Restore** a backup | `./installer.sh --restore FILE` | A safety copy is made first |
@@ -287,7 +285,7 @@ The installer first asks **which printer you have** (ZR Ultra or ZR Ultra-S; or 
 | `./installer.sh --doctor` | finds problems, explains them, offers a fix for each (asks first) |
 | `./installer.sh --repair` | puts back services, nginx files, can0 rule, groups; your data is untouched |
 | `./installer.sh --free-space` | lists what is safe to erase (sizes and a warning for each), erases only what you pick and confirm. The install offers it when the SD card is nearly full (about 2500 MB needed) |
-| `./installer.sh --cfg-merge` | when this repository holds a newer WonderMaker version, brings the changes in its factory `printer.cfg` (and new `saved_variables.cfg` keys) into the Pi's `printer.cfg` with a 3-way merge: old factory file, new factory file, yours. WonderMaker's new settings are added; your own lines, sections, `[include]` lines and the SAVE_CONFIG block stay; a setting you both changed differently is asked one by one. A copy is kept as `printer.cfg.wm-before-cfgmerge-<time>`. `--update` does this too. The release tool does the same for a release from the board or from WonderMaker's site |
+| `./installer.sh --cfg-merge` | when this repository holds a newer WonderMaker version, brings the changes in its factory `printer.cfg` (and new `saved_variables.cfg` keys) into the Pi's `printer.cfg` with a 3-way merge: old factory file, new factory file, yours. WonderMaker's new settings are added; your own lines, sections, `[include]` lines and the SAVE_CONFIG block stay; a setting you both changed differently is asked one by one. A copy is kept as `printer.cfg.wm-before-cfgmerge-<time>`. `--update` does this too. |
 | `./installer.sh --can-ids` | asks the boards on the CAN bus for their ids and shows which ids in the config answer (main board, hub, extruder board, T0-T3, load cell). A board whose id does not answer is offered the unknown id on the bus (a copy of the file is saved first); with several unknown ids it asks which one. Klipper is stopped for the scan and started again. `./installer.sh --can-ids set T2 ac8b57e80210` sets one id by hand. The same check runs at first start, in the Doctor and in Fix everything. |
 | `./installer.sh --pid-cfg` | checks that the PID settings of the hotends and the bed are in `printer.cfg`, where Klipper's `SAVE_CONFIG` can store a PID result, and fixes them. The chamber heater is left as `zru-s.cfg` has it (see `chamber_test/README.md`). A copy of every changed file is kept as `<file>.wm-before-pidcfg-<time>`. The install, `--update` and the Doctor do this too |
 | `./installer.sh --pi-sensors` | once Klipper is running: adds the chip temperature of every printer board and connects Klipper to the host MCU (`[mcu rpi]`, the Klipper-Mcu service). Klipper restarts; if it does not come back the change is undone. Details: [docs/HOST_MCU.md](docs/HOST_MCU.md). Also done at the end of an install and an update. |
@@ -671,7 +669,6 @@ screen_rescue/          rescue window and USB-stick check for the screen board
 scripts/                stage_from_repo.sh, wm_import_settings.py, board_check.sh, screen_board.sh (+ _inspect, _precheck, _preflight_mac) for the screen board
 config/                 systemd units, nginx files, can0 udev rule, pinned Python requirements, crowsnest template, addon version pins
 zr_tools/               ZR Tools KlipperScreen panel (copied by the installer)
-tools/wm-release/       release tool: takes a new WonderMaker System version (from their website, a TM_T1_SOC file or the screen board) and keeps your changes; not used by the installer
 docs/                   HARDWARE.md, WIRING.md, HOST_MCU.md (the Klipper-Mcu service) and images
 tests/                  run_tests.sh (installer, fake home) and test_screen.py (ZR Tools panel)
 ```
@@ -681,23 +678,6 @@ tests/                  run_tests.sh (installer, fake home) and test_screen.py (
 ## 11. Credits and license
 
 Klipper, Moonraker and Fluidd are their own projects and licenses. The Anycubic ACE Pro and WonderMaker are trademarks of their owners; this project is unaffiliated. Layout inspired by [acepro-any-klipper](https://github.com/ducati1198/acepro-any-klipper). The Fluidd Toolheads card, the ACE Pro driver config and the OrcaSlicer plugin live in [wm-ultra-fluidd-acepro-panel](https://github.com/ducati1198/wm-ultra-fluidd-acepro-panel) ([plugin](https://github.com/ducati1198/wm-ultra-fluidd-acepro-panel/tree/main/orca_plugin)). This repository is under the GPL v3, see [LICENSE](LICENSE).
-
-## Tools: new WonderMaker releases (tools/wm-release)
-
-> **Permitted use.** This tool exists only to let a Raspberry Pi interoperate with, and maintain, WonderMaker printers that you own. Its ability to open WonderMaker's encrypted `TM_T1_SOC` files may only be used for that purpose: do not use it, or the information it produces, for anything else, and do not redistribute WonderMaker's firmware or decrypted files.
-
-`tools/wm-release/wm_release.py` brings a new WonderMaker System release (1.1.14 and later) to the Pi **without losing your own changes**. It is separate from the installer; `git pull` or `./installer.sh --get-latest` keeps it up to date with the rest of this folder.
-
-```bash
-cd ~/wm-ultra-rpi
-python3 tools/wm-release/wm_release.py        # menu; option 1 asks: old screen board, or WonderMaker website
-```
-
-- **From WonderMaker's website, no screen board needed:** it downloads the encrypted `TM_T1_SOC` from their firmware page, decrypts it on the Pi, compares it with the previous version and your live files, and shows the plan. Your files change only after you type `APPLY` (a backup is made first; `rollback` undoes it). `printer.cfg`, `saved_variables.cfg` and `tmt1.ini` are never changed.
-- **Also:** open a `TM_T1_SOC` file you already have, keep downloaded versions for offline reinstall or downgrade, compare two versions, settings, and a guarded MCU flash step that only runs after you type `FLASH`.
-- **First time:** let option 1 (web) record the version you run now as the baseline. When WonderMaker publishes a newer one, run option 1 again.
-
-Full guide: [tools/wm-release/README.md](tools/wm-release/README.md). It has been run against the Pi that now runs the printer; the comparison against a real WonderMaker update is not tested yet.
 
 ## Klipper gcode shell command (installed automatically)
 
