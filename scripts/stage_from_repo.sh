@@ -14,6 +14,12 @@ MODEL="${1:-}"; STAGE="${2:-}"; MODS="${3:-}"
 HERE="$(cd "$(dirname "$0")/.." && pwd)"; SRC="$HERE/factory/$MODEL"
 case "$MODEL" in ultra|ultra-s) ;; *) echo "Unknown model '$MODEL' (use ultra or ultra-s)."; exit 1 ;; esac
 [ -n "$MODEL" ] && [ -n "$STAGE" ] || { echo "Usage: $0 <model> <stage-dir> [modules-dir]"; exit 1; }
+# Test speed-up: the test suite sets WM_TEST_STAGE_CACHE (and WM_INSTALLER_TEST=1) so the same stage is built once per model and copied afterwards.
+if [ -n "${WM_TEST_STAGE_CACHE:-}" ] && [ "${WM_INSTALLER_TEST:-}" = 1 ] && [ -z "$MODS" ] && [ -s "$WM_TEST_STAGE_CACHE/$MODEL/modules_ok" ]; then
+  mkdir -p "$STAGE"; cp "$WM_TEST_STAGE_CACHE/$MODEL/"* "$STAGE/"
+  [ "$(cat "$STAGE/modules_ok")" = 1 ] && echo "Compiled modules: all 5 present and match the factory checksums."
+  echo "Done: factory files for '$MODEL' in $STAGE"; exit 0
+fi
 ( cd "$SRC" && sha256sum -c SHA256SUMS >/dev/null ) || { echo "Checksum of the factory files does not match: the repository copy is damaged or changed."; exit 1; }
 
 mkdir -p "$STAGE"; W="$(mktemp -d "$STAGE/.work.XXXXXX")"; trap 'rm -rf "$W"' EXIT
@@ -46,4 +52,8 @@ tar czf "$STAGE/moonraker.tgz" -C "$W" moonraker
 ISO=""; [ -s "$SRC/iso_version.txt" ] && { cp "$SRC/iso_version.txt" "$W/iso_version.txt"; ISO=iso_version.txt; }
 tar czf "$STAGE/data.tgz"      -C "$W" printer_data fluidd TM_T1 $ISO
 echo "$MODULES_OK" > "$STAGE/modules_ok"
+if [ -n "${WM_TEST_STAGE_CACHE:-}" ] && [ "${WM_INSTALLER_TEST:-}" = 1 ] && [ -z "$MODS" ]; then   # fill the test cache
+  mkdir -p "$WM_TEST_STAGE_CACHE/$MODEL.tmp$$" && cp "$STAGE/klipper.tgz" "$STAGE/moonraker.tgz" "$STAGE/data.tgz" "$STAGE/modules_ok" "$WM_TEST_STAGE_CACHE/$MODEL.tmp$$/" \
+    && { rm -rf "$WM_TEST_STAGE_CACHE/$MODEL"; mv "$WM_TEST_STAGE_CACHE/$MODEL.tmp$$" "$WM_TEST_STAGE_CACHE/$MODEL"; }
+fi
 echo "Done: factory files for '$MODEL' in $STAGE"

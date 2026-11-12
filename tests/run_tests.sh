@@ -7,7 +7,7 @@ if [ -z "${WM_TESTS_IN_COPY:-}" ]; then   # always test a throwaway copy of the 
     WM_TESTS_IN_COPY=1 bash "$CP/tests/run_tests.sh" "$@"; rc=$?; rm -rf "$CP"; exit $rc
 fi
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d)"; export WM_TEST_STAGE_CACHE="$T/stage-cache"; trap 'rm -rf "$T"' EXIT
 PASS=0; FAIL=0
 check() { if eval "$2" >/dev/null 2>&1; then PASS=$((PASS+1)); echo "  ok   $1"; else FAIL=$((FAIL+1)); echo "  FAIL $1"; fi; }
 
@@ -155,7 +155,7 @@ mkdir -p "$HR/printer_data/config"; printf '[gcode_shell_command hi]\ncommand: e
 check "--remove shell-command refuses while printer.cfg still uses it" "! M 'y\n' $HR --remove shell-command"
 rm -f "$HR/printer_data/config/x.cfg"
 check "--remove shell-command removes the file" "M 'y\n' $HR --remove shell-command | grep -q 'Removed' && [ ! -e $HR/klipper/klippy/extras/gcode_shell_command.py ]"
-check "--webcam off is accepted with --update" "inst $HR --update --webcam off | grep -q 'Update finished'"
+check "--webcam off is accepted with --update" "inst $HR --update --webcam off | grep 'Update finished' >/dev/null"
 
 
 echo "== PolKit warning (PackageKit)"
@@ -267,7 +267,7 @@ check "--remove network-manager asks first" "M 'n\n' $NM --remove network-manage
 check "--remove network-manager switches back to dhcpcd at the next boot" "M 'y\n' $NM --remove network-manager | grep -q 'Reboot when you are ready' && grep -q 'systemctl enable dhcpcd' $NM/.sudo.log && grep -q 'systemctl disable NetworkManager' $NM/.sudo.log && [ ! -f $NM/wm-rpi-backup/netmgr.state ] && grep -q 'WANT_NETMGR=0' $NM/wm-rpi-backup/install.conf"
 check "--remove network-manager does nothing when the installer did not switch it" "M 'y\n' $NM --remove network-manager | grep -q 'nothing to switch back'"
 : > "$NM/.sudo.log"
-check "NetworkManager already running: nothing is changed" "WM_TEST_NM=1 inst $NM --update --network-manager on | grep -q 'already running' && ! grep -q 'install -y network-manager' $NM/.sudo.log"
+check "NetworkManager already running: nothing is changed" "WM_TEST_NM=1 inst $NM --update --network-manager on | grep 'already running' >/dev/null && ! grep -q 'install -y network-manager' $NM/.sudo.log"
 check "menu: Add-ons lists NetworkManager with its status" "M '3\n0\n0\n' $NM --menu | grep -q 'NetworkManager (Network panel)'"
 check "menu: Uninstall lists the switch back" "M '6\n0\n0\n' $NM --menu | grep -q 'switch back to dhcpcd'"
 
@@ -503,7 +503,7 @@ C7="$G7/printer_data/config"; T2OLD="$(awk '/canbus_uuid/{print $2}' $C7/wm_zru_
 (awk '/canbus_uuid/{print $2}' $C7/wm_zru_*.cfg | grep -vx "$T2OLD"; echo ac9999999999) | sed 's/^/Found canbus_uuid=/; s/$/, Application: Klipper/' > "$T/can_t2.txt"
 (awk '/canbus_uuid/{print $2}' $C7/wm_zru_*.cfg | grep -vx -e "$T2OLD" -e "$T1OLD"; echo ac9999999999; echo ac8888888888) | sed 's/^/Found canbus_uuid=/; s/$/, Application: Klipper/' > "$T/can_t12.txt"
 cp -r "$C7" "$T/c7-orig"
-check "doctor says which board's id is not on the bus (answers n: nothing changed)" "yes n 2>/dev/null | WM_TEST_CANQUERY=$T/can_t2.txt WM_HOME=$G7 WM_INSTALLER_TEST=1 bash $ROOT/installer.sh --doctor 2>&1 | grep -q 'toolhead T2 has $T2OLD in the config, which is not on the CAN bus' && grep -q $T2OLD $C7/wm_zru_thr2.cfg"
+check "doctor says which board's id is not on the bus (answers n: nothing changed)" "yes n 2>/dev/null | WM_TEST_CANQUERY=$T/can_t2.txt WM_HOME=$G7 WM_INSTALLER_TEST=1 bash $ROOT/installer.sh --doctor 2>&1 | grep 'toolhead T2 has $T2OLD in the config, which is not on the CAN bus' >/dev/null && grep -q $T2OLD $C7/wm_zru_thr2.cfg"
 WM_TEST_CANQUERY="$T/can_t12.txt" WM_HOME="$G7" WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash "$ROOT/installer.sh" --can-ids > "$T/canids0.out" 2>&1
 check "two boards wrong and two unknown ids on the bus: unattended it does not guess" "grep -q 'cannot tell which is which' $T/canids0.out && grep -q $T2OLD $C7/wm_zru_thr2.cfg && grep -q $T1OLD $C7/wm_zru_thr1.cfg"
 WM_TEST_CANQUERY="$T/can_t2.txt" WM_HOME="$G7" WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash "$ROOT/installer.sh" --can-ids > "$T/canids1.out" 2>&1
@@ -662,7 +662,7 @@ check "support bundle has no calibration database or gcodes" "! tar tzf $SB | gr
 
 echo "== pre-flight"
 check "no internet: install refused before changing anything" "! WM_TEST_NO_NET=1 WM_HOME=$T/pf WM_INSTALLER_TEST=1 WM_ASSUME_YES=1 bash $ROOT/installer.sh --from-github --model ultra && [ ! -d $T/pf/klipper ]"
-check "under-voltage is reported" "WM_TEST_THROTTLED=0x50005 WM_TEST_CANQUERY=$T/can_ok.txt inst $T/pf2 --from-github --model ultra | grep -q 'under-voltage'"
+check "under-voltage is reported" "WM_TEST_THROTTLED=0x50005 WM_TEST_CANQUERY=$T/can_ok.txt inst $T/pf2 --from-github --model ultra | grep 'under-voltage' >/dev/null"
 
 echo "== panel comes from the panel repository"
 mkdir -p "$T/pnl"; python3 - "$T/pnl/fluidd-new.zip" <<'PY'
@@ -848,7 +848,7 @@ check "rescue: the built-in factory list is identical in the installer and in th
 BM="$T/bm"; mkdir -p "$BM/printer_data/config"; sb "$BM" --pi wmpi.local >/dev/null; rm -f "$BM/wm-screen-backup/disabled.list"; sb "$BM" --factory-restore > "$T/bm.out"
 check "board restore without a saved list uses the built-in factory list and turns the services back on" "grep -q 'built-in list' $T/bm.out && [ -e $BM/.svc/makerbase-client.enabled ] && [ -e $BM/.svc/moonraker.enabled ] && [ ! -d $BM/KlipperScreen ]"
 echo "makerbase-client enabled active" > "$RB/home/wm-screen-backup/disabled.list"
-check "rescue act: factory restore keeps the Pi address first and runs the detached restore" "rs act factory | grep -q 'Pi address: 192.0.2.50' && grep -q 'wm-factory-restore --factory-restore --yes --detach' $RB/log"
+check "rescue act: factory restore keeps the Pi address first and runs the detached restore" "rs act factory > $T/rsa.out; grep -q 'Pi address: 192.0.2.50' $T/rsa.out && grep -q 'wm-factory-restore --factory-restore --yes --detach' $RB/log"
 check "rescue act: restart clears the failed state and starts KlipperScreen" "rs act restart-ks >/dev/null; grep -q 'systemctl reset-failed KlipperScreen' $RB/log && grep -q 'systemctl start KlipperScreen' $RB/log"
 check "rescue act: reset settings needs the saved defaults, keeps the Pi address" "rs act reset-settings | grep -q 'No saved default'; mkdir -p $RB/home/wm-screen-backup/known-good && cp $RB/home/printer_data/config/KlipperScreen.conf $RB/home/wm-screen-backup/known-good/ && rs act reset-settings | grep -q 'Pi address'"
 check "rescue act: reinstall needs the saved copy" "rs act reinstall-files | grep -q 'No saved copy'"
